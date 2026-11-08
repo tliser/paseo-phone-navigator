@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Phone Navigator — Mockup</title>
+<style>
+  :root {
+    --bg: #0a0a0b; --surface0: #111113; --surface1: #18181b; --surface2: #222226; --surface3: #2c2c31;
+    --border: #27272a; --fg: #fafafa; --fg2: #d4d4d8; --muted: #8b8b94; --faint: #5b5b63;
+    --accent: #60a5fa; --red: #f87171; --red-bg: #dc2626; --amber: #fbbf24; --green: #4ade80; --blue: #60a5fa; --grey: #71717a;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; min-height: 100%; background: #050506; color: var(--fg); font-family: var(--font); }
+  body { display: flex; justify-content: center; align-items: flex-start; gap: 40px; padding: 28px; flex-wrap: wrap; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  button:disabled { opacity: .4; cursor: default; }
+  svg.i { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  svg.i.sm { width: 14px; height: 14px; }
+  svg.i.lg { width: 26px; height: 26px; }
+  .spin { animation: spin 2.4s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* phone frame */
+  .phone { width: 390px; height: 844px; border-radius: 54px; background: var(--bg); position: relative; overflow: hidden; flex: none;
+    box-shadow: 0 0 0 11px #1c1c1f, 0 0 0 13px #3a3a40, 0 30px 80px rgba(0,0,0,.6); display: flex; flex-direction: column; }
+  .statusbar { height: 47px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 30px 0 42px; font-size: 15px; font-weight: 600; position: relative; }
+  .notch { position: absolute; left: 50%; top: 11px; transform: translateX(-50%); width: 122px; height: 34px; background: #000; border-radius: 20px; }
+  .homebar { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 134px; height: 5px; border-radius: 3px; background: #e4e4e7; opacity: .8; z-index: 50; pointer-events: none; }
+  #app { flex: 1; min-height: 0; position: relative; }
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); }
+
+  /* native chrome */
+  .topbar { height: 44px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 6px; border-bottom: 1px solid var(--border); background: var(--surface0); }
+  .topbar .title { flex: 1; font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .iconbtn { min-width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; position: relative; color: var(--fg2); }
+  .iconbtn:active { background: var(--surface2); }
+  .pill { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--red-bg); color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+  .iconbtn .pill.corner { position: absolute; top: 4px; right: 2px; min-width: 16px; height: 16px; font-size: 10px; }
+
+  /* native sidebar mock */
+  .native-top { padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--surface0); display: flex; flex-direction: column; gap: 8px; }
+  .fake { height: 40px; border-radius: 10px; background: var(--surface1); display: flex; align-items: center; gap: 10px; padding: 0 12px; color: var(--muted); font-size: 14px; }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px; height: 36px; }
+  .brand .logo { width: 24px; height: 24px; border-radius: 7px; background: linear-gradient(135deg,#a78bfa,#60a5fa); }
+  .sidebar-row { height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 14px; font-size: 15px; border-radius: 10px; margin: 8px 8px 0; background: var(--surface1); border: 1px solid var(--surface3); width: calc(100% - 16px); text-align: left; }
+  .sidebar-row:active { background: var(--surface2); }
+  .sidebar-row .lbl { flex: 1; font-weight: 500; }
+  .native-list { flex: 1; overflow: auto; padding: 8px 0; opacity: .5; }
+  .native-list .np { padding: 10px 16px 4px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .native-list .nw { padding: 8px 16px; font-size: 14px; color: var(--fg2); }
+  .annot { margin: 6px 14px 0; font-size: 11px; color: var(--faint); line-height: 1.4; }
+  .annot code { font-family: var(--mono); }
+
+  /* navigator header */
+  .navhdr { flex: none; background: var(--surface0); border-bottom: 1px solid var(--border); }
+  .navhdr .line { height: 44px; display: flex; align-items: center; gap: 2px; padding: 0 4px; }
+  .navhdr .spacer { flex: 1; }
+  .tap44 { min-height: 44px; display: inline-flex; align-items: center; }
+  .chipbtn { height: 32px; padding: 0 10px; border-radius: 16px; background: var(--surface1); border: 1px solid var(--border); display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--fg2); white-space: nowrap; }
+  .attnbtn { height: 32px; padding: 0 9px; border-radius: 16px; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: var(--amber); background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.25); }
+  .attnbtn.on { background: var(--amber); color: #111; }
+  .attnbtn.zero { color: var(--faint); background: transparent; border-color: var(--border); }
+  .searchbox { flex: 1; height: 36px; margin: 0 4px; display: flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 10px; background: var(--surface1); border: 1px solid var(--surface3); color: var(--muted); }
+  .searchbox input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--fg); font: inherit; font-size: 15px; }
+  .chips { display: flex; gap: 6px; padding: 0 12px 8px; }
+  .chip { height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid var(--border); background: var(--surface1); font-size: 13px; color: var(--fg2); display: inline-flex; gap: 5px; align-items: center; }
+  .chip.on { background: var(--fg); color: #111; border-color: var(--fg); }
+  .chip .n { opacity: .6; font-size: 12px; }
+
+  /* list */
+  .list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 40px; }
+  .list::-webkit-scrollbar { width: 0; }
+  .ptr { height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; gap: 6px; }
+  .row { display: flex; align-items: center; gap: 8px; padding-right: 12px; cursor: pointer; user-select: none; }
+  .row:active { background: var(--surface1); }
+  .row.group { border-bottom: 1px solid rgba(39,39,42,.6); }
+  .row.host { background: var(--surface0); font-weight: 600; }
+  .row.host.dim { opacity: .45; cursor: default; }
+  .row .chev { width: 20px; display: inline-flex; justify-content: center; color: var(--muted); flex: none; }
+  .row .label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 500; }
+  .row .offl { color: var(--muted); font-size: 12px; font-weight: 500; }
+  .dot { width: 8px; height: 8px; border-radius: 4px; flex: none; }
+  .dot.online { background: var(--green); } .dot.offline { background: var(--grey); } .dot.connecting { background: var(--amber); }
+  .reddot { width: 8px; height: 8px; border-radius: 4px; background: var(--red); flex: none; }
+  .row.proj { color: var(--fg2); }
+  .row.proj .folder { color: var(--muted); display: inline-flex; }
+  .row.ws .body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .row.ws .l1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .row.ws .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
+  .row.ws .l2 { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+  .row.ws .l2 .sep { color: var(--faint); margin: 0 4px; }
+  .row.ws .l2 .hostname { color: var(--fg2); }
+  .diff { font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+  .diff .a { color: var(--green); } .diff .d { color: var(--red); margin-left: 4px; }
+  .st { flex: none; display: inline-flex; }
+  .st.needs_input, .st.attention { color: var(--amber); } .st.failed { color: var(--red); } .st.running { color: var(--blue); } .st.done { color: var(--grey); }
+  .row.flash { animation: flash 1.6s ease-out; }
+  @keyframes flash { 0% { background: rgba(96,165,250,.3); } 100% { background: transparent; } }
+  mark { background: rgba(251,191,36,.3); color: inherit; border-radius: 2px; }
+  .skel { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, var(--surface1), var(--surface3), var(--surface1)); background-size: 200% 100%; animation: shimmer 1.2s infinite linear; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  .empty { padding: 40px 24px; text-align: center; color: var(--muted); font-size: 14px; display: flex; flex-direction: column; align-items: center; gap: 12px; line-height: 1.45; }
+  .empty.inline { padding: 0 24px 0 56px; min-height: 44px; flex-direction: row; font-size: 13px; }
+  .btn { height: 40px; padding: 0 16px; border-radius: 10px; background: var(--surface2); border: 1px solid var(--surface3); font-size: 14px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+  .btn.danger { color: var(--red); }
+
+  /* density */
+  .compact .row.group { height: 44px; font-size: 14px; }
+  .compact .row.ws { height: 56px; font-size: 14px; }
+  .comfortable .row.group { height: 52px; font-size: 15px; }
+  .comfortable .row.ws { height: 68px; font-size: 15px; }
+  .comfortable .row.ws .l2 { font-size: 13px; }
+  .comfortable .row.ws .body { gap: 5px; }
+
+  /* overlays */
+  .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.5); z-index: 20; animation: fade .15s; }
+  @keyframes fade { from { opacity: 0; } }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 21; background: var(--surface1); border-radius: 16px 16px 0 0; padding: 8px 0 34px; animation: up .2s ease-out; border-top: 1px solid var(--surface3); }
+  @keyframes up { from { transform: translateY(100%); } }
+  .sheet .grab { width: 36px; height: 5px; border-radius: 3px; background: var(--surface3); margin: 0 auto 8px; }
+  .sheet h3 { margin: 4px 20px 8px; font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  .sheet .item { min-height: 52px; display: flex; align-items: center; gap: 12px; padding: 0 20px; font-size: 16px; width: 100%; text-align: left; }
+  .sheet .item:active { background: var(--surface2); }
+  .sheet .item .grow { flex: 1; display: flex; flex-direction: column; }
+  .sheet .item .sub { color: var(--muted); font-size: 12px; }
+  .sheet .item .ck { color: var(--accent); width: 22px; display: inline-flex; }
+  .sheet hr { border: 0; border-top: 1px solid var(--surface3); margin: 6px 0; }
+  .menu { position: absolute; z-index: 21; background: var(--surface2); border: 1px solid var(--surface3); border-radius: 12px; padding: 4px; min-width: 180px; box-shadow: 0 12px 30px rgba(0,0,0,.5); animation: fade .12s; }
+  .menu .item { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: 8px; width: 100%; font-size: 15px; text-align: left; }
+  .menu .item:hover { background: var(--surface3); }
+  .menu .item .n { margin-left: auto; color: var(--muted); font-size: 13px; }
+  .menu .item .ck { width: 18px; color: var(--accent); display: inline-flex; }
+  .toast { position: absolute; left: 16px; right: 16px; bottom: 40px; z-index: 40; background: var(--surface3); border: 1px solid #3f3f46; border-radius: 12px; padding: 12px 14px; font-size: 13px; display: flex; gap: 8px; align-items: center; animation: fade .2s; }
+
+  /* workspace stub */
+  .wsmeta { padding: 8px 14px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
+  .wsmeta span { display: inline-flex; gap: 4px; align-items: center; }
+  .chat { flex: 1; overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; font-size: 14px; line-height: 1.45; }
+  .bubble { padding: 10px 12px; border-radius: 12px; background: var(--surface1); color: var(--fg2); max-width: 88%; }
+  .bubble.me { align-self: flex-end; background: #1e3a5f; color: var(--fg); }
+  .tool { font-family: var(--mono); font-size: 12px; color: var(--muted); padding: 6px 10px; border-left: 2px solid var(--surface3); }
+  .composer { margin: 0 12px 34px; height: 48px; border-radius: 24px; background: var(--surface1); border: 1px solid var(--surface3); display: flex; align-items: center; padding: 0 16px; color: var(--muted); font-size: 15px; flex: none; }
+
+  /* settings */
+  .settings { flex: 1; overflow: auto; padding: 4px 0 60px; }
+  .sgroup { margin: 16px 14px 0; }
+  .sgroup > .sh { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 4px 6px; font-weight: 600; }
+  .sgroup > .sf { font-size: 12px; color: var(--faint); margin: 6px 4px 0; line-height: 1.45; }
+  .card { background: var(--surface1); border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
+  .srow { min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 14px; font-size: 15px; border-bottom: 1px solid var(--border); }
+  .srow:last-child { border-bottom: 0; }
+  .srow .grow { flex: 1; min-width: 0; }
+  .srow .sub { font-size: 12px; color: var(--muted); }
+  .srow.sel { background: var(--surface2); }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: rgba(96,165,250,.2); color: var(--accent); white-space: nowrap; }
+  .seg { display: inline-flex; background: var(--surface0); border-radius: 9px; padding: 2px; border: 1px solid var(--border); flex: none; }
+  .seg button { height: 30px; padding: 0 9px; border-radius: 7px; font-size: 13px; color: var(--muted); }
+  .seg button.on { background: var(--surface3); color: var(--fg); }
+  .switch { width: 46px; height: 28px; border-radius: 14px; background: var(--surface3); position: relative; flex: none; transition: background .15s; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 11px; background: #fff; transition: transform .15s; }
+  .switch.on { background: var(--green); }
+  .switch.on::after { transform: translateX(18px); }
+  select.sel { background: var(--surface0); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; height: 34px; padding: 0 8px; font: inherit; font-size: 13px; }
+  .actions { display: flex; gap: 8px; padding: 10px 14px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+  .actions:last-child { border-bottom: 0; }
+  .actions .btn { height: 34px; font-size: 13px; padding: 0 12px; }
+
+  /* demo panel */
+  .demo { width: 340px; background: #111114; border: 1px solid #222; border-radius: 16px; padding: 18px; font-size: 13px; color: #d4d4d8; }
+  .demo h2 { margin: 0 0 4px; font-size: 16px; }
+  .demo h4 { margin: 18px 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8b8b94; }
+  .demo .opts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .demo .opts button { padding: 6px 10px; border-radius: 8px; background: #1d1d21; border: 1px solid #2c2c31; font-size: 12px; }
+  .demo .opts button.on { background: #fafafa; color: #111; }
+  .demo p { color: #8b8b94; line-height: 1.5; margin: 6px 0; }
+  .demo pre { font-family: var(--mono); font-size: 11px; background: #0a0a0b; border: 1px solid #222; border-radius: 8px; padding: 8px; max-height: 180px; overflow: auto; white-space: pre-wrap; margin: 0; color: #a1a1aa; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="statusbar"><span>9:41</span><div class="notch"></div><span style="font-size:12px">5G ▮▮▮ 87%</span></div>
+  <div id="app"></div>
+  <div class="homebar"></div>
+</div>
+
+<aside class="demo">
+  <h2>Phone Navigator — mockup</h2>
+  <p>Everything inside the phone is clickable. This panel simulates things you can't trigger from inside the app.</p>
+  <h4>Demo state</h4>
+  <div class="opts" id="demo-states"></div>
+  <h4>Client platform (simulated <code>layout.platform</code>)</h4>
+  <div class="opts" id="demo-platform"></div>
+  <p id="platform-note"></p>
+  <h4>Live events</h4>
+  <div class="opts">
+    <button id="live-btn">Simulate agent update</button>
+    <button id="reset-btn">Reset all saved state</button>
+  </div>
+  <h4>Profile resolution</h4>
+  <pre id="resolve-info"></pre>
+  <h4>Collapse diff (only non-default keys stored)</h4>
+  <pre id="collapse-info"></pre>
+</aside>
+<script>
+"use strict";
+/* ================= Icons (Lucide paths) ================= */
+const ICONS = {
+  layers: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+  "chevron-right": '<path d="m9 18 6-6-6-6"/>',
+  "chevron-down": '<path d="m6 9 6 6 6-6"/>',
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  "message-circle": '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+  "x-circle": '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+  loader: '<path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/>',
+  "alert-circle": '<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  "chevrons-up-down": '<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',
+  "chevrons-down-up": '<path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/>',
+  "triangle-alert": '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  "arrow-left": '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  menu: '<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  copy: '<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2"/>',
+  pencil: '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/>',
+  "git-branch": '<line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/>',
+  refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  "square-pen": '<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>',
+  server: '<rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/>',
+};
+const icon = (name, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24">${ICONS[name] || ""}</svg>`;
+
+const STATUS = {
+  needs_input: { icon: "message-circle", label: "needs input" },
+  failed: { icon: "x-circle", label: "failed" },
+  running: { icon: "loader", label: "running" },
+  attention: { icon: "alert-circle", label: "attention" },
+  done: { icon: "check", label: "done" },
+};
+const ATTENTION = new Set(["needs_input", "failed", "attention"]);
+const FILTER_LABEL = { all: "All", active: "Active", attention: "Attention" };
+const PLAT_LABEL = { ios: "iOS", android: "Android", web: "Web/Desktop" };
+
+/* ================= Fake data ================= */
+const NOW = Date.now();
+const ago = (m) => NOW - m * 60000;
+const ws = (id, title, status, branch, model, add, del, minsAgo) => ({ id, title, status, branch, model, add, del, lastActivityAt: ago(minsAgo) });
+function makeData() {
+  return [
+    { serverId: "srv-macbook", label: "macbook", status: "online", projects: [
+      { id: "p-paseo", name: "paseo-app", workspaces: [
+        ws("w1", "Fix sidebar overflow on iPad", "needs_input", "fix/sidebar-ipad", "claude/claude-opus-4-1-20250805", 142, 37, 3),
+        ws("w2", "Add plugin hot reload", "running", "feat/plugin-hmr", "anthropic/claude-sonnet-4-5-20250929", 418, 96, 1),
+        ws("w3", "Refactor relay reconnect", "done", "refactor/relay", "openai/gpt-5.4", 88, 140, 190),
+        ws("w4", "Flaky e2e on Android", "failed", "ci/android-e2e", "openai/gpt-5-codex", 12, 4, 22),
+        ws("w5", "Release notes 0.15.3", "done", "main", "claude/claude-haiku-4-5-20251001", 30, 2, 60 * 30),
+      ]},
+      { id: "p-diesdas", name: "diesdas", workspaces: [
+        ws("w6", "Phone navigator plugin", "running", "feat/phone-nav", "claude/claude-opus-4-1-20250805", 960, 0, 0),
+        ws("w7", "Mockup review notes", "done", "main", "anthropic/claude-sonnet-4-5-20250929", 14, 3, 300),
+      ]},
+      { id: "p-dotfiles", name: "dotfiles", workspaces: [
+        ws("w8", "Migrate to nix-darwin", "attention", "nix", "google/gemini-2.5-pro", 233, 512, 45),
+      ]},
+    ]},
+    { serverId: "srv-homelab", label: "homelab", status: "online", projects: [
+      { id: "p-ha", name: "home-assistant", workspaces: [
+        ws("w9", "Zigbee coordinator migration", "running", "zigbee-skyconnect", "openai/gpt-5.4", 76, 18, 6),
+        ws("w10", "Heating automations", "done", "heating-v2", "claude/claude-sonnet-4-5-20250929", 120, 44, 60 * 5),
+        ws("w11", "Energy dashboard cards", "needs_input", "energy-ui", "claude/claude-opus-4-1-20250805", 51, 9, 12),
+      ]},
+      { id: "p-media", name: "media-stack", workspaces: [
+        ws("w12", "Jellyfin HW transcoding", "done", "main", "openai/gpt-5-codex", 8, 2, 60 * 26),
+        ws("w13", "Upgrade arr apps", "done", "upgrade-arr", "claude/claude-haiku-4-5-20251001", 22, 22, 60 * 24 * 9),
+      ]},
+      { id: "p-infra", name: "infra-terraform", workspaces: [
+        ws("w14", "Hetzner firewall rules", "failed", "fw-rules", "anthropic/claude-sonnet-4-5-20250929", 64, 12, 35),
+        ws("w15", "Backups to B2", "running", "restic-b2", "google/gemini-2.5-pro", 140, 30, 2),
+      ]},
+      { id: "p-blog", name: "blog", workspaces: [
+        ws("w16", "Post: plugins on Paseo", "done", "draft/plugins", "openai/gpt-5.4", 310, 0, 60 * 50),
+      ]},
+    ]},
+    { serverId: "srv-buildbox", label: "build-box", status: "offline", projects: [
+      { id: "p-ci", name: "ci-runner", workspaces: [ws("w17", "Cache warmup", "done", "main", "openai/gpt-5.4", 1, 1, 600)] },
+      { id: "p-ml", name: "ml-experiments", workspaces: [ws("w18", "LoRA sweep", "running", "sweep-3", "claude/claude-opus-4-1-20250805", 9, 1, 400)] },
+    ]},
+  ];
+}
+
+/* ================= Pure logic (→ src/core/* in phase 2) ================= */
+function shortenModel(model) {
+  if (!model) return "";
+  const m = model.includes("/") ? model.slice(model.lastIndexOf("/") + 1) : model;
+  return m.replace(/[-@](\d{8}|\d{4}-\d{2}-\d{2})$/, "");
+}
+function timeAgo(ts) {
+  const m = Math.max(0, (Date.now() - ts) / 60000);
+  if (m < 1) return "now";
+  if (m < 60) return Math.floor(m) + "m";
+  const h = m / 60; if (h < 24) return Math.floor(h) + "h";
+  const d = h / 24; return d < 7 ? Math.floor(d) + "d" : Math.floor(d / 7) + "w";
+}
+const statusRank = (s) => (ATTENTION.has(s) ? 0 : s === "running" ? 1 : s === "done" ? 3 : 2);
+const sortWorkspaces = (list) => [...list].sort((a, b) => statusRank(a.status) - statusRank(b.status) || b.lastActivityAt - a.lastActivityAt);
+const projectActivity = (p) => Math.max(0, ...p.workspaces.map((w) => w.lastActivityAt));
+function passesFilter(w, filter, hideDone) {
+  if (w.status === "done" && hideDone !== "off" && Date.now() - w.lastActivityAt > (hideDone === "1d" ? 1 : 7) * 864e5) return false;
+  if (filter === "active") return w.status !== "done";
+  if (filter === "attention") return ATTENTION.has(w.status);
+  return true;
+}
+function matchesSearch(w, p, h, q) {
+  if (!q) return true;
+  q = q.toLowerCase();
+  return [w.title, w.branch, p.name, h.label, shortenModel(w.model)].some((s) => s && s.toLowerCase().includes(q));
+}
+
+/* ================= Storage + profiles ================= */
+const LS = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { localStorage.setItem(k, JSON.stringify(v)); },
+};
+const DEFAULT_SETTINGS = () => ({
+  density: "compact", show: { model: true, branch: true, diff: true, time: true },
+  defaultFilter: "all", hideDone: "off", hiddenHosts: [], newGroupsExpanded: { hosts: true, projects: false },
+});
+function builtinProfiles() {
+  const t = Date.now();
+  return [
+    { id: "phone", name: "Phone", platform: "ios", updatedAt: t, settings: { ...DEFAULT_SETTINGS(), density: "compact", defaultFilter: "active" }, collapse: {} },
+    { id: "desktop", name: "Desktop", platform: "web", updatedAt: t, settings: { ...DEFAULT_SETTINGS(), density: "comfortable", defaultFilter: "all" }, collapse: {} },
+  ];
+}
+// "host settings" simulated as localStorage key per daemon: pn.host.<serverId>; newest updatedAt wins.
+function loadHostStore() {
+  let best = null;
+  for (const h of makeData()) {
+    const v = LS.get("pn.host." + h.serverId, null);
+    if (v && (!best || v.updatedAt > best.updatedAt)) best = v;
+  }
+  return best || { updatedAt: 0, primaryHost: "srv-macbook", profiles: builtinProfiles() };
+}
+
+const S = {
+  screen: "sidebar", wsId: null, demo: "normal", platform: LS.get("pn.demo.platform", "ios"),
+  hosts: makeData(), hostLoading: {}, searchOpen: false, search: "", filter: null,
+  sessionProfileId: null, store: loadHostStore(), settingsEditId: null,
+  sheet: null, menu: null, menuPos: null, refreshing: false, toast: null,
+  pendingCollapse: null, flashId: null, lastSync: null,
+};
+const isPhone = () => S.platform === "ios" || S.platform === "android";
+
+function resolveProfile() {
+  const ps = S.store.profiles;
+  const byId = (id) => ps.find((p) => p.id === id);
+  if (S.sessionProfileId && byId(S.sessionProfileId)) return { p: byId(S.sessionProfileId), via: "1. session choice (memory)" };
+  if (!isPhone()) {
+    const id = LS.get("pn.selectedProfile", null);
+    if (id && byId(id)) return { p: byId(id), via: "2. localStorage (pn.selectedProfile)" };
+  }
+  const m = ps.find((p) => p.platform === S.platform);
+  if (m) return { p: m, via: `3. first profile with platform=${S.platform}` };
+  return { p: byId(isPhone() ? "phone" : "desktop") || ps[0], via: `4. fallback (compact=${isPhone()})` };
+}
+const profile = () => resolveProfile().p;
+const currentFilter = () => S.filter || profile().settings.defaultFilter;
+
+function saveStore(reason) {
+  S.store.updatedAt = Date.now();
+  const online = S.hosts.filter((h) => h.status === "online");
+  const order = [S.store.primaryHost, ...online.map((h) => h.serverId).filter((id) => id !== S.store.primaryHost)];
+  const written = [];
+  for (const id of order) {
+    const h = online.find((x) => x.serverId === id);
+    if (!h) continue;
+    LS.set("pn.host." + id, S.store); written.push(h.label + (id === S.store.primaryHost ? " (primary)" : ""));
+  }
+  S.lastSync = { at: Date.now(), written, reason };
+}
+function mutateProfile(p, fn, reason) { fn(p); p.updatedAt = Date.now(); saveStore(reason); }
+
+/* collapse state: web → localStorage; phone → profile (debounced 3s) */
+function collapseMap() {
+  const p = profile();
+  if (isPhone()) return S.pendingCollapse && S.pendingCollapse.id === p.id ? S.pendingCollapse.map : p.collapse;
+  return LS.get("pn.collapse." + p.id, {});
+}
+function defaultCollapsed(key) {
+  const g = profile().settings.newGroupsExpanded;
+  return key.startsWith("host:") ? !g.hosts : !g.projects;
+}
+function isCollapsed(key) { const m = collapseMap(); return key in m ? m[key] : defaultCollapsed(key); }
+function setCollapsed(map, key, val) { if (val === defaultCollapsed(key)) delete map[key]; else map[key] = val; }
+let collapseTimer = null;
+function writeCollapse(map) {
+  const p = profile();
+  if (!isPhone()) { LS.set("pn.collapse." + p.id, map); return; }
+  S.pendingCollapse = { id: p.id, map };
+  clearTimeout(collapseTimer);
+  collapseTimer = setTimeout(() => {
+    const pend = S.pendingCollapse; if (!pend) return;
+    const target = S.store.profiles.find((x) => x.id === pend.id);
+    S.pendingCollapse = null;
+    if (!target) return;
+    mutateProfile(target, (x) => { x.collapse = pend.map; }, "collapse, debounced 3s");
+    toast(`${icon("check", "sm")} Collapse saved to “${esc(target.name)}” → ${S.lastSync.written.join(", ")}`);
+  }, 3000);
+}
+function flushCollapse() {
+  if (!S.pendingCollapse) return;
+  clearTimeout(collapseTimer);
+  const pend = S.pendingCollapse; S.pendingCollapse = null;
+  const target = S.store.profiles.find((x) => x.id === pend.id);
+  if (target) mutateProfile(target, (x) => { x.collapse = pend.map; }, "collapse, flushed");
+}
+function toggle(key) { const map = { ...collapseMap() }; setCollapsed(map, key, !isCollapsed(key)); writeCollapse(map); render(); }
+function groupKeys() {
+  const keys = [];
+  for (const h of visibleHosts()) {
+    if (h.status !== "online" || S.hostLoading[h.serverId]) continue;
+    keys.push("host:" + h.serverId);
+    for (const p of h.projects) keys.push(`proj:${h.serverId}:${p.id}`);
+  }
+  return keys;
+}
+const anyCollapsed = () => groupKeys().some(isCollapsed);
+function expandCollapseAll() {
+  const map = {}; const expand = anyCollapsed();
+  for (const k of groupKeys()) {
+    if (expand) setCollapsed(map, k, false);
+    else if (k.startsWith("host:")) setCollapsed(map, k, true);
+    // collapsing to host level: project keys reset to default (dropped from diff)
+  }
+  writeCollapse(map); render();
+}
+
+/* ================= Tree → flat rows ================= */
+function visibleHosts() {
+  const hidden = new Set(profile().settings.hiddenHosts);
+  return S.hosts.filter((h) => !hidden.has(h.serverId)).sort((a, b) => (a.status === "offline") - (b.status === "offline"));
+}
+const allWs = (h) => h.projects.flatMap((p) => p.workspaces);
+const attnCount = (hosts) => hosts.filter((h) => h.status === "online").flatMap(allWs).filter((w) => ATTENTION.has(w.status)).length;
+const totalAttention = () => (S.demo === "empty" ? 0 : attnCount(S.hosts));
+
+function buildRows() {
+  const rows = []; const q = S.search.trim(); const filter = currentFilter(); const set = profile().settings;
+  let matched = 0;
+  for (const h of visibleHosts()) {
+    if (h.status === "offline") { if (!q) rows.push({ type: "host", h, offline: true }); continue; }
+    if (S.hostLoading[h.serverId]) { rows.push({ type: "host", h, loading: true }, { type: "skel" }, { type: "skel" }, { type: "skel" }); continue; }
+    const projs = h.projects.map((p) => ({
+      p, vis: sortWorkspaces(p.workspaces.filter((w) => passesFilter(w, filter, set.hideDone) && matchesSearch(w, p, h, q))),
+      attn: p.workspaces.filter((w) => ATTENTION.has(w.status)).length,
+    })).filter((x) => x.vis.length > 0).sort((a, b) => projectActivity(b.p) - projectActivity(a.p));
+    const count = projs.reduce((n, x) => n + x.vis.length, 0);
+    matched += count;
+    if (q && count === 0) continue;
+    const hc = q ? false : isCollapsed("host:" + h.serverId);  // search: temporary expand, not persisted
+    rows.push({ type: "host", h, count, attn: attnCount([h]), collapsed: hc });
+    if (hc) continue;
+    if (h.projects.length === 0) { rows.push({ type: "empty-host", text: "No workspaces" }); continue; }
+    if (projs.length === 0) { rows.push({ type: "empty-host", text: `No ${FILTER_LABEL[filter].toLowerCase()} workspaces` }); continue; }
+    for (const x of projs) {
+      const key = `proj:${h.serverId}:${x.p.id}`; const pc = q ? false : isCollapsed(key);
+      rows.push({ type: "proj", h, p: x.p, key, count: x.vis.length, attn: x.attn, collapsed: pc });
+      if (!pc) for (const w of x.vis) rows.push({ type: "ws", h, p: x.p, w });
+    }
+  }
+  return { rows, matched };
+}
+function filterCounts() {
+  const set = profile().settings; const q = S.search.trim(); const c = { all: 0, active: 0, attention: 0 };
+  for (const h of visibleHosts()) {
+    if (h.status !== "online" || S.hostLoading[h.serverId]) continue;
+    for (const p of h.projects) for (const w of p.workspaces) {
+      if (!matchesSearch(w, p, h, q)) continue;
+      for (const k of Object.keys(c)) if (passesFilter(w, k, set.hideDone)) c[k]++;
+    }
+  }
+  return c;
+}
+
+/* ================= Rendering ================= */
+const app = document.getElementById("app");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function hl(text) {
+  const t = esc(text); const q = S.search.trim();
+  if (!q) return t;
+  const re = new RegExp(esc(q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig");
+  return t.replace(re, (m) => `<mark>${m}</mark>`);
+}
+const badge = (n) => (n > 0 ? `<span class="pill">${n}</span>` : "");
+
+function render() {
+  const sc = app.querySelector(".list, .settings"); const keep = sc ? sc.scrollTop : 0;
+  let html = { sidebar: renderSidebar, nav: renderNav, ws: renderWorkspace, settings: renderSettings }[S.screen]();
+  html += renderOverlays();
+  app.innerHTML = html;
+  const sc2 = app.querySelector(".list, .settings"); if (sc2) sc2.scrollTop = keep;
+  const inp = app.querySelector("#search");
+  if (inp && S.focusSearch) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); S.focusSearch = false; }
+  bindPull();
+  renderDemo();
+}
+function renderRowsOnly() {
+  const rows = app.querySelector("#rows"); if (rows) rows.innerHTML = renderList();
+  const chips = app.querySelector(".chips"); if (chips) chips.innerHTML = renderChips();
+  renderDemo();
+}
+
+function renderSidebar() {
+  return `<div class="screen">
+    <div class="native-top">
+      <div class="brand"><div class="logo"></div>Paseo<span style="flex:1"></span><span style="color:var(--muted)">${icon("settings")}</span></div>
+      <div class="fake">${icon("square-pen")} New agent</div>
+      <div class="fake">${icon("search")} Search</div>
+      <div class="fake">${icon("server")} All hosts ▾</div>
+    </div>
+    <div class="annot">↑ native sidebar header (a plugin can't change it)</div>
+    <button class="sidebar-row" data-act="open-nav">${icon("layers")}<span class="lbl">Workspaces</span>${badge(totalAttention())}<span style="color:var(--muted);display:inline-flex">${icon("chevron-right", "sm")}</span></button>
+    <div class="annot">↑ plugin row: <code>addSidebarHeaderItem</code> → SidebarRow, trailing = attention badge</div>
+    <div class="native-list">
+      <div class="np">paseo-app</div><div class="nw">Fix sidebar overflow on iPad</div><div class="nw">Add plugin hot reload</div>
+      <div class="np">diesdas</div><div class="nw">Phone navigator plugin</div>
+      <div class="np">home-assistant</div><div class="nw">Zigbee coordinator migration</div><div class="nw">Heating automations</div>
+      <div class="np">dotfiles</div><div class="nw">Migrate to nix-darwin</div>
+    </div>
+  </div>`;
+}
+
+function renderChips() {
+  const c = filterCounts(); const f = currentFilter();
+  return ["all", "active", "attention"].map((k) => `<button class="chip ${f === k ? "on" : ""}" data-act="set-filter" data-v="${k}">${FILTER_LABEL[k]}<span class="n">${c[k]}</span></button>`).join("");
+}
+function renderNavHeader() {
+  if (S.searchOpen) {
+    return `<div class="navhdr">
+      <div class="line">
+        <div class="searchbox">${icon("search", "sm")}<input id="search" placeholder="Title, branch, project, host, model" value="${esc(S.search)}" autocomplete="off" spellcheck="false" /></div>
+        <button class="iconbtn" data-act="close-search" aria-label="Clear search">${icon("x")}</button>
+      </div>
+      <div class="chips">${renderChips()}</div>
+    </div>`;
+  }
+  const n = totalAttention(); const f = currentFilter(); const allExpanded = !anyCollapsed();
+  return `<div class="navhdr"><div class="line">
+    <button class="iconbtn" data-act="open-search" aria-label="Search">${icon("search")}</button>
+    <span class="tap44"><button class="attnbtn ${f === "attention" ? "on" : ""} ${n === 0 ? "zero" : ""}" data-act="attn" title="Toggle Attention filter">${icon("triangle-alert", "sm")}${n}</button></span>
+    <span class="tap44" style="margin-left:6px"><button class="chipbtn" data-act="filter-menu">${FILTER_LABEL[f]} ${icon("chevron-down", "sm")}</button></span>
+    <span class="spacer"></span>
+    <button class="iconbtn" data-act="expand-all" title="${allExpanded ? "Collapse to hosts" : "Expand all"}">${icon(allExpanded ? "chevrons-down-up" : "chevrons-up-down")}</button>
+    <span class="tap44"><button class="chipbtn" data-act="profile-sheet">${icon("user", "sm")}${esc(profile().name)} ${icon("chevron-down", "sm")}</button></span>
+  </div></div>`;
+}
+
+function renderList() {
+  if (S.demo === "empty") return `<div class="empty">${icon("server", "lg")}<div><b style="color:var(--fg)">No hosts configured</b><br/>Add a host in Paseo settings to see its workspaces here.</div></div>`;
+  const { rows, matched } = buildRows(); const set = profile().settings; const q = S.search.trim();
+  const out = rows.map((r) => {
+    if (r.type === "host") {
+      if (r.offline) return `<div class="row group host dim" style="padding-left:8px"><span class="chev"></span><span class="dot offline"></span><span class="label">${esc(r.h.label)}</span><span class="offl">offline</span></div>`;
+      if (r.loading) return `<div class="row group host" style="padding-left:8px;cursor:default"><span class="chev">${icon("chevron-down", "sm")}</span><span class="dot connecting"></span><span class="label">${esc(r.h.label)}</span><span class="offl">loading…</span></div>`;
+      return `<div class="row group host" style="padding-left:8px" data-act="toggle" data-key="host:${r.h.serverId}">
+        <span class="chev">${icon(r.collapsed ? "chevron-right" : "chevron-down", "sm")}</span><span class="dot online"></span>
+        <span class="label">${hl(r.h.label)}</span><span class="count">${r.count}</span>${badge(r.attn)}</div>`;
+    }
+    if (r.type === "skel") return `<div class="row ws" style="padding-left:48px;cursor:default"><span class="skel" style="width:18px;height:18px;border-radius:9px"></span><div class="body"><span class="skel" style="width:70%"></span><span class="skel" style="width:45%;height:10px"></span></div></div>`;
+    if (r.type === "empty-host") return `<div class="empty inline">${r.text}</div>`;
+    if (r.type === "proj") {
+      return `<div class="row group proj" style="padding-left:24px" data-act="toggle" data-key="${r.key}">
+        <span class="chev">${icon(r.collapsed ? "chevron-right" : "chevron-down", "sm")}</span><span class="folder">${icon("folder", "sm")}</span>
+        <span class="label">${hl(r.p.name)}</span>${r.collapsed && r.attn ? '<span class="reddot" title="needs attention"></span>' : ""}<span class="count">${r.count}</span></div>`;
+    }
+    const w = r.w; const st = STATUS[w.status]; const parts = [];
+    if (q) parts.push(`<span class="hostname">${hl(r.h.label)}</span>`);
+    if (set.show.branch && w.branch) parts.push(hl(w.branch));
+    if (set.show.model && w.model) parts.push(hl(shortenModel(w.model)));
+    if (set.show.time) parts.push(timeAgo(w.lastActivityAt));
+    const diff = set.show.diff && (w.add || w.del) ? `<span class="diff"><span class="a">+${w.add}</span><span class="d">−${w.del}</span></span>` : "";
+    return `<div class="row ws ${S.flashId === w.id ? "flash" : ""}" style="padding-left:48px" data-act="open-ws" data-id="${w.id}">
+      <span class="st ${w.status}" title="${st.label}">${icon(st.icon, w.status === "running" ? "spin" : "")}</span>
+      <div class="body"><div class="l1"><span class="t">${hl(w.title)}</span>${diff}</div>
+      <div class="l2">${parts.join('<span class="sep">·</span>')}</div></div></div>`;
+  });
+  const loading = Object.values(S.hostLoading).some(Boolean);
+  const f = currentFilter();
+  if (matched === 0 && !loading && (q || f !== "all")) {
+    out.push(`<div class="empty">${icon("search", "lg")}<div>${q ? `No workspaces match “${esc(q)}”` : `No workspaces`}${f !== "all" ? ` in <b>${FILTER_LABEL[f]}</b>` : ""}.</div><button class="btn" data-act="show-all">Show all</button></div>`);
+  }
+  return out.join("");
+}
+
+function renderNav() {
+  return `<div class="screen ${profile().settings.density}">
+    <div class="topbar">
+      <button class="iconbtn" data-act="go-sidebar" aria-label="Sidebar">${icon("menu")}</button>
+      <span class="title">Workspaces</span>
+      <button class="iconbtn" data-act="go-settings" aria-label="Settings">${icon("settings")}</button>
+    </div>
+    ${renderNavHeader()}
+    <div class="list" id="list"><div class="ptr" id="ptr" style="height:${S.refreshing ? 44 : 0}px">${icon("refresh", "sm " + (S.refreshing ? "spin" : ""))}<span>${S.refreshing ? "Refreshing…" : "Pull to refresh"}</span></div><div id="rows">${renderList()}</div></div>
+  </div>`;
+}
+
+function findWs(id) { for (const h of S.hosts) for (const p of h.projects) for (const w of p.workspaces) if (w.id === id) return { h, p, w }; }
+function renderWorkspace() {
+  const { h, p, w } = findWs(S.wsId); const n = totalAttention();
+  return `<div class="screen">
+    <div class="topbar">
+      <button class="iconbtn" data-act="go-sidebar">${icon("menu")}</button>
+      <span class="title">${esc(w.title)}</span>
+      <button class="iconbtn" data-act="open-nav" title="Workspaces (plugin header button)">${icon("layers")}${n ? `<span class="pill corner">${n}</span>` : ""}</button>
+    </div>
+    <div class="wsmeta"><span>${icon("server", "sm")}${esc(h.label)}</span><span>${icon("folder", "sm")}${esc(p.name)}</span><span>${icon("git-branch", "sm")}${esc(w.branch)}</span><span>${esc(shortenModel(w.model))}</span></div>
+    <div class="chat">
+      <div class="annot" style="margin:0 0 4px">Stub workspace (<code>navigation.openWorkspace</code>). The <b>layers</b> button top-right is the plugin's <code>addHeaderButton</code> — one tap back to the navigator.</div>
+      <div class="bubble me">${esc(w.title)} — please take a look.</div>
+      <div class="tool">read_file src/components/sidebar.tsx</div>
+      <div class="tool">bash pnpm test --filter app</div>
+      <div class="bubble">I found the issue and prepared a fix. ${w.status === "needs_input" ? "<b>Should I also update the snapshot tests?</b>" : w.status === "failed" ? "<b>The run failed: exit code 1.</b>" : "All tests pass."}</div>
+    </div>
+    <div class="composer">Message agent…</div>
+  </div>`;
+}
+
+function renderSettings() {
+  const st = S.store; const active = profile();
+  const edit = st.profiles.find((p) => p.id === S.settingsEditId) || active; const s = edit.settings;
+  const seg = (f, opts, val) => `<div class="seg">${opts.map(([v, l]) => `<button class="${val === v ? "on" : ""}" data-act="set" data-f="${f}" data-v="${v}">${l}</button>`).join("")}</div>`;
+  const sw = (f, on) => `<button class="switch ${on ? "on" : ""}" data-act="toggle-setting" data-f="${f}"></button>`;
+  return `<div class="screen">
+    <div class="topbar"><button class="iconbtn" data-act="open-nav">${icon("arrow-left")}</button><span class="title">Workspaces · Settings</span></div>
+    <div class="settings">
+      <div class="sgroup"><div class="sh">Profiles</div><div class="card">
+        ${st.profiles.map((p) => `<div class="srow ${p.id === edit.id ? "sel" : ""}" data-act="edit-profile" data-id="${p.id}" style="cursor:pointer">
+          <div class="grow"><div>${esc(p.name)}</div><div class="sub">${p.platform ? "Default for " + PLAT_LABEL[p.platform] : "No platform"} · ${p.settings.density} · ${FILTER_LABEL[p.settings.defaultFilter]}</div></div>
+          ${p.id === active.id ? '<span class="tag">this device</span>' : ""}<span style="color:var(--muted);display:inline-flex">${icon("chevron-right", "sm")}</span></div>`).join("")}
+        <div class="actions"><button class="btn" data-act="new-profile">${icon("plus", "sm")}New profile</button></div>
+      </div><div class="sf">Profiles are shared across all your devices. Each device picks one (see the profile menu in the navigator).</div></div>
+
+      <div class="sgroup"><div class="sh">Editing “${esc(edit.name)}”</div><div class="card">
+        <div class="actions">
+          <button class="btn" data-act="rename-profile">${icon("pencil", "sm")}Rename</button>
+          <button class="btn" data-act="dup-profile">${icon("copy", "sm")}Duplicate</button>
+          <button class="btn danger" data-act="del-profile" ${st.profiles.length < 2 ? "disabled" : ""}>${icon("trash", "sm")}Delete</button>
+          ${edit.id !== active.id ? `<button class="btn" data-act="activate-profile">Use on this device</button>` : ""}
+        </div>
+        <div class="srow"><span class="grow">Default for platform</span>
+          <select class="sel" data-act="bind-platform"><option value="">None</option>${["ios", "android", "web"].map((p) => `<option value="${p}" ${edit.platform === p ? "selected" : ""}>${PLAT_LABEL[p]}</option>`).join("")}</select></div>
+        <div class="srow"><span class="grow">Density</span>${seg("density", [["compact", "Compact"], ["comfortable", "Comfortable"]], s.density)}</div>
+        <div class="srow"><span class="grow">Default filter</span>${seg("defaultFilter", [["all", "All"], ["active", "Active"], ["attention", "Attention"]], s.defaultFilter)}</div>
+        <div class="srow"><span class="grow">Hide done after</span>${seg("hideDone", [["off", "Never"], ["1d", "1 day"], ["7d", "7 days"]], s.hideDone)}</div>
+      </div></div>
+
+      <div class="sgroup"><div class="sh">Workspace row shows</div><div class="card">
+        ${[["model", "Model"], ["branch", "Branch"], ["diff", "Diff (+a −d)"], ["time", "Last activity"]].map(([k, l]) => `<div class="srow"><span class="grow">${l}</span>${sw("show." + k, s.show[k])}</div>`).join("")}
+      </div></div>
+
+      <div class="sgroup"><div class="sh">New groups start</div><div class="card">
+        <div class="srow"><span class="grow">Hosts expanded</span>${sw("newGroupsExpanded.hosts", s.newGroupsExpanded.hosts)}</div>
+        <div class="srow"><span class="grow">Projects expanded</span>${sw("newGroupsExpanded.projects", s.newGroupsExpanded.projects)}</div>
+        <div class="actions"><button class="btn" data-act="reset-collapse">Forget remembered collapse state</button></div>
+      </div></div>
+
+      <div class="sgroup"><div class="sh">Hosts shown</div><div class="card">
+        ${S.hosts.map((h) => `<div class="srow"><span class="dot ${h.status}"></span><span class="grow">${esc(h.label)} <span class="sub">${h.status}</span></span>${sw("host:" + h.serverId, !s.hiddenHosts.includes(h.serverId))}</div>`).join("")}
+      </div></div>
+
+      <div class="sgroup"><div class="sh">Sync</div><div class="card">
+        <div class="srow"><span class="grow">Primary host</span>
+          <select class="sel" data-act="primary-host">${S.hosts.map((h) => `<option value="${h.serverId}" ${st.primaryHost === h.serverId ? "selected" : ""} ${h.status !== "online" ? "disabled" : ""}>${esc(h.label)}${h.status !== "online" ? " (offline)" : ""}</option>`).join("")}</select></div>
+      </div><div class="sf">Profiles are stored in plugin host settings on the primary host, with best-effort copies on the other online hosts. The newest copy wins when loading.
+        ${S.lastSync ? `<br/>Last write ${new Date(S.lastSync.at).toLocaleTimeString()} → ${esc(S.lastSync.written.join(", "))} (${esc(S.lastSync.reason)}).` : ""}</div></div>
+    </div>
+  </div>`;
+}
+
+function renderOverlays() {
+  let h = "";
+  if (S.sheet === "profiles") {
+    const cur = profile(); const bound = cur.platform === S.platform;
+    h += `<div class="scrim" data-act="close-overlay"></div><div class="sheet"><div class="grab"></div><h3>Profile on this device</h3>
+      ${S.store.profiles.map((p) => `<button class="item" data-act="pick-profile" data-id="${p.id}"><span class="ck">${p.id === cur.id ? icon("check") : ""}</span><span class="grow">${esc(p.name)}<span class="sub">${p.settings.density} · ${FILTER_LABEL[p.settings.defaultFilter]}${p.platform ? " · default for " + PLAT_LABEL[p.platform] : ""}</span></span></button>`).join("")}
+      <hr/>
+      <button class="item" data-act="bind-current" ${bound ? "disabled" : ""}><span class="ck"></span><span class="grow">Use as default for ${PLAT_LABEL[S.platform]}${bound ? `<span class="sub">“${esc(cur.name)}” already is</span>` : ""}</span></button>
+      <button class="item" data-act="go-settings"><span class="ck" style="color:var(--fg2)">${icon("settings")}</span><span class="grow">Edit in Settings</span></button>
+    </div>`;
+  }
+  if (S.menu === "filter") {
+    const c = filterCounts(); const f = currentFilter();
+    h += `<div class="scrim" style="background:transparent" data-act="close-overlay"></div><div class="menu" style="top:${S.menuPos.top}px;left:${S.menuPos.left}px">
+      ${["all", "active", "attention"].map((k) => `<button class="item" data-act="set-filter" data-v="${k}"><span class="ck">${f === k ? icon("check", "sm") : ""}</span>${FILTER_LABEL[k]}<span class="n">${c[k]}</span></button>`).join("")}</div>`;
+  }
+  if (S.toast) h += `<div class="toast">${S.toast}</div>`;
+  return h;
+}
+let toastTimer;
+function toast(msg) { S.toast = msg; render(); clearTimeout(toastTimer); toastTimer = setTimeout(() => { S.toast = null; render(); }, 2600); }
+
+/* ================= Events ================= */
+function setPath(obj, path, val) { const ks = path.split("."); let o = obj; while (ks.length > 1) o = o[ks.shift()]; o[ks[0]] = val; }
+function getPath(obj, path) { return path.split(".").reduce((o, k) => o[k], obj); }
+function editProfile() { return S.store.profiles.find((p) => p.id === S.settingsEditId) || profile(); }
+function selectProfile(id) {
+  flushCollapse();
+  S.sessionProfileId = id; S.filter = null;
+  if (!isPhone()) LS.set("pn.selectedProfile", id);
+}
+function bindPlatform(p, plat) {
+  for (const x of S.store.profiles) if (x !== p && x.platform === plat) { x.platform = null; x.updatedAt = Date.now(); }
+  mutateProfile(p, (x) => { x.platform = plat || null; }, "bind platform");
+}
+
+app.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-act]"); if (!el || el.tagName === "SELECT" || el.disabled) return;
+  const a = el.dataset.act; const p = profile();
+  switch (a) {
+    case "open-nav": S.screen = "nav"; S.sheet = S.menu = null; break;
+    case "go-sidebar": S.screen = "sidebar"; break;
+    case "go-settings": S.screen = "settings"; S.sheet = null; S.settingsEditId = p.id; break;
+    case "toggle": toggle(el.dataset.key); return;
+    case "open-ws": S.wsId = el.dataset.id; S.screen = "ws"; break;
+    case "open-search": S.searchOpen = true; S.focusSearch = true; break;
+    case "close-search": S.searchOpen = false; S.search = ""; break;
+    case "attn": S.filter = currentFilter() === "attention" ? (p.settings.defaultFilter === "attention" ? "all" : p.settings.defaultFilter) : "attention"; break;
+    case "filter-menu": {
+      const r = el.getBoundingClientRect(), ar = app.getBoundingClientRect();
+      S.menuPos = { top: r.bottom - ar.top + 6, left: r.left - ar.left }; S.menu = "filter"; break;
+    }
+    case "set-filter": S.filter = el.dataset.v; S.menu = null; if (S.searchOpen) { renderRowsOnly(); return; } break;
+    case "show-all": S.filter = "all"; S.search = ""; S.searchOpen = false; break;
+    case "expand-all": expandCollapseAll(); return;
+    case "profile-sheet": S.sheet = "profiles"; break;
+    case "close-overlay": S.sheet = S.menu = null; break;
+    case "pick-profile": selectProfile(el.dataset.id); S.sheet = null; break;
+    case "bind-current": bindPlatform(p, S.platform); S.sheet = null; toast(`“${esc(p.name)}” is now the default for ${PLAT_LABEL[S.platform]}`); return;
+    case "edit-profile": S.settingsEditId = el.dataset.id; break;
+    case "activate-profile": selectProfile(S.settingsEditId); toast(`Using “${esc(editProfile().name)}” on this device`); return;
+    case "new-profile": {
+      const np = { id: "p" + Date.now().toString(36), name: "New profile", platform: null, updatedAt: Date.now(), settings: DEFAULT_SETTINGS(), collapse: {} };
+      S.store.profiles.push(np); saveStore("create profile"); S.settingsEditId = np.id; break;
+    }
+    case "dup-profile": {
+      const src = editProfile();
+      const np = JSON.parse(JSON.stringify(src)); np.id = "p" + Date.now().toString(36); np.name = src.name + " copy"; np.platform = null; np.updatedAt = Date.now();
+      S.store.profiles.push(np); saveStore("duplicate profile"); S.settingsEditId = np.id; break;
+    }
+    case "rename-profile": {
+      const ep = editProfile(); const name = prompt("Profile name", ep.name);
+      if (name && name.trim()) mutateProfile(ep, (x) => { x.name = name.trim(); }, "rename");
+      break;
+    }
+    case "del-profile": {
+      const ep = editProfile();
+      if (S.store.profiles.length < 2 || !confirm(`Delete profile “${ep.name}”?`)) return;
+      S.store.profiles = S.store.profiles.filter((x) => x.id !== ep.id);
+      if (S.sessionProfileId === ep.id) S.sessionProfileId = null;
+      saveStore("delete profile"); S.settingsEditId = profile().id; break;
+    }
+    case "set": mutateProfile(editProfile(), (x) => setPath(x.settings, el.dataset.f, el.dataset.v), "setting " + el.dataset.f); if (el.dataset.f === "defaultFilter") S.filter = null; break;
+    case "toggle-setting": {
+      const f = el.dataset.f; const ep = editProfile();
+      if (f.startsWith("host:")) {
+        const id = f.slice(5); const hh = ep.settings.hiddenHosts;
+        mutateProfile(ep, (x) => { x.settings.hiddenHosts = hh.includes(id) ? hh.filter((y) => y !== id) : [...hh, id]; }, "hidden hosts");
+      } else mutateProfile(ep, (x) => setPath(x.settings, f, !getPath(x.settings, f)), "setting " + f);
+      break;
+    }
+    case "reset-collapse": {
+      const ep = editProfile(); S.pendingCollapse = null; clearTimeout(collapseTimer);
+      mutateProfile(ep, (x) => { x.collapse = {}; }, "reset collapse"); localStorage.removeItem("pn.collapse." + ep.id);
+      toast("Remembered collapse state cleared"); return;
+    }
+    default: return;
+  }
+  render();
+});
+app.addEventListener("change", (e) => {
+  const el = e.target;
+  if (el.dataset.act === "bind-platform") bindPlatform(editProfile(), el.value);
+  if (el.dataset.act === "primary-host") { S.store.primaryHost = el.value; saveStore("primary host"); }
+  render();
+});
+app.addEventListener("input", (e) => {
+  if (e.target.id !== "search") return;
+  S.search = e.target.value;
+  renderRowsOnly();
+});
+app.addEventListener("keydown", (e) => {
+  if (e.target.id === "search" && e.key === "Escape") { S.searchOpen = false; S.search = ""; render(); }
+});
+
+/* pull to refresh (mouse + touch) */
+function bindPull() {
+  const list = app.querySelector("#list"); const ptr = app.querySelector("#ptr");
+  if (!list || !ptr) return;
+  let startY = null, dy = 0;
+  const down = (y) => { if (list.scrollTop <= 0 && !S.refreshing) { startY = y; dy = 0; } };
+  const move = (y, ev) => {
+    if (startY == null) return;
+    dy = Math.max(0, y - startY);
+    if (dy > 4 && ev.cancelable) ev.preventDefault();
+    ptr.style.height = Math.min(dy * 0.5, 60) + "px";
+    ptr.querySelector("span").textContent = dy * 0.5 > 44 ? "Release to refresh" : "Pull to refresh";
+  };
+  const up = () => {
+    if (startY == null) return;
+    const go = dy * 0.5 > 44; startY = null;
+    if (go) refresh(); else ptr.style.height = "0px";
+  };
+  list.addEventListener("touchstart", (e) => down(e.touches[0].clientY), { passive: true });
+  list.addEventListener("touchmove", (e) => move(e.touches[0].clientY, e), { passive: false });
+  list.addEventListener("touchend", up);
+  list.addEventListener("mousedown", (e) => down(e.clientY));
+  list.addEventListener("mousemove", (e) => { if (e.buttons) move(e.clientY, e); });
+  list.addEventListener("mouseup", up); list.addEventListener("mouseleave", up);
+}
+function refresh() {
+  S.refreshing = true;
+  for (const h of S.hosts) if (h.status === "online") S.hostLoading[h.serverId] = true;
+  render();
+  // each host resolves independently
+  S.hosts.filter((h) => h.status === "online").forEach((h, i) => setTimeout(() => {
+    S.hostLoading[h.serverId] = false;
+    if (!Object.values(S.hostLoading).some(Boolean)) S.refreshing = false;
+    render();
+  }, 700 + i * 900));
+}
+
+/* ================= Demo panel ================= */
+const DEMO_STATES = [
+  ["normal", "Normal"], ["loading", "Loading (per host)"], ["empty", "No hosts"],
+  ["host-empty", "Host w/o workspaces"], ["all-offline", "All offline"], ["filter-empty", "Filter: no results"],
+];
+function applyDemo(state) {
+  clearTimeout(S._loadTimers); S.demo = state; S.hosts = makeData(); S.hostLoading = {}; S.refreshing = false;
+  S.search = ""; S.searchOpen = false; S.filter = null;
+  if (state === "loading") {
+    S.hosts.forEach((h) => { if (h.status === "online") S.hostLoading[h.serverId] = true; });
+    setTimeout(() => { S.hostLoading["srv-macbook"] = false; render(); }, 1500);
+    setTimeout(() => { S.hostLoading["srv-homelab"] = false; render(); }, 4000);
+  }
+  if (state === "host-empty") S.hosts[1].projects = [];
+  if (state === "all-offline") S.hosts.forEach((h) => (h.status = "offline"));
+  if (state === "filter-empty") {
+    S.hosts.forEach((h) => h.projects.forEach((p) => p.workspaces.forEach((w) => { if (ATTENTION.has(w.status)) w.status = "done"; })));
+    S.filter = "attention";
+  }
+  if (S.screen === "ws" || S.screen === "sidebar") S.screen = "nav";
+  render();
+}
+function renderDemo() {
+  document.getElementById("demo-states").innerHTML = DEMO_STATES.map(([k, l]) => `<button class="${S.demo === k ? "on" : ""}" data-demo="${k}">${l}</button>`).join("");
+  document.getElementById("demo-platform").innerHTML = ["ios", "android", "web"].map((k) => `<button class="${S.platform === k ? "on" : ""}" data-plat="${k}">${PLAT_LABEL[k]}</button>`).join("");
+  document.getElementById("platform-note").textContent = isPhone()
+    ? "Phone: no plugin localStorage. Profile choice lives in memory only; collapse state is written into the profile on the host after ~3 s."
+    : "Web/desktop: selected profile + collapse state live in localStorage on this device.";
+  const r = resolveProfile();
+  document.getElementById("resolve-info").textContent =
+    `platform: ${S.platform}\nactive:   ${r.p.name} (${r.p.id})\nvia:      ${r.via}\nfilter:   ${currentFilter()}${S.filter ? " (session override)" : " (profile default)"}`;
+  const map = collapseMap();
+  const where = isPhone() ? (S.pendingCollapse ? "pending → profile.collapse (debounce)" : "profile.collapse (host settings)") : `localStorage pn.collapse.${r.p.id}`;
+  document.getElementById("collapse-info").textContent = `${where}\n` + JSON.stringify(map, null, 1);
+}
+document.querySelector(".demo").addEventListener("click", (e) => {
+  const d = e.target.closest("[data-demo]"); if (d) return applyDemo(d.dataset.demo);
+  const pl = e.target.closest("[data-plat]");
+  if (pl) { flushCollapse(); S.platform = pl.dataset.plat; LS.set("pn.demo.platform", S.platform); S.sessionProfileId = null; S.filter = null; render(); }
+});
+document.getElementById("live-btn").addEventListener("click", () => {
+  const online = S.hosts.filter((h) => h.status === "online");
+  const pool = online.flatMap((h) => allWs(h));
+  if (!pool.length) return;
+  const w = pool[Math.floor(Math.random() * pool.length)];
+  const next = ["needs_input", "running", "failed", "done", "attention"].filter((s) => s !== w.status);
+  w.status = next[Math.floor(Math.random() * next.length)];
+  w.lastActivityAt = Date.now(); w.add += Math.floor(Math.random() * 40);
+  S.flashId = w.id; render(); setTimeout(() => { S.flashId = null; }, 1700);
+  toast(`Live: “${esc(w.title)}” → ${STATUS[w.status].label}`);
+});
+document.getElementById("reset-btn").addEventListener("click", () => {
+  Object.keys(localStorage).filter((k) => k.startsWith("pn.")).forEach((k) => localStorage.removeItem(k));
+  location.reload();
+});
+
+render();
+</script>
+</body>
+</html>

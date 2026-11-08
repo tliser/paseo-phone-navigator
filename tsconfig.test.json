@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "node",
+      "react"
+    ]
+  },
+  "include": [
+    "shared/**/*.ts",
+    "tests/**/*.ts",
+    "client/store.ts",
+    "client/host-observer.ts",
+    "client/device.ts",
+    "client/paseo.ts"
+  ]
+}

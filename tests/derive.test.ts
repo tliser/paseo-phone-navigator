@@ -39,3 +39,35 @@ describe("deriveWorkspaces", () => {
     expect(result[1]).toMatchObject({ title: "name-b", projectName: "Project", branch: null, model: null });
   });
 });
+
+describe("asking vs unread", () => {
+  // Shapes taken from the live daemon: "Continue long-game pipeline work" (attention, finished) and
+  // "long-game API review" (running main agent, finished sub-agents).
+  it("a finished turn is unread news, not a prompt", () => {
+    const [w] = deriveWorkspaces(
+      [workspace("lg", { status: "attention", statusEnteredAt: "2026-11-08T10:09:01.645Z" })],
+      [agent("main", "lg", "2026-11-08T10:09:01Z", { requiresAttention: true, attentionReason: "finished", attentionTimestamp: "2026-11-08T10:09:01.645Z" })],
+    );
+    expect(w).toMatchObject({ needsYou: false, unreadAt: Date.parse("2026-11-08T10:09:01.645Z") });
+  });
+  it("finished sub-agents of a running workspace are neither asking nor unread", () => {
+    const [w] = deriveWorkspaces(
+      [workspace("api", { status: "running" })],
+      [
+        agent("main", "api", "2026-11-08T10:00:00Z", { status: "running" }),
+        agent("sub", "api", "2026-11-08T10:04:53Z", { requiresAttention: true, attentionReason: "finished", labels: { "paseo.parent-agent-id": "main" } }),
+      ],
+    );
+    expect(w).toMatchObject({ needsYou: false, unreadAt: 0 });
+  });
+  it("a permission request, from a sub-agent too, is a prompt", () => {
+    const [a] = deriveWorkspaces([workspace("x", { status: "running" })], [agent("sub", "x", "2026-01-01T00:00:00Z", { pendingPermissions: [{}], labels: { "paseo.parent-agent-id": "m" } })]);
+    expect(a?.needsYou).toBe(true);
+    const [b] = deriveWorkspaces([workspace("y", { status: "needs_input" })], []);
+    expect(b?.needsYou).toBe(true);
+  });
+  it("a failed workspace is unread", () => {
+    const [w] = deriveWorkspaces([workspace("f", { status: "failed", statusEnteredAt: "2026-01-02T00:00:00Z" })], []);
+    expect(w).toMatchObject({ needsYou: false, unreadAt: Date.parse("2026-01-02T00:00:00Z") });
+  });
+});

@@ -2,8 +2,17 @@
 
 export type WorkspaceStatus = "needs_input" | "failed" | "running" | "attention" | "done";
 export type HostStatus = "idle" | "connecting" | "online" | "offline" | "error";
-export type Filter = "all" | "active" | "attention";
+export type Filter = "all" | "active" | "inbox";
 export type Platform = "ios" | "android" | "web";
+
+/**
+ * What a row shows, after the plugin's own read state is applied:
+ * - needs_you: an agent is actually asking you something (input or a permission).
+ * - unread: a turn finished or failed after you last viewed the workspace.
+ * - running: an agent is working.
+ * - read: nothing new.
+ */
+export type WorkspaceState = "needs_you" | "unread" | "running" | "read";
 
 export interface WorkspaceInput {
   id: string;
@@ -11,6 +20,10 @@ export interface WorkspaceInput {
   projectName: string;
   title: string;
   status: WorkspaceStatus;
+  /** An agent (sub-agents included) waits for your input or a permission. */
+  needsYou: boolean;
+  /** When the last finished or failed turn happened, epoch ms; 0 when there is nothing to read. */
+  unreadAt: number;
   branch: string | null;
   additions: number;
   deletions: number;
@@ -28,10 +41,4 @@ export interface HostInput {
   loading: boolean;
   error: string | null;
   workspaces: readonly WorkspaceInput[];
-}
-
-export const ATTENTION_STATUSES: readonly WorkspaceStatus[] = ["needs_input", "failed", "attention"];
-
-export function isAttention(status: WorkspaceStatus): boolean {
-  return status === "needs_input" || status === "failed" || status === "attention";
 }

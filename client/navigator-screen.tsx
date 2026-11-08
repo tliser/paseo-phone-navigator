@@ -9,10 +9,10 @@ import { buildTree, type TreeRow, type WorkspaceRow } from "../shared/tree";
 import type { Filter } from "../shared/types";
 import { ProfileSheet } from "./profile-sheet";
 import { useActiveProfile, useNavigatorStore } from "./runtime";
-import { Badge, StatusIcon } from "./visual";
+import { StateIcon, TallyBadge, UNREAD_BLUE } from "./visual";
 
-const FILTER_LABEL: Record<Filter, string> = { all: "All", active: "Active", attention: "Attention" };
-const FILTERS: Filter[] = ["all", "active", "attention"];
+const FILTER_LABEL: Record<Filter, string> = { all: "All", active: "Active", inbox: "Inbox" };
+const FILTERS: Filter[] = ["all", "active", "inbox"];
 
 /** Filter picked in this session per profile; starts at the profile's default. */
 const sessionFilters = new Map<string, Filter>();
@@ -45,8 +45,8 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
   }, []);
 
   const tree = useMemo(
-    () => buildTree(snapshot.hosts, { filter, query, settings, collapse, now, hostOrder: snapshot.hostOrder }),
-    [snapshot.hosts, snapshot.hostOrder, filter, query, settings, collapse, now],
+    () => buildTree(snapshot.hosts, { filter, query, settings, collapse, reads: snapshot.reads, now, hostOrder: snapshot.hostOrder }),
+    [snapshot.hosts, snapshot.hostOrder, snapshot.reads, filter, query, settings, collapse, now],
   );
   const loading = snapshot.hosts.some((host) => host.loading);
   useEffect(() => {
@@ -55,9 +55,20 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
 
   const toggle = useCallback((key: string) => store.setCollapse(profile.id, toggleCollapsed(collapse, key, settings)), [store, profile.id, collapse, settings]);
   const open = useCallback(
-    (row: WorkspaceRow) => navigation?.openWorkspace({ workspaceId: row.workspace.id, serverId: row.serverId }),
-    [navigation],
+    (row: WorkspaceRow) => {
+      if (!navigation) return;
+      navigation.openWorkspace({ workspaceId: row.workspace.id, serverId: row.serverId });
+      // Viewing it is reading it. A prompt that is still waiting keeps the row amber regardless.
+      store.markRead(row.serverId, [row.workspace.id]);
+    },
+    [navigation, store],
   );
+  const toggleRead = useCallback(
+    (row: WorkspaceRow) => (row.state === "unread" ? store.markRead(row.serverId, [row.workspace.id]) : store.markUnread(row.serverId, row.workspace.id)),
+    [store],
+  );
+  const unreadIds = (serverId: string | null) =>
+    tree.rows.flatMap((row) => (row.type === "workspace" && row.state === "unread" && (!serverId || row.serverId === serverId) ? [row] : []));
   const closeSearch = () => {
     setSearchOpen(false);
     setQuery("");
@@ -69,7 +80,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
   const muted = { color: c.foregroundMuted };
 
   const renderItem = ({ item }: { item: TreeRow }) => (
-    <Row row={item} theme={theme} profile={profile} comfortable={comfortable} searching={query.trim().length > 0} now={now} onToggle={toggle} onOpen={open} canOpen={!!navigation} />
+    <Row row={item} theme={theme} profile={profile} comfortable={comfortable} searching={query.trim().length > 0} now={now} onToggle={toggle} onOpen={open} onToggleRead={toggleRead} canOpen={!!navigation} />
   );
 
   const empty = snapshot.hosts.length === 0 ? (
@@ -78,7 +89,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
     <EmptyState
       theme={theme}
       icon="Search"
-      title={query.trim() ? `No workspaces match "${query.trim()}"` : `No ${FILTER_LABEL[filter].toLowerCase()} workspaces`}
+      title={query.trim() ? `No workspaces match "${query.trim()}"` : filter === "inbox" ? "Inbox zero: nothing new, nothing asking" : "Nothing running, new or asking"}
       action={{ label: "Show all", onPress: () => { setFilter("all"); closeSearch(); } }}
     />
   ) : null;
@@ -117,13 +128,13 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
             <HeaderButton theme={theme} icon="Search" label="Search" onPress={() => setSearchOpen(true)} />
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`${tree.attention} need attention. Toggle the attention filter.`}
-              onPress={() => setFilter(filter === "attention" ? (settings.defaultFilter === "attention" ? "all" : settings.defaultFilter) : "attention")}
+              accessibilityLabel={`${tree.tally.needsYou} asking you, ${tree.tally.unread} unread. Toggle the inbox filter.`}
+              onPress={() => setFilter(filter === "inbox" ? (settings.defaultFilter === "inbox" ? "all" : settings.defaultFilter) : "inbox")}
               style={{ height: 44, justifyContent: "center" }}
             >
-              <View style={{ height: 32, paddingHorizontal: 9, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderColor: tree.attention ? c.statusWarning : c.border, backgroundColor: filter === "attention" ? c.statusWarning : "transparent" }}>
-                <Icon name="TriangleAlert" size={14} color={filter === "attention" ? c.surface0 : tree.attention ? c.statusWarning : c.foregroundMuted} />
-                <Text style={{ fontSize: 13, fontWeight: "600", color: filter === "attention" ? c.surface0 : tree.attention ? c.statusWarning : c.foregroundMuted }}>{tree.attention}</Text>
+              <View style={{ height: 32, paddingHorizontal: 9, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderColor: filter === "inbox" ? c.foreground : c.border, backgroundColor: filter === "inbox" ? c.surface2 : "transparent" }}>
+                <Icon name="Inbox" size={14} color={c.foreground} />
+                {tree.tally.needsYou || tree.tally.unread ? <TallyBadge theme={theme} tally={tree.tally} small /> : <Text style={{ fontSize: 13, color: c.foregroundMuted }}>0</Text>}
               </View>
             </Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel={`Filter: ${FILTER_LABEL[filter]}`} onPress={() => setMenu((value) => !value)} style={{ height: 44, justifyContent: "center", marginLeft: 4 }}>
@@ -133,6 +144,14 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
               </View>
             </Pressable>
             <View style={{ flex: 1 }} />
+            {tree.tally.unread ? (
+              <HeaderButton theme={theme} icon="CheckCheck" label={`Mark ${tree.tally.unread} unread as read`} onPress={() => {
+                const rows = unreadIds(null);
+                const byHost = new Map<string, string[]>();
+                for (const row of rows) byHost.set(row.serverId, [...(byHost.get(row.serverId) ?? []), row.workspace.id]);
+                for (const [serverId, ids] of byHost) store.markRead(serverId, ids);
+              }} />
+            ) : null}
             <HeaderButton
               theme={theme}
               icon={anyCollapsed ? "ChevronsUpDown" : "ChevronsDownUp"}
@@ -227,9 +246,10 @@ interface RowProps {
   canOpen: boolean;
   onToggle(key: string): void;
   onOpen(row: WorkspaceRow): void;
+  onToggleRead(row: WorkspaceRow): void;
 }
 
-function Row({ row, theme, profile, comfortable, searching, now, canOpen, onToggle, onOpen }: RowProps) {
+function Row({ row, theme, profile, comfortable, searching, now, canOpen, onToggle, onOpen, onToggleRead }: RowProps) {
   const c = theme.colors;
   const groupHeight = comfortable ? 52 : 44;
   const fontSize = comfortable ? 15 : 14;
@@ -251,7 +271,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />
         <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>{row.label}</Text>
         {online ? <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.count}</Text> : <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.state === "offline" ? "offline" : "loading…"}</Text>}
-        {online ? <Badge theme={theme} count={row.attention} /> : null}
+        {online ? <TallyBadge theme={theme} tally={row.tally} /> : null}
       </Pressable>
     );
   }
@@ -260,7 +280,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${row.name}, ${row.count} workspaces${row.collapsed && row.attention ? ", needs attention" : ""}`}
+        accessibilityLabel={`${row.name}, ${row.count} workspaces${row.collapsed && row.tally.needsYou ? ", something asks you" : row.collapsed && row.tally.unread ? ", unread" : ""}`}
         accessibilityState={{ expanded: !row.collapsed }}
         onPress={() => onToggle(row.key)}
         style={{ minHeight: groupHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 24, paddingRight: 12, ...separator }}
@@ -270,7 +290,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
         </View>
         <Icon name="Folder" size={14} color={c.foregroundMuted} />
         <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize }}>{row.name}</Text>
-        {row.collapsed && row.attention ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.statusDanger }} /> : null}
+        {row.collapsed && (row.tally.needsYou || row.tally.unread) ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: row.tally.needsYou ? c.statusWarning : UNREAD_BLUE }} /> : null}
         <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.count}</Text>
       </Pressable>
     );
@@ -310,15 +330,18 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${workspace.title}, ${parts.join(", ")}`}
+      accessibilityLabel={`${workspace.title}, ${row.state === "needs_you" ? "asking you" : row.state === "unread" ? "unread" : row.state}, ${parts.join(", ")}`}
+      accessibilityHint={row.state === "unread" ? "Long press to mark read" : row.state === "read" ? "Long press to mark unread" : undefined}
       disabled={!canOpen}
       onPress={() => onOpen(row)}
+      onLongPress={row.state === "unread" || row.state === "read" ? () => onToggleRead(row) : undefined}
+      delayLongPress={450}
       style={({ pressed }) => ({ minHeight: comfortable ? 68 : 56, flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 48, paddingRight: 12, backgroundColor: pressed ? c.surface1 : "transparent" })}
     >
-      <StatusIcon theme={theme} status={workspace.status} />
+      <StateIcon theme={theme} state={row.state} status={workspace.status} />
       <View style={{ flex: 1, minWidth: 0, gap: comfortable ? 4 : 2 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize }}>{workspace.title}</Text>
+          <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize, fontWeight: row.state === "unread" || row.state === "needs_you" ? "700" : "400" }}>{workspace.title}</Text>
           {hasDiff ? (
             <Text style={{ fontSize: 11.5, fontVariant: ["tabular-nums"] }}>
               <Text style={{ color: c.statusSuccess }}>{`+${workspace.additions}`}</Text>

@@ -1,9 +1,16 @@
 // Builds the flattened tree the FlatList renders. Pure.
 import { shortenModel } from "./format";
 import { hostKey, isCollapsed, projectKey, type CollapseMap, type ProfileSettings } from "./profiles";
-import { isAttention, type Filter, type HostInput, type WorkspaceInput, type WorkspaceStatus } from "./types";
+import { isUnread, type ReadMap } from "./reads";
+import type { Filter, HostInput, WorkspaceInput, WorkspaceState } from "./types";
 
 const DAY_MS = 86_400_000;
+
+/** Per-group tallies shown as badges. */
+export interface Tally {
+  needsYou: number;
+  unread: number;
+}
 
 export interface HostRow {
   type: "host";
@@ -14,7 +21,7 @@ export interface HostRow {
   collapsed: boolean;
   /** Workspaces shown under this host after filter and search. */
   count: number;
-  attention: number;
+  tally: Tally;
   error: string | null;
 }
 export interface ProjectRow {
@@ -25,8 +32,8 @@ export interface ProjectRow {
   name: string;
   collapsed: boolean;
   count: number;
-  /** Attention inside, for the red dot on collapsed projects. */
-  attention: number;
+  /** Counted over all its workspaces, for the dot on collapsed projects. */
+  tally: Tally;
 }
 export interface WorkspaceRow {
   type: "workspace";
@@ -34,6 +41,7 @@ export interface WorkspaceRow {
   serverId: string;
   hostLabel: string;
   workspace: WorkspaceInput;
+  state: WorkspaceState;
   modelShort: string;
 }
 export interface SkeletonRow {
@@ -51,8 +59,8 @@ export interface TreeResult {
   rows: TreeRow[];
   /** Workspaces matching filter and search on online hosts. */
   matched: number;
-  /** Attention workspaces on online, visible hosts (ignores filter and search). */
-  attention: number;
+  /** Totals on online, visible hosts (ignores filter and search). */
+  tally: Tally;
   counts: Record<Filter, number>;
   /** Group keys shown (for expand/collapse all). */
   groupKeys: string[];
@@ -65,35 +73,48 @@ export interface TreeOptions {
   query: string;
   settings: ProfileSettings;
   collapse: CollapseMap;
+  reads: ReadMap;
   now: number;
   /** Host order as configured in the app. */
   hostOrder?: readonly string[];
 }
 
-/** attention/failed/needs_input first, then running, then the rest, done last. */
-export function statusRank(status: WorkspaceStatus): number {
-  if (isAttention(status)) return 0;
-  if (status === "running") return 1;
-  if (status === "done") return 3;
-  return 2;
+/** The state a row shows: a real prompt beats running beats unread news. */
+export function workspaceState(workspace: WorkspaceInput, serverId: string, reads: ReadMap): WorkspaceState {
+  if (workspace.needsYou) return "needs_you";
+  if (workspace.status === "running") return "running";
+  if (isUnread(reads, serverId, workspace.id, workspace.unreadAt)) return "unread";
+  return "read";
 }
 
-export function compareWorkspaces(a: WorkspaceInput, b: WorkspaceInput): number {
+/** needs you, then unread, then running, then the rest. */
+export function stateRank(state: WorkspaceState): number {
+  return state === "needs_you" ? 0 : state === "unread" ? 1 : state === "running" ? 2 : 3;
+}
+
+interface Ranked {
+  workspace: WorkspaceInput;
+  state: WorkspaceState;
+}
+
+export function compareRanked(a: Ranked, b: Ranked): number {
   return (
-    statusRank(a.status) - statusRank(b.status) ||
-    b.activityAt - a.activityAt ||
-    a.title.localeCompare(b.title) ||
-    a.id.localeCompare(b.id)
+    stateRank(a.state) - stateRank(b.state) ||
+    b.workspace.activityAt - a.workspace.activityAt ||
+    a.workspace.title.localeCompare(b.workspace.title) ||
+    a.workspace.id.localeCompare(b.workspace.id)
   );
 }
 
-export function passesFilter(workspace: WorkspaceInput, filter: Filter, settings: ProfileSettings, now: number): boolean {
-  if (workspace.status === "done" && settings.hideDone !== "off") {
+export function passesFilter(item: Ranked, filter: Filter, settings: ProfileSettings, now: number): boolean {
+  const { workspace, state } = item;
+  // Hide old finished workspaces, but never one that is new to you or asks for you.
+  if (state === "read" && workspace.status !== "running" && settings.hideDone !== "off") {
     const limit = (settings.hideDone === "1d" ? 1 : 7) * DAY_MS;
     if (!workspace.activityAt || now - workspace.activityAt > limit) return false;
   }
-  if (filter === "active") return workspace.status !== "done";
-  if (filter === "attention") return isAttention(workspace.status);
+  if (filter === "active") return state !== "read";
+  if (filter === "inbox") return state === "needs_you" || state === "unread";
   return true;
 }
 
@@ -123,61 +144,70 @@ function orderHosts(hosts: readonly HostInput[], order: readonly string[] | unde
     .map((entry) => entry.host);
 }
 
+function addTally(tally: Tally, state: WorkspaceState): void {
+  if (state === "needs_you") tally.needsYou++;
+  else if (state === "unread") tally.unread++;
+}
+
 export function buildTree(hosts: readonly HostInput[], options: TreeOptions): TreeResult {
-  const { filter, settings, collapse, now } = options;
+  const { filter, settings, collapse, reads, now } = options;
   const query = options.query.trim();
   const searching = query.length > 0;
   const hidden = new Set(settings.hiddenHosts);
   const rows: TreeRow[] = [];
   const groupKeys: string[] = [];
-  const counts: Record<Filter, number> = { all: 0, active: 0, attention: 0 };
+  const counts: Record<Filter, number> = { all: 0, active: 0, inbox: 0 };
+  const total: Tally = { needsYou: 0, unread: 0 };
   let matched = 0;
-  let attention = 0;
   let totalOnline = 0;
 
   for (const host of orderHosts(hosts.filter((host) => !hidden.has(host.serverId)), options.hostOrder)) {
     const hKey = hostKey(host.serverId);
+    const emptyTally = { needsYou: 0, unread: 0 };
     if (host.status !== "online") {
       // Offline hosts: dimmed, not expandable, left out of search results.
       if (!searching) {
-        rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "offline", collapsed: true, count: 0, attention: 0, error: host.error });
+        rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "offline", collapsed: true, count: 0, tally: emptyTally, error: host.error });
       }
       continue;
     }
     if (host.loading) {
-      rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "loading", collapsed: false, count: 0, attention: 0, error: null });
+      rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "loading", collapsed: false, count: 0, tally: emptyTally, error: null });
       for (let i = 0; i < 3; i++) rows.push({ type: "skeleton", key: `${hKey}#skel${i}` });
       continue;
     }
 
-    const hostAttention = host.workspaces.filter((workspace) => isAttention(workspace.status)).length;
-    attention += hostAttention;
+    const hostTally: Tally = { needsYou: 0, unread: 0 };
     totalOnline += host.workspaces.length;
 
     // Group by project, keeping each project's activity from all its workspaces (filtering must not change rank).
-    const projects = new Map<string, { id: string; name: string; activity: number; all: WorkspaceInput[] }>();
+    const projects = new Map<string, { id: string; name: string; activity: number; all: Ranked[]; tally: Tally }>();
     for (const workspace of host.workspaces) {
+      const item: Ranked = { workspace, state: workspaceState(workspace, host.serverId, reads) };
       let project = projects.get(workspace.projectId);
       if (!project) {
-        project = { id: workspace.projectId, name: workspace.projectName, activity: 0, all: [] };
+        project = { id: workspace.projectId, name: workspace.projectName, activity: 0, all: [], tally: { needsYou: 0, unread: 0 } };
         projects.set(workspace.projectId, project);
       }
-      project.all.push(workspace);
+      project.all.push(item);
       project.activity = Math.max(project.activity, workspace.activityAt);
+      addTally(project.tally, item.state);
+      addTally(hostTally, item.state);
       if (matchesSearch(workspace, host.label, query)) {
-        for (const key of ["all", "active", "attention"] as const) {
-          if (passesFilter(workspace, key, settings, now)) counts[key]++;
+        for (const key of ["all", "active", "inbox"] as const) {
+          if (passesFilter(item, key, settings, now)) counts[key]++;
         }
       }
     }
+    total.needsYou += hostTally.needsYou;
+    total.unread += hostTally.unread;
 
     const visibleProjects = [...projects.values()]
       .map((project) => ({
         ...project,
         visible: project.all
-          .filter((workspace) => passesFilter(workspace, filter, settings, now) && matchesSearch(workspace, host.label, query))
-          .sort(compareWorkspaces),
-        attention: project.all.filter((workspace) => isAttention(workspace.status)).length,
+          .filter((item) => passesFilter(item, filter, settings, now) && matchesSearch(item.workspace, host.label, query))
+          .sort(compareRanked),
       }))
       .filter((project) => project.visible.length > 0)
       .sort((a, b) => b.activity - a.activity || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
@@ -191,7 +221,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
 
     // Search expands temporarily; the stored collapse map is not touched.
     const hostCollapsed = searching ? false : isCollapsed(collapse, hKey, settings);
-    rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "online", collapsed: hostCollapsed, count, attention: hostAttention, error: host.error });
+    rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "online", collapsed: hostCollapsed, count, tally: hostTally, error: host.error });
     if (hostCollapsed) continue;
 
     if (host.workspaces.length === 0) {
@@ -199,22 +229,23 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       continue;
     }
     if (visibleProjects.length === 0) {
-      rows.push({ type: "note", key: `${hKey}#filtered`, text: filter === "all" ? "Nothing matches" : `No ${filter} workspaces` });
+      rows.push({ type: "note", key: `${hKey}#filtered`, text: filter === "inbox" ? "Nothing new" : filter === "active" ? "Nothing active or new" : "Nothing matches" });
       continue;
     }
     for (const project of visibleProjects) {
       const pKey = projectKey(host.serverId, project.id);
       const projectCollapsed = searching ? false : isCollapsed(collapse, pKey, settings);
-      rows.push({ type: "project", key: pKey, serverId: host.serverId, projectId: project.id, name: project.name, collapsed: projectCollapsed, count: project.visible.length, attention: project.attention });
+      rows.push({ type: "project", key: pKey, serverId: host.serverId, projectId: project.id, name: project.name, collapsed: projectCollapsed, count: project.visible.length, tally: project.tally });
       if (projectCollapsed) continue;
-      for (const workspace of project.visible) {
+      for (const item of project.visible) {
         rows.push({
           type: "workspace",
-          key: `ws:${host.serverId}:${workspace.id}`,
+          key: `ws:${host.serverId}:${item.workspace.id}`,
           serverId: host.serverId,
           hostLabel: host.label,
-          workspace,
-          modelShort: shortenModel(workspace.model),
+          workspace: item.workspace,
+          state: item.state,
+          modelShort: shortenModel(item.workspace.model),
         });
       }
     }
@@ -223,19 +254,19 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   return {
     rows,
     matched,
-    attention,
+    tally: total,
     counts,
     groupKeys,
     emptyBecauseFiltered: matched === 0 && totalOnline > 0 && (searching || filter !== "all"),
   };
 }
 
-/** Attention count for the badge: needs_input + failed + attention on online hosts, ignoring filters. */
-export function attentionCount(hosts: readonly HostInput[]): number {
-  let count = 0;
+/** Totals for the badges: real prompts and unread news on online hosts, ignoring filters. */
+export function tallyHosts(hosts: readonly HostInput[], reads: ReadMap): Tally {
+  const tally: Tally = { needsYou: 0, unread: 0 };
   for (const host of hosts) {
     if (host.status !== "online") continue;
-    for (const workspace of host.workspaces) if (isAttention(workspace.status)) count++;
+    for (const workspace of host.workspaces) addTally(tally, workspaceState(workspace, host.serverId, reads));
   }
-  return count;
+  return tally;
 }

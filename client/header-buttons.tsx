@@ -5,17 +5,17 @@ import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientConte
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { View } from "react-native";
 import { createHostObserver } from "./host-observer";
-import { SCREEN_ID, useAttentionCount } from "./runtime";
-import { Badge } from "./visual";
+import { SCREEN_ID, useTally } from "./runtime";
+import { TallyBadge } from "./visual";
 
 function WorkspacesIcon({ theme, size, color }: PluginButtonIconProps) {
-  const attention = useAttentionCount();
+  const tally = useTally();
   return (
     <View style={{ width: size + 8, height: size + 8, alignItems: "center", justifyContent: "center" }}>
       <Icon name="Layers" size={size} color={color} />
-      {attention > 0 ? (
+      {tally.needsYou || tally.unread ? (
         <View style={{ position: "absolute", top: -4, right: -6 }}>
-          <Badge theme={theme} count={attention} small />
+          <TallyBadge theme={theme} tally={tally.needsYou ? { needsYou: tally.needsYou, unread: 0 } : tally} small />
         </View>
       ) : null}
     </View>

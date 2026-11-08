@@ -122,6 +122,58 @@ describe("store profiles", () => {
   });
 });
 
+describe("store read state", () => {
+  function readsHost() {
+    const docs: Record<string, { revision: number; values: unknown }> = {
+      profiles: { revision: 1, values: { profiles: [] } },
+      reads: { revision: 1, values: { seen: {} } },
+    };
+    let writes = 0;
+    const rpc = vi.fn(async (contract: { name: string }, input: { revision?: string; values?: unknown }) => {
+      const [id, op] = contract.name.split(".") as [string, string];
+      const doc = docs[id]!;
+      if (op === "read") return { status: "ready", revision: String(doc.revision), values: doc.values };
+      writes++;
+      doc.revision++;
+      doc.values = input.values;
+      return { status: "saved", revision: String(doc.revision), values: doc.values };
+    });
+    return { docs, rpc, writes: () => writes };
+  }
+
+  it("marks read and unread, batching writes into the shared document", async () => {
+    const host = readsHost();
+    const store = createStore(host.rpc as never, () => () => undefined);
+    store.retain();
+    await flush();
+    store.markRead("h", ["w1"]);
+    store.markRead("h", ["w2"]);
+    expect(Object.keys(store.getSnapshot().reads).sort()).toEqual(["h:w1", "h:w2"]); // immediate
+    expect(host.writes()).toBe(0);
+    vi.advanceTimersByTime(800);
+    await flush();
+    expect(host.writes()).toBe(1);
+    expect(Object.keys((host.docs.reads!.values as { seen: object }).seen).sort()).toEqual(["h:w1", "h:w2"]);
+    store.markUnread("h", "w1");
+    expect(store.getSnapshot().reads["h:w1"]).toBe(0);
+    vi.advanceTimersByTime(800);
+    await flush();
+    expect(Object.keys((host.docs.reads!.values as { seen: object }).seen)).toEqual(["h:w2"]);
+    store.dispose();
+  });
+
+  it("saves pending reads when the plugin unloads", async () => {
+    const host = readsHost();
+    const store = createStore(host.rpc as never, () => () => undefined);
+    store.retain();
+    await flush();
+    store.markRead("h", ["w"]);
+    store.dispose();
+    await flush();
+    expect(Object.keys((host.docs.reads!.values as { seen: object }).seen)).toEqual(["h:w"]);
+  });
+});
+
 describe("store hosts", () => {
   it("loads online hosts, leaves offline ones and reports connect errors", async () => {
     clients.set("a", emptyApi());

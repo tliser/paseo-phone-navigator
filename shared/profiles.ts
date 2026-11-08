@@ -3,7 +3,8 @@ import { z } from "zod";
 import type { Platform } from "./types";
 
 export const platformSchema = z.enum(["ios", "android", "web"]);
-export const filterSchema = z.enum(["all", "active", "attention"]);
+/** "attention" was the filter's name before read state existed; it maps to the inbox. */
+export const filterSchema = z.preprocess((value) => (value === "attention" ? "inbox" : value), z.enum(["all", "active", "inbox"]));
 
 export const profileSettingsSchema = z.object({
   density: z.enum(["compact", "comfortable"]).default("compact"),

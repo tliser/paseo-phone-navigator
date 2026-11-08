@@ -126,12 +126,12 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
           <SettingsSelect
             label="Default filter"
             value={s.defaultFilter}
-            options={[{ value: "all", label: "All" }, { value: "active", label: "Active" }, { value: "attention", label: "Attention" }]}
+            options={[{ value: "all", label: "All" }, { value: "active", label: "Active (running, new or asking)" }, { value: "inbox", label: "Inbox (new or asking)" }]}
             onValueChange={(defaultFilter) => updateSettings({ defaultFilter })}
             disabled={!snapshot.profilesReady}
           />
           <SettingsSelect
-            label="Hide done workspaces"
+            label="Hide finished, read workspaces"
             value={s.hideDone}
             options={[{ value: "off", label: "Never" }, { value: "1d", label: "After 1 day" }, { value: "7d", label: "After 7 days" }]}
             onValueChange={(hideDone) => updateSettings({ hideDone })}

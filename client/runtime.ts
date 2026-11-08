@@ -2,7 +2,7 @@
 import { useHosts } from "@getpaseo/plugin/client";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { resolveProfile, type Profile } from "../shared/profiles";
-import { attentionCount } from "../shared/tree";
+import { tallyHosts, type Tally } from "../shared/tree";
 import type { Platform } from "../shared/types";
 import type { Store, StoreSnapshot } from "./store";
 
@@ -27,10 +27,10 @@ export function useNavigatorStore(): { store: Store; snapshot: StoreSnapshot } {
   return { store, snapshot };
 }
 
-/** needs_input + failed + attention on every online host, for the badges. */
-export function useAttentionCount(): number {
+/** Real prompts and unread news on every online host, for the badges. */
+export function useTally(): Tally {
   const { snapshot } = useNavigatorStore();
-  return useMemo(() => attentionCount(snapshot.hosts), [snapshot.hosts]);
+  return useMemo(() => tallyHosts(snapshot.hosts, snapshot.reads), [snapshot.hosts, snapshot.reads]);
 }
 
 export function useActiveProfile(snapshot: StoreSnapshot, platform: Platform, compact: boolean): Profile {

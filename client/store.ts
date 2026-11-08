@@ -2,7 +2,6 @@
 // host while at least one surface is mounted, and owns the profiles document of the serving host.
 // Closures only: no classes (Hermes).
 import { getPaseoClient, type PluginClientContext, type PluginHostSummary } from "@getpaseo/plugin/client";
-import { settingsRpc } from "@getpaseo/plugin";
 import { deriveWorkspaces, type AgentLike, type WorkspaceLike } from "../shared/derive";
 import {
   normalizeDocument,
@@ -11,20 +10,22 @@ import {
   type Profile,
   type ProfilesDocument,
 } from "../shared/profiles";
-import { profilesSettings } from "../shared/settings";
+import { markSeen, normalizeReads, readKey, type ReadMap, type ReadsDocument } from "../shared/reads";
+import { profilesSettings, readsSettings } from "../shared/settings";
 import type { HostInput } from "../shared/types";
 import { hasDeviceStorage, readDeviceCollapse, readDeviceProfileId, writeDeviceCollapse, writeDeviceProfileId } from "./device";
 import { createHostObserver, type HostDirectory, type HostObserver } from "./host-observer";
 import type { PaseoApi } from "./paseo";
+import { createSyncedDoc } from "./synced-doc";
 
 const EMIT_DELAY_MS = 250;
 const RECONCILE_MS = 15_000;
 const STOP_GRACE_MS = 5_000;
 const COLLAPSE_SAVE_DELAY_MS = 3_000;
-const WRITE_ATTEMPTS = 4;
+/** Views that land within this window are written together. */
+const READ_SAVE_DELAY_MS = 800;
 
 type Rpc = PluginClientContext["rpc"];
-const contracts = settingsRpc(profilesSettings.id);
 
 export interface StoreSnapshot {
   hosts: HostInput[];
@@ -39,6 +40,8 @@ export interface StoreSnapshot {
   deviceStorage: boolean;
   /** Collapse map per profile as this device sees it (device copy on web, profile copy elsewhere). */
   collapseFor(profileId: string): CollapseMap;
+  /** When you last viewed each workspace ("serverId:workspaceId"). */
+  reads: ReadMap;
   savingError: string | null;
   /** Hosts that report an error. */
   errors: string[];
@@ -54,6 +57,10 @@ export interface Store {
   setCollapse(profileId: string, map: CollapseMap): void;
   /** Applies a change to the profiles list and saves it. */
   editProfiles(change: (profiles: Profile[]) => Profile[]): void;
+  /** You viewed these workspaces now: they stop being unread. */
+  markRead(serverId: string, workspaceIds: readonly string[]): void;
+  /** Show the workspace as unread again until you next view it. */
+  markUnread(serverId: string, workspaceId: string): void;
   dispose(): void;
 }
 
@@ -66,16 +73,15 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   let hosts: readonly PluginHostSummary[] = [];
   let consumers = 0;
   let started = false;
-  let timers: { reconcile?: ReturnType<typeof setInterval>; stop?: ReturnType<typeof setTimeout>; emit?: ReturnType<typeof setTimeout>; collapse?: ReturnType<typeof setTimeout> } = {};
+  let timers: { reconcile?: ReturnType<typeof setInterval>; stop?: ReturnType<typeof setTimeout>; emit?: ReturnType<typeof setTimeout>; collapse?: ReturnType<typeof setTimeout>; reads?: ReturnType<typeof setTimeout> } = {};
   let stopWatch: (() => void) | null = null;
 
-  // ---- profiles document ----
-  let remote: { revision: string; doc: ProfilesDocument } | null = null;
-  let profilesReady = false;
-  /** Edits not yet confirmed by the host, replayed on top of every read. */
-  let pendingEdits: ((profiles: Profile[]) => Profile[])[] = [];
-  let writing = false;
-  let savingError: string | null = null;
+  // ---- host documents ----
+  const profilesDoc = createSyncedDoc<ProfilesDocument>({ rpc, settingsId: profilesSettings.id, label: "profiles", normalize: normalizeDocument, changed: () => emitNow() });
+  const readsDoc = createSyncedDoc<ReadsDocument>({ rpc, settingsId: readsSettings.id, label: "read state", normalize: normalizeReads, changed: () => emitNow() });
+  /** Reads changed on this device and not handed to the document yet (batched). */
+  let unsavedReads: Record<string, number> = {};
+  /** "Mark unread" sets the key to 0 locally until saved. */
   let sessionProfileId: string | null = null;
   let deviceProfileId = readDeviceProfileId();
   const deviceCollapse = new Map<string, CollapseMap>();
@@ -86,8 +92,12 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   let snapshot = build();
 
   function currentProfiles(): Profile[] {
-    const base = remote?.doc.profiles ?? normalizeDocument(undefined).profiles;
-    return pendingEdits.reduce((profiles, edit) => edit(profiles), base);
+    return profilesDoc.value().profiles;
+  }
+
+  function currentReads(): ReadMap {
+    const saved = readsDoc.value().seen;
+    return Object.keys(unsavedReads).length ? { ...saved, ...unsavedReads } : saved;
   }
 
   function build(): StoreSnapshot {
@@ -116,7 +126,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       hosts: hostInputs,
       hostOrder: hosts.map((host) => host.serverId),
       profiles,
-      profilesReady,
+      profilesReady: profilesDoc.ready(),
       sessionProfileId,
       deviceProfileId,
       deviceStorage,
@@ -131,7 +141,8 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
         }
         return unsavedCollapse.get(profileId) ?? profiles.find((profile) => profile.id === profileId)?.collapse ?? {};
       },
-      savingError,
+      reads: currentReads(),
+      savingError: profilesDoc.error() ?? readsDoc.error(),
       errors: hostInputs.flatMap((host) => (host.error ? [`${host.label}: ${host.error}`] : [])),
     };
   }
@@ -191,68 +202,50 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     directories.clear();
     derivedCache.clear();
     reconcile();
-    void readProfiles();
-  }
-
-  // ---- profiles persistence ----
-
-  async function readProfiles(): Promise<void> {
-    if (writing) return;
-    try {
-      const result = await rpc(contracts.read, {});
-      if (result.status === "ready") remote = { revision: result.revision, doc: normalizeDocument(result.values) };
-      else remote = { revision: result.revision, doc: normalizeDocument(undefined) };
-      profilesReady = true;
-      savingError = null;
-    } catch (error) {
-      savingError = `Profiles: ${error instanceof Error ? error.message : String(error)}`;
-    }
-    emitNow();
-  }
-
-  async function flush(): Promise<void> {
-    if (writing) return;
-    writing = true;
-    try {
-      while (pendingEdits.length) {
-        const batch = pendingEdits.slice();
-        let saved = false;
-        for (let attempt = 0; attempt < WRITE_ATTEMPTS && !saved; attempt++) {
-          if (!remote) {
-            const result = await rpc(contracts.read, {});
-            remote = { revision: result.revision, doc: normalizeDocument(result.status === "ready" ? result.values : undefined) };
-            profilesReady = true;
-          }
-          const profiles = batch.reduce((current, edit) => edit(current), remote.doc.profiles);
-          const result = await rpc(contracts.write, { revision: remote.revision, values: { profiles } });
-          if (result.status === "saved") {
-            remote = { revision: result.revision, doc: normalizeDocument(result.values) };
-            saved = true;
-          } else if (result.status === "conflict") {
-            remote = null; // another client saved first: re-read and replay
-          } else {
-            throw new Error(result.error);
-          }
-        }
-        if (!saved) throw new Error("too many conflicting saves");
-        pendingEdits = pendingEdits.slice(batch.length);
-        savingError = null;
-        emitNow();
-      }
-    } catch (error) {
-      // Edits stay pending and visible; the next edit or refresh tries again.
-      savingError = `Saving profiles failed: ${error instanceof Error ? error.message : String(error)}`;
-      remote = null;
-      emitNow();
-    } finally {
-      writing = false;
-    }
+    void profilesDoc.read();
+    void readsDoc.read();
   }
 
   function editProfiles(change: (profiles: Profile[]) => Profile[]) {
-    pendingEdits.push(change);
+    profilesDoc.edit((doc) => ({ profiles: change(doc.profiles) }));
+  }
+
+  // ---- read state ----
+
+  function flushReads() {
+    if (timers.reads !== undefined) clearTimeout(timers.reads);
+    timers.reads = undefined;
+    const batch = unsavedReads;
+    if (!Object.keys(batch).length) return;
+    unsavedReads = {};
+    const now = Date.now();
+    readsDoc.edit((doc) => {
+      const seen: Record<string, number> = { ...doc.seen };
+      // 0 means "mark unread": drop the entry. Otherwise the later view wins.
+      for (const [key, at] of Object.entries(batch)) {
+        if (at === 0) delete seen[key];
+        else seen[key] = Math.max(seen[key] ?? 0, at);
+      }
+      return { seen: markSeen(seen, [], now) };
+    });
+  }
+
+  function scheduleReads() {
+    if (timers.reads !== undefined) clearTimeout(timers.reads);
+    timers.reads = setTimeout(flushReads, READ_SAVE_DELAY_MS);
     emitNow();
-    void flush();
+  }
+
+  function markRead(serverId: string, workspaceIds: readonly string[]) {
+    if (!workspaceIds.length) return;
+    const now = Date.now();
+    for (const id of workspaceIds) unsavedReads[readKey(serverId, id)] = now;
+    scheduleReads();
+  }
+
+  function markUnread(serverId: string, workspaceId: string) {
+    unsavedReads[readKey(serverId, workspaceId)] = 0;
+    scheduleReads();
   }
 
   function flushCollapse() {
@@ -300,12 +293,17 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     started = true;
     reconcile();
     timers.reconcile = setInterval(reconcile, RECONCILE_MS);
-    stopWatch = watchSettings(() => void readProfiles());
-    void readProfiles();
+    stopWatch = watchSettings(() => {
+      void profilesDoc.read();
+      void readsDoc.read();
+    });
+    void profilesDoc.read();
+    void readsDoc.read();
   }
 
   function stop() {
     flushCollapse();
+    flushReads();
     if (timers.reconcile !== undefined) clearInterval(timers.reconcile);
     timers.reconcile = undefined;
     stopWatch?.();
@@ -350,12 +348,18 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     selectProfile,
     setCollapse,
     editProfiles,
+    markRead,
+    markUnread,
     dispose() {
       if (timers.stop !== undefined) clearTimeout(timers.stop);
       if (timers.emit !== undefined) clearTimeout(timers.emit);
       if (started) stop();
-      else flushCollapse();
+      else {
+        flushCollapse();
+        flushReads();
+      }
       if (timers.collapse !== undefined) clearTimeout(timers.collapse);
+      if (timers.reads !== undefined) clearTimeout(timers.reads);
       timers = {};
       listeners.clear();
     },

@@ -4,6 +4,7 @@ export type WorkspaceStatus = "needs_input" | "failed" | "running" | "attention"
 type HostStatus = "idle" | "connecting" | "online" | "offline" | "error";
 export type Filter = "all" | "active" | "inbox";
 export type Platform = "ios" | "android" | "web";
+export type ProjectKind = "git" | "directory" | "non_git";
 
 /**
  * What a row shows, after the plugin's own read state is applied:
@@ -18,6 +19,10 @@ export interface WorkspaceInput {
   id: string;
   projectId: string;
   projectName: string;
+  /** "git" projects get a new worktree; others a new workspace on the same folder. */
+  projectKind: ProjectKind;
+  /** Absolute project folder on the host. */
+  projectRootPath: string;
   title: string;
   status: WorkspaceStatus;
   /** An agent (sub-agents included) waits for your input or a permission. */

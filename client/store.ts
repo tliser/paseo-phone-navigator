@@ -13,7 +13,7 @@ import {
 import { moveRelative, type Place } from "../shared/order";
 import { markSeen, normalizeReads, readKey, type ReadMap, type ReadsDocument } from "../shared/reads";
 import { profilesSettings, readsSettings } from "../shared/settings";
-import type { HostInput } from "../shared/types";
+import type { HostInput, ProjectKind } from "../shared/types";
 import { hasDeviceStorage, readDeviceCollapse, readDeviceProfileId, writeDeviceCollapse, writeDeviceProfileId } from "./device";
 import { createHostObserver, type HostDirectory, type HostObserver } from "./host-observer";
 import type { PaseoApi } from "./paseo";
@@ -64,6 +64,8 @@ export interface Store {
   markRead(serverId: string, workspaceIds: readonly string[]): void;
   /** Show the workspace as unread again until you next view it. */
   markUnread(serverId: string, workspaceId: string): void;
+  /** New workspace in a project: a worktree with a generated branch for git projects, else one on the same folder. Resolves to the new workspace id. */
+  createWorkspace(serverId: string, project: { projectId: string; kind: ProjectKind; rootPath: string }): Promise<string>;
   dispose(): void;
 }
 
@@ -363,6 +365,16 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     move,
     markRead,
     markUnread,
+    async createWorkspace(serverId, project) {
+      const api = observers.get(serverId)?.api ?? getPaseoClient(serverId);
+      const source =
+        project.kind === "git"
+          ? { kind: "worktree" as const, projectId: project.projectId, ...(project.rootPath ? { cwd: project.rootPath } : {}) }
+          : { kind: "directory" as const, path: project.rootPath, projectId: project.projectId };
+      // The host observer's subscription brings the new workspace into the tree.
+      const handle = await api.workspaces.create({ source });
+      return handle.id;
+    },
     dispose() {
       if (timers.stop !== undefined) clearTimeout(timers.stop);
       if (timers.emit !== undefined) clearTimeout(timers.emit);

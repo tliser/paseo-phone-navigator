@@ -226,3 +226,22 @@ describe("store hosts", () => {
     store.dispose();
   });
 });
+
+describe("store createWorkspace", () => {
+  it("creates a worktree for git projects and a directory workspace otherwise", async () => {
+    const calls: unknown[] = [];
+    const api = { ...emptyApi(), workspaces: { ...emptyApi().workspaces, create: async (options: unknown) => (calls.push(options), { id: `w${calls.length}` }) } };
+    clients.set("h", api);
+    const store = createStore(rpcFor(fakeHost()) as never, () => () => undefined);
+    store.setHosts([{ serverId: "h", label: "H", status: "online" }] as never);
+    store.retain();
+    await flush();
+    expect(await store.createWorkspace("h", { projectId: "p1", kind: "git", rootPath: "/repo" })).toBe("w1");
+    expect(await store.createWorkspace("h", { projectId: "p2", kind: "non_git", rootPath: "/notes" })).toBe("w2");
+    expect(calls).toEqual([
+      { source: { kind: "worktree", projectId: "p1", cwd: "/repo" } },
+      { source: { kind: "directory", path: "/notes", projectId: "p2" } },
+    ]);
+    store.dispose();
+  });
+});

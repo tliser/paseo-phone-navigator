@@ -27,7 +27,7 @@ describe("deriveWorkspaces", () => {
   it("maps fields and drops hidden workspaces", () => {
     const result = deriveWorkspaces(
       [
-        workspace("a", { title: "  Real title ", projectCustomName: "Custom", diffStat: { additions: 3, deletions: 4 }, gitRuntime: { currentBranch: "main" } }),
+        workspace("a", { title: "  Real title ", projectCustomName: "Custom", projectKind: "git", projectRootPath: "/srv/p", diffStat: { additions: 3, deletions: 4 }, gitRuntime: { currentBranch: "main" } }),
         workspace("bg", { background: true }),
         workspace("arch", { archivingAt: "x" }),
         workspace("b", { title: null }),
@@ -35,8 +35,8 @@ describe("deriveWorkspaces", () => {
       [agent("x", "a", "2026-02-01T00:00:00Z")],
     );
     expect(result.map((w) => w.id)).toEqual(["a", "b"]);
-    expect(result[0]).toMatchObject({ title: "Real title", projectName: "Custom", branch: "main", additions: 3, deletions: 4, model: "m-x", activityAt: Date.parse("2026-02-01T00:00:00Z") });
-    expect(result[1]).toMatchObject({ title: "name-b", projectName: "Project", branch: null, model: null });
+    expect(result[0]).toMatchObject({ title: "Real title", projectName: "Custom", projectKind: "git", projectRootPath: "/srv/p", branch: "main", additions: 3, deletions: 4, model: "m-x", activityAt: Date.parse("2026-02-01T00:00:00Z") });
+    expect(result[1]).toMatchObject({ title: "name-b", projectName: "Project", projectKind: "directory", projectRootPath: "", branch: null, model: null });
   });
 });
 

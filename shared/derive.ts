@@ -1,13 +1,15 @@
 // Turns the daemon's workspace and agent payloads into WorkspaceInput. Pure; structural types only,
 // so it neither depends on the SDK's generated types nor breaks when fields are added.
 import { epoch } from "./format";
-import type { WorkspaceInput, WorkspaceStatus } from "./types";
+import type { ProjectKind, WorkspaceInput, WorkspaceStatus } from "./types";
 
 export interface WorkspaceLike {
   id: string;
   projectId: string;
   projectDisplayName: string;
   projectCustomName?: string | null;
+  projectKind?: string;
+  projectRootPath?: string;
   name: string;
   title?: string | null;
   status: WorkspaceStatus;
@@ -110,6 +112,8 @@ export function deriveWorkspaces(workspaces: readonly WorkspaceLike[], agents: r
       id: workspace.id,
       projectId: workspace.projectId,
       projectName: workspace.projectCustomName?.trim() || workspace.projectDisplayName,
+      projectKind: (workspace.projectKind === "git" || workspace.projectKind === "non_git" ? workspace.projectKind : "directory") as ProjectKind,
+      projectRootPath: workspace.projectRootPath ?? "",
       title: workspace.title?.trim() || workspace.name,
       status: workspace.status,
       needsYou,

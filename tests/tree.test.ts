@@ -11,7 +11,7 @@ const min = (m: number) => NOW - m * 60_000;
 function ws(id: string, projectId: string, status: WorkspaceInput["status"], activityMinutes: number, extra: Partial<WorkspaceInput> & { news?: number } = {}): WorkspaceInput {
   const { news, ...rest } = extra;
   return {
-    id, projectId, projectName: projectId.toUpperCase(), title: `title ${id}`, status,
+    id, projectId, projectName: projectId.toUpperCase(), projectKind: "git", projectRootPath: `/p/${projectId}`, title: `title ${id}`, status,
     needsYou: status === "needs_input", unreadAt: news !== undefined ? min(news) : 0,
     branch: `br-${id}`, additions: 1, deletions: 2, activityAt: min(activityMinutes),
     model: "anthropic/claude-sonnet-4-5-20250929", ...rest,

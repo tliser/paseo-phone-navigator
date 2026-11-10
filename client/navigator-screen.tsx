@@ -344,7 +344,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
 
   if (row.type === "project") {
     return (
-      <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", paddingRight: onPickUp ? 12 : 6, backgroundColor: c.surface0, ...separator, ...liftStyle }}>
+      <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", paddingRight: 6, backgroundColor: c.surface0, ...separator, ...liftStyle }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${row.name}, ${row.count} workspaces${row.collapsed && row.tally.needsYou ? ", something asks you" : row.collapsed && row.tally.unread ? ", unread" : ""}`}
@@ -374,7 +374,6 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
             <Icon name="Plus" size={16} color={c.foregroundMuted} />
           </Pressable>
         ) : null}
-        {onPickUp ? <Icon name="GripVertical" size={14} color={c.foregroundMuted} /> : null}
       </View>
     );
   }
@@ -447,9 +446,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
       >
         <Icon name="Ellipsis" size={18} color={row.state === "unread" ? UNREAD_BLUE : c.foregroundMuted} />
       </Pressable>
-      <View style={{ width: onPickUp ? 22 : 8, alignItems: "flex-start" }}>
-        {onPickUp ? <Icon name="GripVertical" size={14} color={c.foregroundMuted} /> : null}
-      </View>
+      <View style={{ width: 6 }} />
     </View>
   );
 }

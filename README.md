@@ -12,9 +12,10 @@ A Host → Project → Workspace tree for [Paseo](https://paseo.sh), built for t
 
 - **One tree for all hosts.** Hosts, projects and workspaces can each be collapsed, and the tree remembers what you collapsed. Offline hosts are shown dimmed.
 - **Rich workspace rows.** Each row shows the status, title, diff size, branch, the model of the most recently active agent and when it was last active.
-- **Asking you vs. unread.** Workspaces that wait for input, failed or are flagged count as *asking you*. Finished work you haven't looked at yet counts as *unread*. The envelope button on a row marks it read or unread, and read state is synced across devices.
+- **Asking you vs. unread.** Workspaces that wait for input, failed or are flagged count as *asking you*. Finished work you haven't looked at yet counts as *unread*. Read state is synced across devices.
 - **Filters and search.** All, Active and Inbox (asking you plus unread), and a search box. Tap the counter badge to jump to the Inbox.
-- **New workspace.** The **+** on a project row creates a workspace in that project and opens it: a new worktree with a generated branch for git projects, otherwise another workspace on the same folder.
+- **New workspace.** The **+** on a project row opens a draft, like Paseo's own New workspace screen: choose a new worktree (optional branch name) or the project folder, then an agent with model, mode and first message, or a terminal. Nothing is created until you tap *Create*; closing the draft discards it.
+- **Row actions.** The **⋯** on a workspace row marks it read or unread, or archives it. Archiving asks first and warns when an agent is still working or waiting for you.
 - **Manual order.** Set a profile's *Order* to *Manual*, then long-press a row and drag it. Projects reorder within their host and workspaces within their project. Each profile keeps its own order, and new items appear first.
 - **Profiles.** Phone and Desktop come built in, and you can add your own. A profile holds the density, default filter, order, hidden hosts, the "hide finished/read workspaces" setting and the collapse state. Profiles are stored on the host serving the plugin, so all your devices share them.
 - **Entry points.** A "Workspaces" row in the sidebar (with a badge for things that need you), a header button on every workspace, and a Command Center entry.

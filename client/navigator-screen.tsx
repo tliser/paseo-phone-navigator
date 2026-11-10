@@ -9,9 +9,11 @@ import { dragId, heightsFor, rowOffsets, type DropTarget } from "../shared/drag"
 import { buildTree, type ProjectRow, type TreeRow, type WorkspaceRow } from "../shared/tree";
 import type { Filter } from "../shared/types";
 import { useDragController } from "./drag-controller";
+import { NewWorkspaceSheet } from "./new-workspace-sheet";
 import { ProfileSheet } from "./profile-sheet";
 import { useActiveProfile, useNavigatorStore } from "./runtime";
 import { StateIcon, TallyBadge, UNREAD_BLUE } from "./visual";
+import { WorkspaceMenu } from "./workspace-menu";
 
 const FILTER_LABEL: Record<Filter, string> = { all: "All", active: "Active", inbox: "Inbox" };
 const FILTERS: Filter[] = ["all", "active", "inbox"];
@@ -39,9 +41,9 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
   const [sheet, setSheet] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  /** Project keys with a workspace being created, and the last creation error. */
-  const [creating, setCreating] = useState<ReadonlySet<string>>(() => new Set());
-  const [createError, setCreateError] = useState<string | null>(null);
+  /** Project whose new-workspace draft is open, and workspace whose menu is open. */
+  const [draftFor, setDraftFor] = useState<ProjectRow | null>(null);
+  const [menuFor, setMenuFor] = useState<WorkspaceRow | null>(null);
 
   // Relative times stay fresh without re-rendering on every data tick.
   useEffect(() => {
@@ -68,30 +70,13 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
     },
     [navigation, store],
   );
-  const createIn = useCallback(
-    (row: ProjectRow) => {
-      setCreateError(null);
-      setCreating((keys) => new Set(keys).add(row.key));
-      store
-        .createWorkspace(row.serverId, { projectId: row.projectId, kind: row.kind, rootPath: row.rootPath })
-        .then((workspaceId) => {
-          store.markRead(row.serverId, [workspaceId]);
-          navigation?.openWorkspace({ workspaceId, serverId: row.serverId });
-        })
-        .catch((error: unknown) => setCreateError(`${row.name}: ${error instanceof Error ? error.message : String(error)}`))
-        .finally(() =>
-          setCreating((keys) => {
-            const next = new Set(keys);
-            next.delete(row.key);
-            return next;
-          }),
-        );
+  const created = useCallback(
+    (serverId: string, workspaceId: string) => {
+      setDraftFor(null);
+      store.markRead(serverId, [workspaceId]);
+      navigation?.openWorkspace({ workspaceId, serverId });
     },
     [store, navigation],
-  );
-  const toggleRead = useCallback(
-    (row: WorkspaceRow) => (row.state === "unread" ? store.markRead(row.serverId, [row.workspace.id]) : store.markUnread(row.serverId, row.workspace.id)),
-    [store],
   );
   const unreadIds = (serverId: string | null) =>
     tree.rows.flatMap((row) => (row.type === "workspace" && row.state === "unread" && (!serverId || row.serverId === serverId) ? [row] : []));
@@ -132,9 +117,8 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
       now={now}
       onToggle={toggle}
       onOpen={open}
-      onToggleRead={toggleRead}
-      onCreate={createIn}
-      creating={creating.has(item.key)}
+      onMenu={setMenuFor}
+      onCreate={setDraftFor}
       canOpen={!!navigation}
       onPickUp={canArrange && dragId(item) ? () => drag.pickUp(index) : undefined}
       lifted={dragging?.index === index ? dragging.dy : null}
@@ -234,18 +218,16 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
         ) : null}
       </View>
 
-      {snapshot.errors.length || snapshot.savingError || createError ? (
-        <Pressable accessibilityRole="button" accessibilityHint="Dismiss" disabled={!createError} onPress={() => setCreateError(null)}>
-          <Text style={{ ...muted, fontSize: 12, paddingHorizontal: 12, paddingVertical: 6, color: c.statusDanger }} numberOfLines={3}>
-            {[...snapshot.errors, ...(snapshot.savingError ? [snapshot.savingError] : []), ...(createError ? [`Could not create workspace in ${createError}`] : [])].join("\n")}
-          </Text>
-        </Pressable>
+      {snapshot.errors.length || snapshot.savingError ? (
+        <Text style={{ ...muted, fontSize: 12, paddingHorizontal: 12, paddingVertical: 6, color: c.statusDanger }} numberOfLines={3}>
+          {[...snapshot.errors, ...(snapshot.savingError ? [snapshot.savingError] : [])].join("\n")}
+        </Text>
       ) : null}
 
       <View style={{ flex: 1 }} {...drag.handlers}>
         <FlatList
           data={tree.rows}
-          extraData={[dragging, creating]}
+          extraData={dragging}
           keyExtractor={(row) => row.key}
           renderItem={renderItem}
           ListFooterComponent={empty}
@@ -271,6 +253,8 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
         ) : null}
       </View>
 
+      {draftFor ? <NewWorkspaceSheet theme={theme} project={draftFor} onClose={() => setDraftFor(null)} onCreated={(id) => created(draftFor.serverId, id)} /> : null}
+      {menuFor ? <WorkspaceMenu theme={theme} row={menuFor} onClose={() => setMenuFor(null)} /> : null}
       {sheet ? <ProfileSheet theme={theme} platform={layout.platform} active={profile} onClose={() => setSheet(false)} onEdit={() => { setSheet(false); openSettings(); }} /> : null}
     </View>
   );
@@ -319,17 +303,15 @@ interface RowProps {
   canOpen: boolean;
   onToggle(key: string): void;
   onOpen(row: WorkspaceRow): void;
-  onToggleRead(row: WorkspaceRow): void;
+  onMenu(row: WorkspaceRow): void;
   onCreate(row: ProjectRow): void;
-  /** A workspace is being created in this project row. */
-  creating: boolean;
   /** Set in manual mode: long-press picks the row up for dragging. */
   onPickUp?: () => void;
   /** Drag offset while this row is picked up, else null. */
   lifted: number | null;
 }
 
-function Row({ row, theme, profile, comfortable, searching, now, canOpen, onToggle, onOpen, onToggleRead, onCreate, creating, onPickUp, lifted }: RowProps) {
+function Row({ row, theme, profile, comfortable, searching, now, canOpen, onToggle, onOpen, onMenu, onCreate, onPickUp, lifted }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null
@@ -385,13 +367,11 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`New workspace in ${row.name}`}
-            accessibilityState={{ busy: creating, disabled: creating }}
-            disabled={creating}
             onPress={() => onCreate(row)}
             hitSlop={4}
-            style={{ width: 40, height: groupHeight, alignItems: "center", justifyContent: "center", opacity: creating ? 0.5 : 1 }}
+            style={{ width: 40, height: groupHeight, alignItems: "center", justifyContent: "center" }}
           >
-            <Icon name={creating ? "LoaderCircle" : "Plus"} size={16} color={c.foregroundMuted} />
+            <Icon name="Plus" size={16} color={c.foregroundMuted} />
           </Pressable>
         ) : null}
         {onPickUp ? <Icon name="GripVertical" size={14} color={c.foregroundMuted} /> : null}
@@ -458,19 +438,15 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
           ) : null}
         </View>
       </Pressable>
-      {row.state === "unread" || row.state === "read" ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={row.state === "unread" ? "Mark read" : "Mark unread"}
-          onPress={() => onToggleRead(row)}
-          hitSlop={4}
-          style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}
-        >
-          <Icon name={row.state === "unread" ? "MailOpen" : "Mail"} size={16} color={row.state === "unread" ? UNREAD_BLUE : c.foregroundMuted} />
-        </Pressable>
-      ) : (
-        <View style={{ width: 40 }} />
-      )}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Actions for ${workspace.title}`}
+        onPress={() => onMenu(row)}
+        hitSlop={4}
+        style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}
+      >
+        <Icon name="Ellipsis" size={18} color={row.state === "unread" ? UNREAD_BLUE : c.foregroundMuted} />
+      </Pressable>
       <View style={{ width: onPickUp ? 22 : 8, alignItems: "flex-start" }}>
         {onPickUp ? <Icon name="GripVertical" size={14} color={c.foregroundMuted} /> : null}
       </View>

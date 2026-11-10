@@ -64,10 +64,31 @@ export interface Store {
   markRead(serverId: string, workspaceIds: readonly string[]): void;
   /** Show the workspace as unread again until you next view it. */
   markUnread(serverId: string, workspaceId: string): void;
-  /** New workspace in a project: a worktree with a generated branch for git projects, else one on the same folder. Resolves to the new workspace id. */
-  createWorkspace(serverId: string, project: { projectId: string; kind: ProjectKind; rootPath: string }): Promise<string>;
+  /** Agents and models the host can launch in this folder. */
+  providers(serverId: string, cwd: string): Promise<ProviderChoice[]>;
+  /** Creates a workspace with its first agent or terminal. Nothing exists before this resolves. Returns the workspace id. */
+  launchWorkspace(serverId: string, input: LaunchInput): Promise<string>;
+  archiveWorkspace(serverId: string, workspaceId: string): Promise<void>;
   dispose(): void;
 }
+
+export interface ProviderChoice {
+  id: string;
+  label: string;
+  models: { id: string; label: string; isDefault: boolean }[];
+  modes: { id: string; label: string }[];
+  defaultModeId: string | null;
+}
+
+export type LaunchInput = {
+  projectId: string;
+  kind: ProjectKind;
+  rootPath: string;
+  /** Git projects only: a new worktree (optionally on a named branch) or the project folder itself. */
+  isolation: "worktree" | "local";
+  branchName?: string;
+  launch: { kind: "agent"; provider: string; model: string; modeId?: string; prompt?: string } | { kind: "terminal" };
+};
 
 export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => () => void): Store {
   const listeners = new Set<() => void>();
@@ -199,6 +220,10 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       else connectErrors.delete(host.serverId);
     }
     emitNow();
+  }
+
+  function apiFor(serverId: string): PaseoApi {
+    return observers.get(serverId)?.api ?? getPaseoClient(serverId);
   }
 
   function refresh() {
@@ -365,15 +390,45 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     move,
     markRead,
     markUnread,
-    async createWorkspace(serverId, project) {
-      const api = observers.get(serverId)?.api ?? getPaseoClient(serverId);
+    async providers(serverId, cwd) {
+      const snapshot = await apiFor(serverId).providers.snapshot({ cwd });
+      return snapshot.entries
+        .filter((entry) => entry.enabled && entry.status === "ready" && (entry.models?.length ?? 0) > 0)
+        .map((entry) => ({
+          id: entry.provider,
+          label: entry.label ?? entry.provider,
+          models: (entry.models ?? []).filter((model) => model.isSelectable !== false).map((model) => ({ id: model.id, label: model.label, isDefault: !!model.isDefault })),
+          modes: (entry.modes ?? []).map((mode) => ({ id: mode.id, label: mode.label })),
+          defaultModeId: entry.defaultModeId ?? null,
+        }));
+    },
+    async launchWorkspace(serverId, input) {
+      const api = apiFor(serverId);
+      const branchName = input.branchName?.trim();
       const source =
-        project.kind === "git"
-          ? { kind: "worktree" as const, projectId: project.projectId, ...(project.rootPath ? { cwd: project.rootPath } : {}) }
-          : { kind: "directory" as const, path: project.rootPath, projectId: project.projectId };
+        input.kind === "git" && input.isolation === "worktree"
+          ? { kind: "worktree" as const, projectId: input.projectId, cwd: input.rootPath, ...(branchName ? { branchName } : {}) }
+          : { kind: "directory" as const, path: input.rootPath, projectId: input.projectId };
+      const { launch } = input;
+      const prompt = launch.kind === "agent" ? launch.prompt?.trim() : undefined;
       // The host observer's subscription brings the new workspace into the tree.
-      const handle = await api.workspaces.create({ source });
+      const handle = await api.workspaces.create({
+        source,
+        ...(launch.kind === "agent"
+          ? {
+              agent: {
+                config: { provider: `${launch.provider}/${launch.model}`, ...(launch.modeId ? { modeId: launch.modeId } : {}) },
+                cwd: input.rootPath,
+                ...(prompt ? { prompt } : {}),
+              },
+            }
+          : {}),
+      });
+      if (launch.kind === "terminal") await handle.terminals.create();
       return handle.id;
+    },
+    async archiveWorkspace(serverId, workspaceId) {
+      await apiFor(serverId).workspaces.archive(workspaceId);
     },
     dispose() {
       if (timers.stop !== undefined) clearTimeout(timers.stop);

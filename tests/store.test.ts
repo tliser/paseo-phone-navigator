@@ -227,21 +227,63 @@ describe("store hosts", () => {
   });
 });
 
-describe("store createWorkspace", () => {
-  it("creates a worktree for git projects and a directory workspace otherwise", async () => {
-    const calls: unknown[] = [];
-    const api = { ...emptyApi(), workspaces: { ...emptyApi().workspaces, create: async (options: unknown) => (calls.push(options), { id: `w${calls.length}` }) } };
+describe("store workspace actions", () => {
+  function setup() {
+    const calls: { kind: string; value: unknown }[] = [];
+    const base = emptyApi();
+    const handle = (id: string) => ({ id, terminals: { create: async () => void calls.push({ kind: "terminal", value: id }) } });
+    const api = {
+      ...base,
+      workspaces: {
+        ...base.workspaces,
+        create: async (options: unknown) => (calls.push({ kind: "create", value: options }), handle(`w${calls.length}`)),
+        archive: async (id: string) => void calls.push({ kind: "archive", value: id }),
+      },
+      providers: {
+        snapshot: async () => ({
+          entries: [
+            { provider: "plexus", label: "Plexus", enabled: true, status: "ready", defaultModeId: "build", modes: [{ id: "build", label: "Build" }], models: [{ id: "m1", label: "M1", isDefault: true }, { id: "hidden", label: "H", isSelectable: false }] },
+            { provider: "claude", enabled: false, status: "unavailable", models: [{ id: "x", label: "X" }] },
+          ],
+        }),
+      },
+    };
     clients.set("h", api);
     const store = createStore(rpcFor(fakeHost()) as never, () => () => undefined);
     store.setHosts([{ serverId: "h", label: "H", status: "online" }] as never);
     store.retain();
+    return { store, calls };
+  }
+
+  it("lists only ready providers with selectable models", async () => {
+    const { store } = setup();
     await flush();
-    expect(await store.createWorkspace("h", { projectId: "p1", kind: "git", rootPath: "/repo" })).toBe("w1");
-    expect(await store.createWorkspace("h", { projectId: "p2", kind: "non_git", rootPath: "/notes" })).toBe("w2");
-    expect(calls).toEqual([
-      { source: { kind: "worktree", projectId: "p1", cwd: "/repo" } },
-      { source: { kind: "directory", path: "/notes", projectId: "p2" } },
+    expect(await store.providers("h", "/repo")).toEqual([
+      { id: "plexus", label: "Plexus", models: [{ id: "m1", label: "M1", isDefault: true }], modes: [{ id: "build", label: "Build" }], defaultModeId: "build" },
     ]);
+    store.dispose();
+  });
+
+  it("creates the workspace together with its first agent, or a terminal", async () => {
+    const { store, calls } = setup();
+    await flush();
+    await store.launchWorkspace("h", { projectId: "p1", kind: "git", rootPath: "/repo", isolation: "worktree", branchName: " feat/x ", launch: { kind: "agent", provider: "plexus", model: "m1", modeId: "build", prompt: "hi" } });
+    await store.launchWorkspace("h", { projectId: "p1", kind: "git", rootPath: "/repo", isolation: "local", launch: { kind: "terminal" } });
+    await store.launchWorkspace("h", { projectId: "p2", kind: "non_git", rootPath: "/notes", isolation: "worktree", launch: { kind: "agent", provider: "plexus", model: "m1" } });
+    expect(calls).toEqual([
+      { kind: "create", value: { source: { kind: "worktree", projectId: "p1", cwd: "/repo", branchName: "feat/x" }, agent: { config: { provider: "plexus/m1", modeId: "build" }, cwd: "/repo", prompt: "hi" } } },
+      { kind: "create", value: { source: { kind: "directory", path: "/repo", projectId: "p1" } } },
+      { kind: "terminal", value: "w2" },
+      { kind: "create", value: { source: { kind: "directory", path: "/notes", projectId: "p2" }, agent: { config: { provider: "plexus/m1" }, cwd: "/notes" } } },
+    ]);
+    store.dispose();
+  });
+
+  it("archives", async () => {
+    const { store, calls } = setup();
+    await flush();
+    await store.archiveWorkspace("h", "w9");
+    expect(calls).toEqual([{ kind: "archive", value: "w9" }]);
     store.dispose();
   });
 });

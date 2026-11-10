@@ -5,12 +5,15 @@ import type { Tally } from "../shared/tree";
 import type { WorkspaceState, WorkspaceStatus } from "../shared/types";
 
 export const UNREAD_BLUE = "#60A5FA";
-const RUNNING_BLUE = "#60A5FA";
+/** Distinct from unread blue so running and unread never read as the same state. */
+const RUNNING_VIOLET = "#A78BFA";
+/** Dark text on amber/blue badge fills; white fails WCAG contrast there. */
+const BADGE_TEXT = "#0B1220";
 
 /** Icon per row state. Only "needs you" uses the warning colour. */
 export function stateLook(theme: PluginTheme, state: WorkspaceState, status: WorkspaceStatus): { icon: string; color: string; label: string } {
   if (state === "needs_you") return { icon: "MessageCircleQuestion", color: theme.colors.statusWarning, label: "Asking you" };
-  if (state === "running") return { icon: "LoaderCircle", color: RUNNING_BLUE, label: "Running" };
+  if (state === "running") return { icon: "LoaderCircle", color: RUNNING_VIOLET, label: "Running" };
   if (state === "unread") {
     return status === "failed"
       ? { icon: "CircleX", color: theme.colors.statusDanger, label: "Failed, unread" }
@@ -25,7 +28,7 @@ function Pill({ color, text, small }: { color: string; text: string; small?: boo
   const size = small ? 16 : 18;
   return (
     <View style={{ minWidth: size, height: size, paddingHorizontal: 5, borderRadius: size / 2, backgroundColor: color, alignItems: "center", justifyContent: "center" }}>
-      <Text style={{ color: "#fff", fontSize: small ? 10 : 11, fontWeight: "700" }}>{text}</Text>
+      <Text style={{ color: BADGE_TEXT, fontSize: small ? 11 : 12, fontWeight: "700" }}>{text}</Text>
     </View>
   );
 }

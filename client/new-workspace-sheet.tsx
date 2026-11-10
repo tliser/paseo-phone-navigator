@@ -83,7 +83,7 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
             onPress={() => onChange(option.id)}
-            style={{ flex: 1, minHeight: 40, borderRadius: 10, borderWidth: 1, borderColor: active ? c.foreground : c.border, backgroundColor: active ? c.surface2 : c.surface1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}
+            style={{ flex: 1, minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: active ? c.foreground : c.border, backgroundColor: active ? c.surface2 : c.surface1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }}
           >
             <Icon name={option.icon} size={15} color={c.foreground} />
             <Text style={{ color: c.foreground, fontSize: 14 }}>{option.label}</Text>

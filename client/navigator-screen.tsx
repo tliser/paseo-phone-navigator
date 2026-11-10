@@ -271,7 +271,7 @@ function HeaderButton({ theme, icon, label, onPress }: { theme: PluginTheme; ico
 function Chip({ theme, label, active, onPress }: { theme: PluginTheme; label: string; active: boolean; onPress(): void }) {
   const c = theme.colors;
   return (
-    <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} style={{ minHeight: 32, paddingHorizontal: 12, borderRadius: 16, justifyContent: "center", borderWidth: 1, borderColor: active ? c.foreground : c.border, backgroundColor: active ? c.foreground : c.surface1 }}>
+    <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} hitSlop={{ top: 6, bottom: 6 }} style={{ minHeight: 32, paddingHorizontal: 12, borderRadius: 16, justifyContent: "center", borderWidth: 1, borderColor: active ? c.foreground : c.border, backgroundColor: active ? c.foreground : c.surface1 }}>
       <Text style={{ fontSize: 13, color: active ? c.surface0 : c.foreground }}>{label}</Text>
     </Pressable>
   );
@@ -285,7 +285,7 @@ function EmptyState({ theme, icon, title, text, action }: { theme: PluginTheme; 
       <Text style={{ color: c.foreground, fontWeight: "600", textAlign: "center" }}>{title}</Text>
       {text ? <Text style={{ color: c.foregroundMuted, textAlign: "center" }}>{text}</Text> : null}
       {action ? (
-        <Pressable accessibilityRole="button" onPress={action.onPress} style={{ minHeight: 40, paddingHorizontal: 16, borderRadius: 10, justifyContent: "center", backgroundColor: c.surface2 }}>
+        <Pressable accessibilityRole="button" onPress={action.onPress} style={{ minHeight: 44, paddingHorizontal: 16, borderRadius: 10, justifyContent: "center", backgroundColor: c.surface2 }}>
           <Text style={{ color: c.foreground, fontWeight: "500" }}>{action.label}</Text>
         </Pressable>
       ) : null}
@@ -323,6 +323,8 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
 
   if (row.type === "host") {
     const online = row.state === "online";
+    // Offline: name and "offline" stay readable; only the dot and chevron are dimmed.
+    const dim = row.state === "offline" ? 0.45 : 1;
     const dot = row.state === "online" ? c.statusSuccess : row.state === "loading" ? c.statusWarning : c.foregroundMuted;
     return (
       <Pressable
@@ -331,10 +333,10 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
         accessibilityState={online ? { expanded: !row.collapsed } : { disabled: true }}
         disabled={!online}
         onPress={() => onToggle(row.key)}
-        style={{ height: groupHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 8, paddingRight: 12, backgroundColor: c.surface1, opacity: row.state === "offline" ? 0.45 : 1, ...separator }}
+        style={{ height: groupHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 8, paddingRight: 12, backgroundColor: c.surface1, ...separator }}
       >
-        <View style={{ width: 20, alignItems: "center" }}>{online ? <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} /> : null}</View>
-        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />
+        <View style={{ width: 20, alignItems: "center", opacity: dim }}>{online ? <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} /> : null}</View>
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot, opacity: dim }} />
         <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>{row.label}</Text>
         {online ? <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.count}</Text> : <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.state === "offline" ? "offline" : "loading…"}</Text>}
         {online ? <TallyBadge theme={theme} tally={row.tally} /> : null}
@@ -368,7 +370,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
             accessibilityRole="button"
             accessibilityLabel={`New workspace in ${row.name}`}
             onPress={() => onCreate(row)}
-            hitSlop={4}
+            hitSlop={{ left: 2, right: 2 }}
             style={{ width: 40, height: groupHeight, alignItems: "center", justifyContent: "center" }}
           >
             <Icon name="Plus" size={16} color={c.foregroundMuted} />
@@ -441,7 +443,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
         accessibilityRole="button"
         accessibilityLabel={`Actions for ${workspace.title}`}
         onPress={() => onMenu(row)}
-        hitSlop={4}
+        hitSlop={{ left: 2, right: 2 }}
         style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}
       >
         <Icon name="Ellipsis" size={18} color={row.state === "unread" ? UNREAD_BLUE : c.foregroundMuted} />

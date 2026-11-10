@@ -1,6 +1,6 @@
 # Phone Navigator for Paseo
 
-A Host → Project → Workspace tree for [Paseo](https://paseo.sh), built for the iOS app but usable on desktop and web too. It shows every workspace on every connected host in one place, with what needs you on top.
+A Host → Project → Workspace tree for [Paseo](https://paseo.sh), built for the mobile apps but usable on desktop and web too. It shows every workspace on every connected host in one place, with what needs you on top.
 
 <p>
   <img src="docs/screenshots/phone-active.png" width="230" alt="Active filter on the phone">
@@ -76,7 +76,7 @@ Layout:
 - `client/paseo.ts`: SDK types derived from `getPaseoClient`, so a Git install compiles without dev dependencies.
 - `mockups/index.html`: the original clickable design mockup.
 
-There are no classes anywhere, because the iOS app runs plugins on Hermes.
+There are no classes anywhere, because the mobile apps run plugins on Hermes.
 
 ## License
 

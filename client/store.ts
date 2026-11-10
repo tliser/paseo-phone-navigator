@@ -10,6 +10,7 @@ import {
   type Profile,
   type ProfilesDocument,
 } from "../shared/profiles";
+import { moveRelative, type Place } from "../shared/order";
 import { markSeen, normalizeReads, readKey, type ReadMap, type ReadsDocument } from "../shared/reads";
 import { profilesSettings, readsSettings } from "../shared/settings";
 import type { HostInput } from "../shared/types";
@@ -57,6 +58,8 @@ export interface Store {
   setCollapse(profileId: string, map: CollapseMap): void;
   /** Applies a change to the profiles list and saves it. */
   editProfiles(change: (profiles: Profile[]) => Profile[]): void;
+  /** Moves one item within its group of the profile's manual order. `ids` is the group's full current order. */
+  move(profileId: string, group: string, ids: readonly string[], id: string, targetId: string, place: Place): void;
   /** You viewed these workspaces now: they stop being unread. */
   markRead(serverId: string, workspaceIds: readonly string[]): void;
   /** Show the workspace as unread again until you next view it. */
@@ -210,6 +213,15 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     profilesDoc.edit((doc) => ({ profiles: change(doc.profiles) }));
   }
 
+  function move(profileId: string, group: string, ids: readonly string[], id: string, targetId: string, place: Place) {
+    const next = moveRelative(ids, id, targetId, place);
+    if (next.join("\n") === ids.join("\n")) return;
+    const now = Date.now();
+    editProfiles((profiles) =>
+      profiles.map((profile) => (profile.id === profileId ? { ...profile, order: { ...profile.order, [group]: next }, updatedAt: now } : profile)),
+    );
+  }
+
   // ---- read state ----
 
   function flushReads() {
@@ -348,6 +360,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     selectProfile,
     setCollapse,
     editProfiles,
+    move,
     markRead,
     markUnread,
     dispose() {

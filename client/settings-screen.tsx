@@ -51,7 +51,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
       created = newProfileId(profiles, now);
       const profile: Profile = base
         ? { ...base, id: created, name: `${base.name} copy`.slice(0, 60), platform: null, updatedAt: now }
-        : { id: created, name: "New profile", platform: null, updatedAt: now, settings: defaultSettings(), collapse: {} };
+        : { id: created, name: "New profile", platform: null, updatedAt: now, settings: defaultSettings(), collapse: {}, order: {} };
       return [...profiles, profile];
     });
     if (created) setEditId(created);
@@ -131,6 +131,14 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
             disabled={!snapshot.profilesReady}
           />
           <SettingsSelect
+            label="Order"
+            hint={s.sort === "manual" ? "Long-press a project or workspace and drag it. Status shows through icons and badges." : "Asking, unread and running first, then most recent."}
+            value={s.sort}
+            options={[{ value: "auto", label: "Automatic" }, { value: "manual", label: "Manual (drag and drop)" }]}
+            onValueChange={(sort) => updateSettings({ sort })}
+            disabled={!snapshot.profilesReady}
+          />
+          <SettingsSelect
             label="Hide finished, read workspaces"
             value={s.hideDone}
             options={[{ value: "off", label: "Never" }, { value: "1d", label: "After 1 day" }, { value: "7d", label: "After 7 days" }]}
@@ -153,6 +161,13 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
         <SettingsCard>
           {yesNo(s.newGroupsExpanded.hosts, (hosts) => updateSettings({ newGroupsExpanded: { ...s.newGroupsExpanded, hosts } }), "Hosts expanded")}
           {yesNo(s.newGroupsExpanded.projects, (projects) => updateSettings({ newGroupsExpanded: { ...s.newGroupsExpanded, projects } }), "Projects expanded")}
+          <SettingsAction
+            label="Manual order"
+            hint="Your drag-and-drop order of projects and workspaces in this profile."
+            actionLabel="Reset"
+            disabled={!Object.keys(edit.order).length}
+            onPress={() => update((profile) => ({ ...profile, order: {} }))}
+          />
           <SettingsAction
             label="Remembered collapse state"
             hint={snapshot.deviceStorage ? "Stored on this device." : "Stored in the profile."}

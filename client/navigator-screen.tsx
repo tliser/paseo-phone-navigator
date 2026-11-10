@@ -5,8 +5,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { timeAgo } from "../shared/format";
 import { expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
+import { dragId, heightsFor, rowOffsets, type DropTarget } from "../shared/drag";
 import { buildTree, type TreeRow, type WorkspaceRow } from "../shared/tree";
 import type { Filter } from "../shared/types";
+import { useDragController } from "./drag-controller";
 import { ProfileSheet } from "./profile-sheet";
 import { useActiveProfile, useNavigatorStore } from "./runtime";
 import { StateIcon, TallyBadge, UNREAD_BLUE } from "./visual";
@@ -45,8 +47,8 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
   }, []);
 
   const tree = useMemo(
-    () => buildTree(snapshot.hosts, { filter, query, settings, collapse, reads: snapshot.reads, now, hostOrder: snapshot.hostOrder }),
-    [snapshot.hosts, snapshot.hostOrder, snapshot.reads, filter, query, settings, collapse, now],
+    () => buildTree(snapshot.hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder }),
+    [snapshot.hosts, snapshot.hostOrder, snapshot.reads, profile.order, filter, query, settings, collapse, now],
   );
   const loading = snapshot.hosts.some((host) => host.loading);
   useEffect(() => {
@@ -78,9 +80,39 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
   const comfortable = settings.density === "comfortable";
   const c = theme.colors;
   const muted = { color: c.foregroundMuted };
+  const searching = query.trim().length > 0;
+  // Dragging only in manual mode and outside search (search reshapes the tree temporarily).
+  const canArrange = settings.sort === "manual" && !searching;
+  const heights = useMemo(() => heightsFor(comfortable), [comfortable]);
 
-  const renderItem = ({ item }: { item: TreeRow }) => (
-    <Row row={item} theme={theme} profile={profile} comfortable={comfortable} searching={query.trim().length > 0} now={now} onToggle={toggle} onOpen={open} onToggleRead={toggleRead} canOpen={!!navigation} />
+  const drop = useCallback(
+    (row: TreeRow, target: DropTarget) => {
+      const id = dragId(row);
+      const group = row.type === "workspace" || row.type === "project" ? row.group : null;
+      if (!id || !group) return;
+      store.move(profile.id, group, tree.groups[group] ?? [], id, target.targetId, target.place);
+    },
+    [store, profile.id, tree.groups],
+  );
+  const offsets = useMemo(() => rowOffsets(tree.rows, heights), [tree.rows, heights]);
+  const drag = useDragController({ rows: tree.rows, heights, onDrop: drop });
+  const dragging = drag.state;
+
+  const renderItem = ({ item, index }: { item: TreeRow; index: number }) => (
+    <Row
+      row={item}
+      theme={theme}
+      profile={profile}
+      comfortable={comfortable}
+      searching={searching}
+      now={now}
+      onToggle={toggle}
+      onOpen={open}
+      onToggleRead={toggleRead}
+      canOpen={!!navigation}
+      onPickUp={canArrange && dragId(item) ? () => drag.pickUp(index) : undefined}
+      lifted={dragging?.index === index ? dragging.dy : null}
+    />
   );
 
   const empty = snapshot.hosts.length === 0 ? (
@@ -182,21 +214,34 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
         </Text>
       ) : null}
 
-      <FlatList
-        data={tree.rows}
-        keyExtractor={(row) => row.key}
-        renderItem={renderItem}
-        ListFooterComponent={empty}
-        keyboardShouldPersistTaps="handled"
-        onRefresh={() => {
-          setRefreshing(true);
-          store.refresh();
-        }}
-        refreshing={refreshing}
-        initialNumToRender={30}
-        windowSize={11}
-        contentContainerStyle={{ paddingBottom: 40 }}
-      />
+      <View style={{ flex: 1 }} {...drag.handlers}>
+        <FlatList
+          data={tree.rows}
+          extraData={dragging}
+          keyExtractor={(row) => row.key}
+          renderItem={renderItem}
+          ListFooterComponent={empty}
+          keyboardShouldPersistTaps="handled"
+          scrollEnabled={!dragging}
+          onScroll={(event) => drag.setScrollY(event.nativeEvent.contentOffset.y)}
+          scrollEventThrottle={32}
+          onRefresh={() => {
+            setRefreshing(true);
+            store.refresh();
+          }}
+          refreshing={refreshing}
+          initialNumToRender={30}
+          windowSize={11}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          getItemLayout={(_data, index) => {
+            const top = offsets[index] ?? 0;
+            return { index, offset: top, length: (offsets[index + 1] ?? top) - top };
+          }}
+        />
+        {dragging?.drop ? (
+          <View pointerEvents="none" style={{ position: "absolute", left: 40, right: 12, top: dragging.drop.lineY - drag.scrollAtPickUp() - 1, height: 3, borderRadius: 2, backgroundColor: c.accent }} />
+        ) : null}
+      </View>
 
       {sheet ? <ProfileSheet theme={theme} platform={layout.platform} active={profile} onClose={() => setSheet(false)} onEdit={() => { setSheet(false); openSettings(); }} /> : null}
     </View>
@@ -247,11 +292,19 @@ interface RowProps {
   onToggle(key: string): void;
   onOpen(row: WorkspaceRow): void;
   onToggleRead(row: WorkspaceRow): void;
+  /** Set in manual mode: long-press picks the row up for dragging. */
+  onPickUp?: () => void;
+  /** Drag offset while this row is picked up, else null. */
+  lifted: number | null;
 }
 
-function Row({ row, theme, profile, comfortable, searching, now, canOpen, onToggle, onOpen, onToggleRead }: RowProps) {
+function Row({ row, theme, profile, comfortable, searching, now, canOpen, onToggle, onOpen, onToggleRead, onPickUp, lifted }: RowProps) {
   const c = theme.colors;
-  const groupHeight = comfortable ? 52 : 44;
+  const liftStyle =
+    lifted !== null
+      ? { transform: [{ translateY: lifted }], zIndex: 20, elevation: 8, opacity: 0.95, backgroundColor: c.surface2, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }
+      : null;
+  const { group: groupHeight, workspace: workspaceHeight, note: noteHeight } = heightsFor(comfortable);
   const fontSize = comfortable ? 15 : 14;
   const separator = { borderBottomWidth: 1, borderBottomColor: c.border };
 
@@ -265,7 +318,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
         accessibilityState={online ? { expanded: !row.collapsed } : { disabled: true }}
         disabled={!online}
         onPress={() => onToggle(row.key)}
-        style={{ minHeight: groupHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 8, paddingRight: 12, backgroundColor: c.surface1, opacity: row.state === "offline" ? 0.45 : 1, ...separator }}
+        style={{ height: groupHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 8, paddingRight: 12, backgroundColor: c.surface1, opacity: row.state === "offline" ? 0.45 : 1, ...separator }}
       >
         <View style={{ width: 20, alignItems: "center" }}>{online ? <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} /> : null}</View>
         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />
@@ -282,8 +335,11 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
         accessibilityRole="button"
         accessibilityLabel={`${row.name}, ${row.count} workspaces${row.collapsed && row.tally.needsYou ? ", something asks you" : row.collapsed && row.tally.unread ? ", unread" : ""}`}
         accessibilityState={{ expanded: !row.collapsed }}
+        accessibilityHint={onPickUp ? "Long press and drag to reorder" : undefined}
         onPress={() => onToggle(row.key)}
-        style={{ minHeight: groupHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 24, paddingRight: 12, ...separator }}
+        onLongPress={onPickUp}
+        delayLongPress={350}
+        style={{ height: groupHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 24, paddingRight: 12, backgroundColor: c.surface0, ...separator, ...liftStyle }}
       >
         <View style={{ width: 20, alignItems: "center" }}>
           <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} />
@@ -292,13 +348,14 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
         <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize }}>{row.name}</Text>
         {row.collapsed && (row.tally.needsYou || row.tally.unread) ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: row.tally.needsYou ? c.statusWarning : UNREAD_BLUE }} /> : null}
         <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.count}</Text>
+        {onPickUp ? <Icon name="GripVertical" size={14} color={c.foregroundMuted} /> : null}
       </Pressable>
     );
   }
 
   if (row.type === "skeleton") {
     return (
-      <View style={{ height: comfortable ? 68 : 56, flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 48, paddingRight: 12 }}>
+      <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 48, paddingRight: 12 }}>
         <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: c.surface2 }} />
         <View style={{ flex: 1, gap: 6 }}>
           <View style={{ height: 12, width: "70%", borderRadius: 6, backgroundColor: c.surface2 }} />
@@ -310,7 +367,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
 
   if (row.type === "note") {
     return (
-      <View style={{ minHeight: 44, justifyContent: "center", paddingLeft: 56, paddingRight: 12 }}>
+      <View style={{ height: noteHeight, justifyContent: "center", paddingLeft: 56, paddingRight: 12 }}>
         <Text style={{ color: c.foregroundMuted, fontSize: 13 }}>{row.text}</Text>
       </View>
     );
@@ -328,31 +385,49 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
   }
   const hasDiff = show.diff && (workspace.additions > 0 || workspace.deletions > 0);
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${workspace.title}, ${row.state === "needs_you" ? "asking you" : row.state === "unread" ? "unread" : row.state}, ${parts.join(", ")}`}
-      accessibilityHint={row.state === "unread" ? "Long press to mark read" : row.state === "read" ? "Long press to mark unread" : undefined}
-      disabled={!canOpen}
-      onPress={() => onOpen(row)}
-      onLongPress={row.state === "unread" || row.state === "read" ? () => onToggleRead(row) : undefined}
-      delayLongPress={450}
-      style={({ pressed }) => ({ minHeight: comfortable ? 68 : 56, flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 48, paddingRight: 12, backgroundColor: pressed ? c.surface1 : "transparent" })}
-    >
-      <StateIcon theme={theme} state={row.state} status={workspace.status} />
-      <View style={{ flex: 1, minWidth: 0, gap: comfortable ? 4 : 2 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize, fontWeight: row.state === "unread" || row.state === "needs_you" ? "700" : "400" }}>{workspace.title}</Text>
-          {hasDiff ? (
-            <Text style={{ fontSize: 11.5, fontVariant: ["tabular-nums"] }}>
-              <Text style={{ color: c.statusSuccess }}>{`+${workspace.additions}`}</Text>
-              <Text style={{ color: c.statusDanger }}>{` −${workspace.deletions}`}</Text>
-            </Text>
+    <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", backgroundColor: c.surface0, ...liftStyle }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${workspace.title}, ${row.state === "needs_you" ? "asking you" : row.state === "unread" ? "unread" : row.state}, ${parts.join(", ")}`}
+        accessibilityHint={onPickUp ? "Long press and drag to reorder" : undefined}
+        disabled={!canOpen && !onPickUp}
+        onPress={() => canOpen && onOpen(row)}
+        onLongPress={onPickUp}
+        delayLongPress={350}
+        style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 48, backgroundColor: pressed && lifted === null ? c.surface1 : "transparent" })}
+      >
+        <StateIcon theme={theme} state={row.state} status={workspace.status} />
+        <View style={{ flex: 1, minWidth: 0, gap: comfortable ? 4 : 2 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize, fontWeight: row.state === "unread" || row.state === "needs_you" ? "700" : "400" }}>{workspace.title}</Text>
+            {hasDiff ? (
+              <Text style={{ fontSize: 11.5, fontVariant: ["tabular-nums"] }}>
+                <Text style={{ color: c.statusSuccess }}>{`+${workspace.additions}`}</Text>
+                <Text style={{ color: c.statusDanger }}>{` −${workspace.deletions}`}</Text>
+              </Text>
+            ) : null}
+          </View>
+          {parts.length ? (
+            <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: comfortable ? 13 : 12 }}>{parts.join(" · ")}</Text>
           ) : null}
         </View>
-        {parts.length ? (
-          <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: comfortable ? 13 : 12 }}>{parts.join(" · ")}</Text>
-        ) : null}
+      </Pressable>
+      {row.state === "unread" || row.state === "read" ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={row.state === "unread" ? "Mark read" : "Mark unread"}
+          onPress={() => onToggleRead(row)}
+          hitSlop={4}
+          style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}
+        >
+          <Icon name={row.state === "unread" ? "MailOpen" : "Mail"} size={16} color={row.state === "unread" ? UNREAD_BLUE : c.foregroundMuted} />
+        </Pressable>
+      ) : (
+        <View style={{ width: 40 }} />
+      )}
+      <View style={{ width: onPickUp ? 22 : 8, alignItems: "flex-start" }}>
+        {onPickUp ? <Icon name="GripVertical" size={14} color={c.foregroundMuted} /> : null}
       </View>
-    </Pressable>
+    </View>
   );
 }

@@ -113,6 +113,24 @@ describe("store profiles", () => {
     store.dispose();
   });
 
+  it("moves an item and saves the order in that profile only", async () => {
+    const host = fakeHost();
+    const store = createStore(rpcFor(host) as never, () => () => undefined);
+    store.retain();
+    await flush();
+    store.move("desktop", "proj:h:p", ["a", "b", "c"], "c", "a", "before");
+    expect(store.getSnapshot().profiles.find((p) => p.id === "desktop")?.order).toEqual({ "proj:h:p": ["c", "a", "b"] }); // optimistic
+    await flush();
+    const saved = host.values.profiles as { id: string; order: object }[];
+    expect(saved.find((p) => p.id === "desktop")?.order).toEqual({ "proj:h:p": ["c", "a", "b"] });
+    expect(saved.find((p) => p.id === "phone")?.order).toEqual({});
+    const writes = host.writes;
+    store.move("desktop", "proj:h:p", ["c", "a", "b"], "a", "b", "before"); // no change
+    await flush();
+    expect(host.writes).toBe(writes);
+    store.dispose();
+  });
+
   it("selecting a profile is remembered for the session", async () => {
     const store = createStore(rpcFor(fakeHost()) as never, () => () => undefined);
     store.selectProfile("desktop");

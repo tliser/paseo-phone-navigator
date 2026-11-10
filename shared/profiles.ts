@@ -18,6 +18,8 @@ export const profileSettingsSchema = z.object({
     .default({ model: true, branch: true, diff: true, time: true }),
   defaultFilter: filterSchema.default("all"),
   hideDone: z.enum(["off", "1d", "7d"]).default("off"),
+  /** "auto": asking, unread, running first, then by activity. "manual": your drag-and-drop order. */
+  sort: z.enum(["auto", "manual"]).default("auto"),
   hiddenHosts: z.array(z.string()).default([]),
   newGroupsExpanded: z
     .object({ hosts: z.boolean().default(true), projects: z.boolean().default(false) })
@@ -32,6 +34,8 @@ export const profileSchema = z.object({
   settings: profileSettingsSchema.default(() => profileSettingsSchema.parse({})),
   /** Only keys that differ from the defaults in `settings.newGroupsExpanded`. true = collapsed. */
   collapse: z.record(z.string(), z.boolean()).default({}),
+  /** Manual order per group: "host:<id>" -> project ids, "proj:<id>:<projectId>" -> workspace ids. */
+  order: z.record(z.string(), z.array(z.string())).default({}),
 });
 
 export type ProfileSettings = z.output<typeof profileSettingsSchema>;
@@ -59,14 +63,16 @@ export function builtinProfiles(now: number): Profile[] {
       updatedAt: now,
       settings: { ...defaultSettings(), density: "compact", defaultFilter: "active" },
       collapse: {},
+      order: {},
     },
     {
       id: DESKTOP_ID,
       name: "Desktop",
       platform: "web",
       updatedAt: now,
-      settings: { ...defaultSettings(), density: "comfortable", defaultFilter: "all" },
+      settings: { ...defaultSettings(), density: "comfortable", defaultFilter: "all", sort: "manual" },
       collapse: {},
+      order: {},
     },
   ];
 }

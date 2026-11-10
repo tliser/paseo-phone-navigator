@@ -1,5 +1,6 @@
 // Builds the flattened tree the FlatList renders. Pure.
 import { shortenModel } from "./format";
+import { applyOrder, type OrderMap } from "./order";
 import { hostKey, isCollapsed, projectKey, type CollapseMap, type ProfileSettings } from "./profiles";
 import { isUnread, type ReadMap } from "./reads";
 import type { Filter, HostInput, WorkspaceInput, WorkspaceState } from "./types";
@@ -34,6 +35,8 @@ export interface ProjectRow {
   count: number;
   /** Counted over all its workspaces, for the dot on collapsed projects. */
   tally: Tally;
+  /** The order list this row belongs to ("host:<serverId>"). */
+  group: string;
 }
 export interface WorkspaceRow {
   type: "workspace";
@@ -43,6 +46,8 @@ export interface WorkspaceRow {
   workspace: WorkspaceInput;
   state: WorkspaceState;
   modelShort: string;
+  /** The order list this row belongs to ("proj:<serverId>:<projectId>"). */
+  group: string;
 }
 export interface SkeletonRow {
   type: "skeleton";
@@ -66,6 +71,8 @@ export interface TreeResult {
   groupKeys: string[];
   /** True when a filter or search hides every workspace. */
   emptyBecauseFiltered: boolean;
+  /** Every group's complete child ids in display order, hidden ones included (for drag and drop). */
+  groups: Record<string, string[]>;
 }
 
 export interface TreeOptions {
@@ -74,6 +81,8 @@ export interface TreeOptions {
   settings: ProfileSettings;
   collapse: CollapseMap;
   reads: ReadMap;
+  /** Used when `settings.sort` is "manual". */
+  order?: OrderMap;
   now: number;
   /** Host order as configured in the app. */
   hostOrder?: readonly string[];
@@ -151,6 +160,9 @@ function addTally(tally: Tally, state: WorkspaceState): void {
 
 export function buildTree(hosts: readonly HostInput[], options: TreeOptions): TreeResult {
   const { filter, settings, collapse, reads, now } = options;
+  const manual = settings.sort === "manual";
+  const order = options.order ?? {};
+  const groups: Record<string, string[]> = {};
   const query = options.query.trim();
   const searching = query.length > 0;
   const hidden = new Set(settings.hiddenHosts);
@@ -202,15 +214,20 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
     total.needsYou += hostTally.needsYou;
     total.unread += hostTally.unread;
 
-    const visibleProjects = [...projects.values()]
-      .map((project) => ({
-        ...project,
-        visible: project.all
-          .filter((item) => passesFilter(item, filter, settings, now) && matchesSearch(item.workspace, host.label, query))
-          .sort(compareRanked),
-      }))
-      .filter((project) => project.visible.length > 0)
-      .sort((a, b) => b.activity - a.activity || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    const byActivity = (a: { activity: number; name: string; id: string }, b: { activity: number; name: string; id: string }) =>
+      b.activity - a.activity || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+    const orderedProjects = manual
+      ? applyOrder([...projects.values()], (project) => project.id, order[hKey], byActivity)
+      : [...projects.values()].sort(byActivity);
+    groups[hKey] = orderedProjects.map((project) => project.id);
+    const visibleProjects = orderedProjects
+      .map((project) => {
+        const pKey = projectKey(host.serverId, project.id);
+        const all = manual ? applyOrder(project.all, (entry) => entry.workspace.id, order[pKey], compareRanked) : [...project.all].sort(compareRanked);
+        groups[pKey] = all.map((entry) => entry.workspace.id);
+        return { ...project, visible: all.filter((entry) => passesFilter(entry, filter, settings, now) && matchesSearch(entry.workspace, host.label, query)) };
+      })
+      .filter((project) => project.visible.length > 0);
 
     const count = visibleProjects.reduce((sum, project) => sum + project.visible.length, 0);
     matched += count;
@@ -235,7 +252,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
     for (const project of visibleProjects) {
       const pKey = projectKey(host.serverId, project.id);
       const projectCollapsed = searching ? false : isCollapsed(collapse, pKey, settings);
-      rows.push({ type: "project", key: pKey, serverId: host.serverId, projectId: project.id, name: project.name, collapsed: projectCollapsed, count: project.visible.length, tally: project.tally });
+      rows.push({ type: "project", key: pKey, serverId: host.serverId, projectId: project.id, name: project.name, collapsed: projectCollapsed, count: project.visible.length, tally: project.tally, group: hKey });
       if (projectCollapsed) continue;
       for (const item of project.visible) {
         rows.push({
@@ -246,6 +263,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
           workspace: item.workspace,
           state: item.state,
           modelShort: shortenModel(item.workspace.model),
+          group: pKey,
         });
       }
     }
@@ -258,6 +276,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
     counts,
     groupKeys,
     emptyBecauseFiltered: matched === 0 && totalOnline > 0 && (searching || filter !== "all"),
+    groups,
   };
 }
 

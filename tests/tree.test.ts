@@ -146,3 +146,30 @@ describe("tree shape", () => {
     expect(tallyHosts(hosts, { [readKey("a", "1")]: NOW })).toEqual({ needsYou: 1, unread: 0 });
   });
 });
+
+describe("manual order", () => {
+  const manual = { ...settings, sort: "manual" as const };
+  const tree = (order: Record<string, string[]>, extra: Partial<TreeOptions> = {}) =>
+    buildTree([host("h", [ws("a", "p", "done", 1), ws("b", "p", "needs_input", 50), ws("c", "q", "running", 100)])], opts({ settings: manual, order, ...extra }));
+
+  it("orders projects and workspaces as saved; status does not move them", () => {
+    const t = tree({ "host:h": ["q", "p"], "proj:h:p": ["a", "b"] });
+    expect(t.rows.flatMap((r) => (r.type === "project" ? [r.projectId] : []))).toEqual(["q", "p"]);
+    expect(wsIds(t.rows)).toEqual(["c", "a", "b"]);
+  });
+  it("new items appear first in their group", () => {
+    expect(wsIds(tree({ "proj:h:p": ["a"] }).rows)).toEqual(["b", "a", "c"]);
+  });
+  it("auto mode ignores a saved order", () => {
+    const t = buildTree([host("h", [ws("a", "p", "done", 1), ws("b", "p", "needs_input", 50)])], opts({ order: { "proj:h:p": ["a", "b"] } }));
+    expect(wsIds(t.rows)).toEqual(["b", "a"]);
+  });
+  it("exposes complete groups even when a filter hides items", () => {
+    const t = tree({ "proj:h:p": ["a", "b"] }, { filter: "inbox" });
+    expect(wsIds(t.rows)).toEqual(["b"]);
+    expect(t.groups["proj:h:p"]).toEqual(["a", "b"]);
+    expect(t.groups["host:h"]).toEqual(["p", "q"]);
+    const row = t.rows.find((r) => r.type === "workspace");
+    expect(row?.type === "workspace" && row.group).toBe("proj:h:p");
+  });
+});

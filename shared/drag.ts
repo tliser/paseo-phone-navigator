@@ -12,7 +12,7 @@ export function heightsFor(comfortable: boolean): RowHeights {
   return { group: comfortable ? 52 : 44, workspace: comfortable ? 68 : 56, note: 44 };
 }
 
-export function rowHeight(row: TreeRow, heights: RowHeights): number {
+function rowHeight(row: TreeRow, heights: RowHeights): number {
   if (row.type === "host" || row.type === "project") return heights.group;
   if (row.type === "workspace" || row.type === "skeleton") return heights.workspace;
   return heights.note;
@@ -37,7 +37,7 @@ export function dragId(row: TreeRow): string | null {
   return null;
 }
 
-export function dragGroup(row: TreeRow): string | null {
+function dragGroup(row: TreeRow): string | null {
   return row.type === "workspace" || row.type === "project" ? row.group : null;
 }
 

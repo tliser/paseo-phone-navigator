@@ -1,19 +1,51 @@
 # Phone Navigator for Paseo
 
-Host → Project → Workspace tree for Paseo, built for the iOS app. See [OVERVIEW.md](OVERVIEW.md) for what it does.
+A Host → Project → Workspace tree for [Paseo](https://paseo.sh), built for the iOS app but usable on desktop and web too. It shows every workspace on every connected host in one place, with what needs you on top.
+
+<p>
+  <img src="docs/screenshots/phone-active.png" width="230" alt="Active filter on the phone">
+  <img src="docs/screenshots/phone-inbox.png" width="230" alt="Inbox: asking you and unread">
+  <img src="docs/screenshots/phone-drag.png" width="230" alt="Manual ordering by long-press drag">
+</p>
+
+## Features
+
+- **One tree for all hosts.** Hosts, projects and workspaces can each be collapsed, and the tree remembers what you collapsed. Offline hosts are shown dimmed.
+- **Rich workspace rows.** Each row shows the status, title, diff size, branch, the model of the most recently active agent and when it was last active.
+- **Asking you vs. unread.** Workspaces that wait for input, failed or are flagged count as *asking you*. Finished work you haven't looked at yet counts as *unread*. The envelope button on a row marks it read or unread, and read state is synced across devices.
+- **Filters and search.** All, Active and Inbox (asking you plus unread), and a search box. Tap the counter badge to jump to the Inbox.
+- **Manual order.** Set a profile's *Order* to *Manual*, then long-press a row and drag it. Projects reorder within their host and workspaces within their project. Each profile keeps its own order, and new items appear first.
+- **Profiles.** Phone and Desktop come built in, and you can add your own. A profile holds the density, default filter, order, hidden hosts, the "hide finished/read workspaces" setting and the collapse state. Profiles are stored on the host serving the plugin, so all your devices share them.
+- **Entry points.** A "Workspaces" row in the sidebar (with a badge for things that need you), a header button on every workspace, and a Command Center entry.
+
+| Desktop | Settings | Profiles | Search |
+| --- | --- | --- | --- |
+| <img src="docs/screenshots/desktop.png" width="260"> | <img src="docs/screenshots/settings.png" width="200"> | <img src="docs/screenshots/phone-profiles.png" width="160"> | <img src="docs/screenshots/phone-search.png" width="160"> |
+
+See [OVERVIEW.md](OVERVIEW.md) for more detail.
 
 ## Install
 
+Requires Paseo 0.15 or later. The repository is private, so you need read access to it, and `git` on the daemon host must be able to clone from GitHub.
+
 ```bash
-# local checkout (development)
-paseo plugin install /home/liser/diesdas
-# after pushing to a Git host
-paseo plugin install git:<owner>/<repo>
+paseo plugin install git:tliser/paseo-phone-navigator
 paseo plugin ls                       # phone-navigator should be "running"
 paseo plugin logs phone-navigator     # "Plugin ready"
 ```
 
-After code changes in a local install: `paseo plugin reload phone-navigator`.
+Then open the sidebar on any client and tap **Workspaces**. You can configure profiles under **Settings → Plugins → Phone Navigator**.
+
+To update, run the install command again (or `paseo plugin reload phone-navigator` for a local checkout).
+
+### Tips
+
+- On the phone the header button may sit behind the "⋯" menu, because Paseo shows only one plugin button inline on narrow screens. The sidebar row always works.
+- Drag only works when the active profile's *Order* is *Manual* and the search box is empty.
+
+## Privacy
+
+The plugin only reads workspace and agent metadata through the app's existing host connections. It does not read conversations, change workspaces, or contact any outside service.
 
 ## Development
 
@@ -21,15 +53,31 @@ After code changes in a local install: `paseo plugin reload phone-navigator`.
 npm install
 npm run typecheck
 npm test
+paseo plugin install /path/to/checkout     # local install
+paseo plugin reload phone-navigator         # after changes
 ```
 
 Layout:
 
-- `shared/`: pure logic with tests. `tree.ts` builds, sorts and filters the flattened tree, `profiles.ts` handles profiles, resolution and the collapse map, `derive.ts` turns daemon payloads into rows, `format.ts` shortens model names and formats times.
+- `index.client.tsx` / `index.server.ts`: plugin entry points (screens, sidebar item, header button, command, settings).
+- `shared/`: pure logic with tests.
+  - `tree.ts`: builds, sorts and filters the flattened tree.
+  - `profiles.ts`: profiles, resolution, the collapse map.
+  - `order.ts`: manual order.
+  - `drag.ts`: row geometry and drop targets.
+  - `reads.ts`: read/unread state.
+  - `derive.ts`: daemon payloads to rows.
+  - `format.ts`: model names and times.
 - `client/host-observer.ts`: follows one host (paged snapshot, buffered live updates, reconnect-safe).
-- `client/store.ts`: one store for every surface. It watches all online hosts and persists profiles and collapse state.
+- `client/store.ts`: one store for every surface. It watches all online hosts and persists profiles, order, reads and collapse state.
+- `client/navigator-screen.tsx`, `client/drag-controller.ts`: the tree screen and long-press drag.
+- `client/settings-screen.tsx`, `client/profile-sheet.tsx`, `client/sidebar-item.tsx`, `client/header-buttons.tsx`: the other surfaces.
 - `client/device.ts`: the only file that touches `localStorage` (web and desktop only).
 - `client/paseo.ts`: SDK types derived from `getPaseoClient`, so a Git install compiles without dev dependencies.
-- `mockups/index.html`: the clickable design mockup.
+- `mockups/index.html`: the original clickable design mockup.
 
-No classes anywhere, because the iOS app runs plugins on Hermes.
+There are no classes anywhere, because the iOS app runs plugins on Hermes.
+
+## License
+
+MIT

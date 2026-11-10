@@ -1,6 +1,6 @@
 Phone Navigator shows your Paseo workspaces as a Host, Project and Workspace tree on one full screen, built for the phone. A "Workspaces" row in the sidebar opens it and shows a red badge with the number of workspaces that need you (waiting for input, failed or flagged). Every workspace header gets a button back to the tree, and the Command Center has a "Workspaces" entry.
 
-Each workspace row shows its status, title, diff size, branch, the model of its most recently active agent and when it was last active. Hosts, projects and workspaces can each be collapsed, and the tree remembers what you collapsed. The header is one line: search, the attention count (tap to show only those), the All, Active or Attention filter, expand or collapse everything, and the profile.
+Each workspace row shows its status, title, diff size, branch, the model of its most recently active agent and when it was last active. Hosts, projects and workspaces can each be collapsed, and the tree remembers what you collapsed. The header is one line: search, the attention count (tap to show only those), the All, Active or Inbox filter, expand or collapse everything, and the profile.
 
 ## Profiles
 

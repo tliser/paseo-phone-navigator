@@ -1,7 +1,7 @@
 // Domain inputs for the pure core. Independent of the Paseo SDK, so the core is testable and Hermes-safe.
 
 export type WorkspaceStatus = "needs_input" | "failed" | "running" | "attention" | "done";
-export type HostStatus = "idle" | "connecting" | "online" | "offline" | "error";
+type HostStatus = "idle" | "connecting" | "online" | "offline" | "error";
 export type Filter = "all" | "active" | "inbox";
 export type Platform = "ios" | "android" | "web";
 

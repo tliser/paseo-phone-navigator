@@ -2,11 +2,11 @@
 import { z } from "zod";
 import type { Platform } from "./types";
 
-export const platformSchema = z.enum(["ios", "android", "web"]);
+const platformSchema = z.enum(["ios", "android", "web"]);
 /** "attention" was the filter's name before read state existed; it maps to the inbox. */
-export const filterSchema = z.preprocess((value) => (value === "attention" ? "inbox" : value), z.enum(["all", "active", "inbox"]));
+const filterSchema = z.preprocess((value) => (value === "attention" ? "inbox" : value), z.enum(["all", "active", "inbox"]));
 
-export const profileSettingsSchema = z.object({
+const profileSettingsSchema = z.object({
   density: z.enum(["compact", "comfortable"]).default("compact"),
   show: z
     .object({
@@ -26,7 +26,7 @@ export const profileSettingsSchema = z.object({
     .default({ hosts: true, projects: false }),
 });
 
-export const profileSchema = z.object({
+const profileSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(60),
   platform: platformSchema.nullable().default(null),
@@ -51,8 +51,8 @@ export function defaultSettings(): ProfileSettings {
   return profileSettingsSchema.parse({});
 }
 
-export const PHONE_ID = "phone";
-export const DESKTOP_ID = "desktop";
+const PHONE_ID = "phone";
+const DESKTOP_ID = "desktop";
 
 export function builtinProfiles(now: number): Profile[] {
   return [
@@ -117,7 +117,7 @@ export function resolveProfile(
 export const hostKey = (serverId: string) => `host:${serverId}`;
 export const projectKey = (serverId: string, projectId: string) => `proj:${serverId}:${projectId}`;
 
-export function defaultCollapsed(key: string, settings: ProfileSettings): boolean {
+function defaultCollapsed(key: string, settings: ProfileSettings): boolean {
   return key.startsWith("host:") ? !settings.newGroupsExpanded.hosts : !settings.newGroupsExpanded.projects;
 }
 

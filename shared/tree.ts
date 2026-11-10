@@ -13,7 +13,7 @@ export interface Tally {
   unread: number;
 }
 
-export interface HostRow {
+interface HostRow {
   type: "host";
   key: string;
   serverId: string;
@@ -25,7 +25,7 @@ export interface HostRow {
   tally: Tally;
   error: string | null;
 }
-export interface ProjectRow {
+interface ProjectRow {
   type: "project";
   key: string;
   serverId: string;
@@ -49,11 +49,11 @@ export interface WorkspaceRow {
   /** The order list this row belongs to ("proj:<serverId>:<projectId>"). */
   group: string;
 }
-export interface SkeletonRow {
+interface SkeletonRow {
   type: "skeleton";
   key: string;
 }
-export interface NoteRow {
+interface NoteRow {
   type: "note";
   key: string;
   text: string;
@@ -97,7 +97,7 @@ export function workspaceState(workspace: WorkspaceInput, serverId: string, read
 }
 
 /** needs you, then unread, then running, then the rest. */
-export function stateRank(state: WorkspaceState): number {
+function stateRank(state: WorkspaceState): number {
   return state === "needs_you" ? 0 : state === "unread" ? 1 : state === "running" ? 2 : 3;
 }
 
@@ -106,7 +106,7 @@ interface Ranked {
   state: WorkspaceState;
 }
 
-export function compareRanked(a: Ranked, b: Ranked): number {
+function compareRanked(a: Ranked, b: Ranked): number {
   return (
     stateRank(a.state) - stateRank(b.state) ||
     b.workspace.activityAt - a.workspace.activityAt ||

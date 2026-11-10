@@ -39,22 +39,22 @@ export interface AgentLike {
 }
 
 /** Label Paseo sets on agents started by another agent. */
-export const PARENT_AGENT_LABEL = "paseo.parent-agent-id";
+const PARENT_AGENT_LABEL = "paseo.parent-agent-id";
 
 const isSubAgent = (agent: AgentLike) => !!agent.labels?.[PARENT_AGENT_LABEL]?.trim();
 
 /** Sub-agents, internal and archived agents never decide the model or the unread time. */
-export function isListedAgent(agent: AgentLike): boolean {
+function isListedAgent(agent: AgentLike): boolean {
   if (agent.archivedAt || agent.internal) return false;
   return !isSubAgent(agent);
 }
 
-export function isListedWorkspace(workspace: WorkspaceLike): boolean {
+function isListedWorkspace(workspace: WorkspaceLike): boolean {
   return !workspace.background && !workspace.internal && !workspace.archivingAt;
 }
 
 /** A real prompt: a permission request is waiting. Sub-agents count, since they block their parent. */
-export function agentNeedsYou(agent: AgentLike): boolean {
+function agentNeedsYou(agent: AgentLike): boolean {
   if (agent.archivedAt || agent.status === "closed") return false;
   return (agent.pendingPermissions?.length ?? 0) > 0 || (agent.requiresAttention === true && agent.attentionReason === "permission");
 }

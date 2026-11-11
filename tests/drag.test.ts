@@ -8,7 +8,7 @@ const h = heightsFor(false); // group 44, workspace 56
 const hostRow = (id: string): TreeRow => ({ type: "host", key: `host:${id}`, serverId: id, label: id, state: "online", collapsed: false, count: 0, tally: { needsYou: 0, unread: 0 }, error: null });
 const projRow = (host: string, id: string): TreeRow => ({ type: "project", key: `proj:${host}:${id}`, serverId: host, projectId: id, name: id, kind: "git", rootPath: `/p/${id}`, collapsed: false, count: 0, tally: { needsYou: 0, unread: 0 }, group: `host:${host}` });
 const wsRow = (host: string, proj: string, id: string): TreeRow => ({
-  type: "workspace", key: `ws:${host}:${id}`, serverId: host, hostLabel: host, state: "read", modelShort: "", group: `proj:${host}:${proj}`,
+  type: "workspace", key: `ws:${host}:${id}`, serverId: host, hostLabel: host, state: "read", modelShort: "", pinned: false, group: `proj:${host}:${proj}`,
   workspace: { id } as WorkspaceInput,
 });
 

@@ -238,8 +238,13 @@ describe("store workspace actions", () => {
         ...base.workspaces,
         create: async (options: unknown) => (calls.push({ kind: "create", value: options }), handle(`w${calls.length}`)),
         archive: async (id: string) => void calls.push({ kind: "archive", value: id }),
+        ref: (id: string) => ({ setTitle: async (title: string | null) => (calls.push({ kind: "rename", value: [id, title] }), { title }) }),
       },
       providers: {
+        listFeatures: async (draft: unknown) => (
+          calls.push({ kind: "features", value: draft }),
+          { features: [{ type: "toggle", id: "auto_accept", label: "Auto Accept", value: false }, { type: "select", id: "x", label: "X", value: null, options: [] }] }
+        ),
         snapshot: async () => ({
           entries: [
             { provider: "plexus", label: "Plexus", enabled: true, status: "ready", defaultModeId: "build", modes: [{ id: "build", label: "Build" }], models: [{ id: "m1", label: "M1", isDefault: true }, { id: "hidden", label: "H", isSelectable: false }] },
@@ -276,6 +281,40 @@ describe("store workspace actions", () => {
       { kind: "terminal", value: "w2" },
       { kind: "create", value: { source: { kind: "directory", path: "/notes", projectId: "p2" }, agent: { config: { provider: "plexus/m1" }, cwd: "/notes" } } },
     ]);
+    store.dispose();
+  });
+
+  it("lists toggle features for a draft and passes their values on create", async () => {
+    const { store, calls } = setup();
+    await flush();
+    expect(await store.providerToggles("h", { provider: "plexus", model: "m1", modeId: "build", cwd: "/repo" })).toEqual([
+      { id: "auto_accept", label: "Auto Accept", description: null, value: false },
+    ]);
+    await store.launchWorkspace("h", { projectId: "p", kind: "non_git", rootPath: "/repo", isolation: "local", launch: { kind: "agent", provider: "plexus", model: "m1", featureValues: { auto_accept: true } } });
+    expect(calls).toEqual([
+      { kind: "features", value: { provider: "plexus/m1", cwd: "/repo", modeId: "build" } },
+      { kind: "create", value: { source: { kind: "directory", path: "/repo", projectId: "p" }, agent: { config: { provider: "plexus/m1", featureValues: { auto_accept: true } }, cwd: "/repo" } } },
+    ]);
+    store.dispose();
+  });
+
+  it("renames, clearing the title when blank", async () => {
+    const { store, calls } = setup();
+    await flush();
+    await store.renameWorkspace("h", "w1", "  New name ");
+    await store.renameWorkspace("h", "w1", "   ");
+    expect(calls).toEqual([{ kind: "rename", value: ["w1", "New name"] }, { kind: "rename", value: ["w1", null] }]);
+    store.dispose();
+  });
+
+  it("keeps pins in the phone's profile", async () => {
+    const { store } = setup();
+    await flush();
+    store.setPinned("phone", "h", "w1", true);
+    store.setPinned("phone", "h", "w2", true);
+    store.setPinned("phone", "h", "w1", false);
+    expect([...store.getSnapshot().pinsFor("phone")]).toEqual(["h:w2"]);
+    expect([...store.getSnapshot().pinsFor("desktop")]).toEqual([]);
     store.dispose();
   });
 

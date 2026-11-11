@@ -14,7 +14,7 @@ import { moveRelative, type Place } from "../shared/order";
 import { markSeen, normalizeReads, readKey, type ReadMap, type ReadsDocument } from "../shared/reads";
 import { profilesSettings, readsSettings } from "../shared/settings";
 import type { HostInput, ProjectKind } from "../shared/types";
-import { hasDeviceStorage, readDeviceCollapse, readDeviceProfileId, writeDeviceCollapse, writeDeviceProfileId } from "./device";
+import { hasDeviceStorage, readDeviceCollapse, readDevicePins, readDeviceProfileId, writeDeviceCollapse, writeDevicePins, writeDeviceProfileId } from "./device";
 import { createHostObserver, type HostDirectory, type HostObserver } from "./host-observer";
 import type { PaseoApi } from "./paseo";
 import { createSyncedDoc } from "./synced-doc";
@@ -41,6 +41,8 @@ export interface StoreSnapshot {
   deviceStorage: boolean;
   /** Collapse map per profile as this device sees it (device copy on web, profile copy elsewhere). */
   collapseFor(profileId: string): CollapseMap;
+  /** Pinned workspaces ("serverId:workspaceId") as this device sees them (device copy on web, profile copy elsewhere). */
+  pinsFor(profileId: string): ReadonlySet<string>;
   /** When you last viewed each workspace ("serverId:workspaceId"). */
   reads: ReadMap;
   savingError: string | null;
@@ -56,6 +58,10 @@ export interface Store {
   refresh(): void;
   selectProfile(id: string): void;
   setCollapse(profileId: string, map: CollapseMap): void;
+  /** Pins or unpins a workspace at the top of its project for this device. */
+  setPinned(profileId: string, serverId: string, workspaceId: string, pinned: boolean): void;
+  /** Renames a workspace on its host. */
+  renameWorkspace(serverId: string, workspaceId: string, title: string): Promise<void>;
   /** Applies a change to the profiles list and saves it. */
   editProfiles(change: (profiles: Profile[]) => Profile[]): void;
   /** Moves one item within its group of the profile's manual order. `ids` is the group's full current order. */
@@ -66,6 +72,8 @@ export interface Store {
   markUnread(serverId: string, workspaceId: string): void;
   /** Agents and models the host can launch in this folder. */
   providers(serverId: string, cwd: string): Promise<ProviderChoice[]>;
+  /** On/off options (e.g. Auto Accept) the provider offers for this agent setup. */
+  providerToggles(serverId: string, draft: { provider: string; model: string; modeId?: string; cwd: string }): Promise<ProviderToggle[]>;
   /** Creates a workspace with its first agent or terminal. Nothing exists before this resolves. Returns the workspace id. */
   launchWorkspace(serverId: string, input: LaunchInput): Promise<string>;
   archiveWorkspace(serverId: string, workspaceId: string): Promise<void>;
@@ -80,6 +88,13 @@ export interface ProviderChoice {
   defaultModeId: string | null;
 }
 
+export interface ProviderToggle {
+  id: string;
+  label: string;
+  description: string | null;
+  value: boolean;
+}
+
 export type LaunchInput = {
   projectId: string;
   kind: ProjectKind;
@@ -87,7 +102,7 @@ export type LaunchInput = {
   /** Git projects only: a new worktree (optionally on a named branch) or the project folder itself. */
   isolation: "worktree" | "local";
   branchName?: string;
-  launch: { kind: "agent"; provider: string; model: string; modeId?: string; prompt?: string } | { kind: "terminal" };
+  launch: { kind: "agent"; provider: string; model: string; modeId?: string; prompt?: string; featureValues?: Record<string, boolean> } | { kind: "terminal" };
 };
 
 export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => () => void): Store {
@@ -111,6 +126,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   let sessionProfileId: string | null = null;
   let deviceProfileId = readDeviceProfileId();
   const deviceCollapse = new Map<string, CollapseMap>();
+  const devicePins = new Map<string, ReadonlySet<string>>();
   /** Phone collapse edits waiting for the debounced save, per profile. */
   const unsavedCollapse = new Map<string, CollapseMap>();
 
@@ -166,6 +182,17 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
           return map;
         }
         return unsavedCollapse.get(profileId) ?? profiles.find((profile) => profile.id === profileId)?.collapse ?? {};
+      },
+      pinsFor(profileId) {
+        if (deviceStorage) {
+          let set = devicePins.get(profileId);
+          if (!set) {
+            set = new Set(readDevicePins(profileId) ?? []);
+            devicePins.set(profileId, set);
+          }
+          return set;
+        }
+        return new Set(profiles.find((profile) => profile.id === profileId)?.pins ?? []);
       },
       reads: currentReads(),
       savingError: profilesDoc.error() ?? readsDoc.error(),
@@ -316,6 +343,21 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     emitNow();
   }
 
+  function setPinned(profileId: string, serverId: string, workspaceId: string, pinned: boolean) {
+    const key = readKey(serverId, workspaceId);
+    const apply = (pins: readonly string[]) => (pinned ? (pins.includes(key) ? [...pins] : [...pins, key]) : pins.filter((value) => value !== key));
+    if (deviceStorage) {
+      const next = apply([...(devicePins.get(profileId) ?? readDevicePins(profileId) ?? [])]);
+      devicePins.set(profileId, new Set(next));
+      writeDevicePins(profileId, next);
+      emitNow();
+      return;
+    }
+    // Phones have no storage of their own: the pin lives in the profile this phone uses.
+    const now = Date.now();
+    editProfiles((profiles) => profiles.map((profile) => (profile.id === profileId ? { ...profile, pins: apply(profile.pins), updatedAt: now } : profile)));
+  }
+
   function selectProfile(id: string) {
     flushCollapse();
     sessionProfileId = id;
@@ -386,6 +428,10 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     refresh,
     selectProfile,
     setCollapse,
+    setPinned,
+    async renameWorkspace(serverId, workspaceId, title) {
+      await apiFor(serverId).workspaces.ref(workspaceId).setTitle(title.trim() || null);
+    },
     editProfiles,
     move,
     markRead,
@@ -402,6 +448,16 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
           defaultModeId: entry.defaultModeId ?? null,
         }));
     },
+    async providerToggles(serverId, draft) {
+      const result = await apiFor(serverId).providers.listFeatures({
+        provider: `${draft.provider}/${draft.model}`,
+        cwd: draft.cwd,
+        ...(draft.modeId ? { modeId: draft.modeId } : {}),
+      });
+      return (result.features ?? []).flatMap((feature) =>
+        feature.type === "toggle" ? [{ id: feature.id, label: feature.label, description: feature.description ?? null, value: feature.value }] : [],
+      );
+    },
     async launchWorkspace(serverId, input) {
       const api = apiFor(serverId);
       const branchName = input.branchName?.trim();
@@ -417,7 +473,11 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
         ...(launch.kind === "agent"
           ? {
               agent: {
-                config: { provider: `${launch.provider}/${launch.model}`, ...(launch.modeId ? { modeId: launch.modeId } : {}) },
+                config: {
+                  provider: `${launch.provider}/${launch.model}`,
+                  ...(launch.modeId ? { modeId: launch.modeId } : {}),
+                  ...(launch.featureValues && Object.keys(launch.featureValues).length ? { featureValues: launch.featureValues } : {}),
+                },
                 cwd: input.rootPath,
                 ...(prompt ? { prompt } : {}),
               },

@@ -27,6 +27,9 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
   const profile = useActiveProfile(snapshot, layout.platform, layout.compact);
   const settings = profile.settings;
   const collapse = snapshot.collapseFor(profile.id);
+  // Stable identity so the tree is only rebuilt when the pins actually change.
+  const pinKey = [...snapshot.pinsFor(profile.id)].sort().join("\n");
+  const pins = useMemo(() => new Set(pinKey ? pinKey.split("\n") : []), [pinKey]);
 
   const [filter, setFilterState] = useState<Filter>(() => sessionFilters.get(profile.id) ?? settings.defaultFilter);
   useEffect(() => setFilterState(sessionFilters.get(profile.id) ?? settings.defaultFilter), [profile.id, settings.defaultFilter]);
@@ -52,8 +55,8 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
   }, []);
 
   const tree = useMemo(
-    () => buildTree(snapshot.hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder }),
-    [snapshot.hosts, snapshot.hostOrder, snapshot.reads, profile.order, filter, query, settings, collapse, now],
+    () => buildTree(snapshot.hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder, pins }),
+    [snapshot.hosts, snapshot.hostOrder, snapshot.reads, profile.order, filter, query, settings, collapse, now, pins],
   );
   const loading = snapshot.hosts.some((host) => host.loading);
   useEffect(() => {
@@ -254,7 +257,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
       </View>
 
       {draftFor ? <NewWorkspaceSheet theme={theme} project={draftFor} onClose={() => setDraftFor(null)} onCreated={(id) => created(draftFor.serverId, id)} /> : null}
-      {menuFor ? <WorkspaceMenu theme={theme} row={menuFor} onClose={() => setMenuFor(null)} /> : null}
+      {menuFor ? <WorkspaceMenu theme={theme} row={menuFor} profileId={profile.id} onClose={() => setMenuFor(null)} /> : null}
       {sheet ? <ProfileSheet theme={theme} platform={layout.platform} active={profile} onClose={() => setSheet(false)} onEdit={() => { setSheet(false); openSettings(); }} /> : null}
     </View>
   );
@@ -417,7 +420,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
     <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", backgroundColor: c.surface0, ...liftStyle }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${workspace.title}, ${row.state === "needs_you" ? "asking you" : row.state === "unread" ? "unread" : row.state}, ${parts.join(", ")}`}
+        accessibilityLabel={`${row.pinned ? "Pinned, " : ""}${workspace.title}, ${row.state === "needs_you" ? "asking you" : row.state === "unread" ? "unread" : row.state}, ${parts.join(", ")}`}
         accessibilityHint={onPickUp ? "Long press and drag to reorder" : undefined}
         disabled={!canOpen && !onPickUp}
         onPress={() => canOpen && onOpen(row)}
@@ -425,7 +428,14 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
         delayLongPress={350}
         style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 20, backgroundColor: pressed && lifted === null ? c.surface1 : "transparent" })}
       >
-        <StateIcon theme={theme} state={row.state} status={workspace.status} />
+        <View>
+          <StateIcon theme={theme} state={row.state} status={workspace.status} />
+          {row.pinned ? (
+            <View accessibilityLabel="Pinned" style={{ position: "absolute", right: -5, top: -5 }}>
+              <Icon name="Pin" size={10} color={c.foregroundMuted} />
+            </View>
+          ) : null}
+        </View>
         <View style={{ flex: 1, minWidth: 0, gap: comfortable ? 4 : 2 }}>
           <Text numberOfLines={1} style={{ color: c.foreground, fontSize, fontWeight: row.state === "unread" || row.state === "needs_you" ? "700" : "400" }}>{workspace.title}</Text>
           {parts.length || hasDiff ? (

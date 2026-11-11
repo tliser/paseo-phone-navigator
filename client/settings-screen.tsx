@@ -51,7 +51,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
       created = newProfileId(profiles, now);
       const profile: Profile = base
         ? { ...base, id: created, name: `${base.name} copy`.slice(0, 60), platform: null, updatedAt: now }
-        : { id: created, name: "New profile", platform: null, updatedAt: now, settings: defaultSettings(), collapse: {}, order: {} };
+        : { id: created, name: "New profile", platform: null, updatedAt: now, settings: defaultSettings(), collapse: {}, order: {}, pins: [] };
       return [...profiles, profile];
     });
     if (created) setEditId(created);

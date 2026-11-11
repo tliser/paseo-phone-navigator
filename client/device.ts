@@ -64,3 +64,18 @@ export function readDeviceCollapse(profileId: string): Record<string, boolean> |
 export function writeDeviceCollapse(profileId: string, map: Readonly<Record<string, boolean>> | null): void {
   write(`collapse:${profileId}`, map ? JSON.stringify(map) : null);
 }
+
+export function readDevicePins(profileId: string): string[] | null {
+  const raw = read(`pins:${profileId}`);
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeDevicePins(profileId: string, pins: readonly string[]): void {
+  write(`pins:${profileId}`, pins.length ? JSON.stringify(pins) : null);
+}

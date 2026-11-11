@@ -173,3 +173,20 @@ describe("manual order", () => {
     expect(row?.type === "workspace" && row.group).toBe("proj:h:p");
   });
 });
+
+describe("pins", () => {
+  const hosts = () => [host("h", [ws("a", "p", "done", 1), ws("b", "p", "running", 5), ws("old", "p", "done", 60 * 24 * 30)])];
+  const pins = new Set(["h:old"]);
+  it("lead their project in the all view, even when old finished ones are hidden", () => {
+    const tree = buildTree(hosts(), opts({ pins, settings: { ...settings, hideDone: "7d" } }));
+    expect(wsIds(tree.rows)).toEqual(["old", "b", "a"]);
+    const row = tree.rows.find((r) => r.type === "workspace" && r.workspace.id === "old");
+    expect(row?.type === "workspace" && row.pinned).toBe(true);
+  });
+  it("have no effect in filtered views", () => {
+    const tree = buildTree(hosts(), opts({ pins: new Set(["h:a", "h:b"]), filter: "active" }));
+    expect(wsIds(tree.rows)).toEqual(["b"]);
+    const row = tree.rows.find((r) => r.type === "workspace");
+    expect(row?.type === "workspace" && row.pinned).toBe(false);
+  });
+});

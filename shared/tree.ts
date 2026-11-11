@@ -48,6 +48,8 @@ export interface WorkspaceRow {
   workspace: WorkspaceInput;
   state: WorkspaceState;
   modelShort: string;
+  /** Pinned to the top of its project (shown in the "all" view only). */
+  pinned: boolean;
   /** The order list this row belongs to ("proj:<serverId>:<projectId>"). */
   group: string;
 }
@@ -88,6 +90,8 @@ export interface TreeOptions {
   now: number;
   /** Host order as configured in the app. */
   hostOrder?: readonly string[];
+  /** Pinned workspaces ("serverId:workspaceId"); they lead their project in the "all" view. */
+  pins?: ReadonlySet<string>;
 }
 
 /** The state a row shows: a real prompt beats running beats unread news. */
@@ -162,6 +166,8 @@ function addTally(tally: Tally, state: WorkspaceState): void {
 
 export function buildTree(hosts: readonly HostInput[], options: TreeOptions): TreeResult {
   const { filter, settings, collapse, reads, now } = options;
+  const pins = filter === "all" ? (options.pins ?? new Set<string>()) : new Set<string>();
+  const isPinned = (serverId: string, workspaceId: string) => pins.has(`${serverId}:${workspaceId}`);
   const manual = settings.sort === "manual";
   const order = options.order ?? {};
   const groups: Record<string, string[]> = {};
@@ -227,7 +233,12 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
         const pKey = projectKey(host.serverId, project.id);
         const all = manual ? applyOrder(project.all, (entry) => entry.workspace.id, order[pKey], compareRanked) : [...project.all].sort(compareRanked);
         groups[pKey] = all.map((entry) => entry.workspace.id);
-        return { ...project, visible: all.filter((entry) => passesFilter(entry, filter, settings, now) && matchesSearch(entry.workspace, host.label, query)) };
+        // In the "all" view pinned workspaces lead their project and are never hidden as old.
+        const shown = all.filter(
+          (entry) => (isPinned(host.serverId, entry.workspace.id) || passesFilter(entry, filter, settings, now)) && matchesSearch(entry.workspace, host.label, query),
+        );
+        const visible = [...shown.filter((entry) => isPinned(host.serverId, entry.workspace.id)), ...shown.filter((entry) => !isPinned(host.serverId, entry.workspace.id))];
+        return { ...project, visible };
       })
       .filter((project) => project.visible.length > 0);
 
@@ -265,6 +276,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
           workspace: item.workspace,
           state: item.state,
           modelShort: shortenModel(item.workspace.model),
+          pinned: isPinned(host.serverId, item.workspace.id),
           group: pKey,
         });
       }

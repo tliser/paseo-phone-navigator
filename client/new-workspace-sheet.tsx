@@ -3,13 +3,16 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/ui";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Switch, Text, View } from "react-native";
 import type { ProjectRow } from "../shared/tree";
 import { useNavigatorStore } from "./runtime";
-import type { ProviderChoice } from "./store";
+import type { ProviderChoice, ProviderToggle } from "./store";
 
 /** Last choice per host for this app session, so the next draft starts where you left off. */
-const lastChoice = new Map<string, { provider: string; model: string; modeId: string | null; launch: "agent" | "terminal"; isolation: "worktree" | "local" }>();
+const lastChoice = new Map<
+  string,
+  { provider: string; model: string; modeId: string | null; launch: "agent" | "terminal"; isolation: "worktree" | "local"; toggles: Record<string, boolean> }
+>();
 
 export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { theme: PluginTheme; project: ProjectRow; onClose(): void; onCreated(workspaceId: string): void }) {
   const { store } = useNavigatorStore();
@@ -46,6 +49,23 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
   const model = provider?.models.find((entry) => entry.id === modelId) ?? provider?.models.find((entry) => entry.isDefault) ?? provider?.models[0] ?? null;
   const mode = provider?.modes.find((entry) => entry.id === modeId) ?? provider?.modes.find((entry) => entry.id === provider.defaultModeId) ?? null;
 
+  // On/off options such as Auto Accept depend on the provider, model and mode, so ask again when they change.
+  const [toggles, setToggles] = useState<ProviderToggle[]>([]);
+  const [toggleValues, setToggleValues] = useState<Record<string, boolean>>(() => remembered?.toggles ?? {});
+  useEffect(() => {
+    setToggles([]);
+    if (launch !== "agent" || !provider || !model) return;
+    let live = true;
+    store
+      .providerToggles(project.serverId, { provider: provider.id, model: model.id, modeId: mode?.id, cwd: project.rootPath })
+      .then((list) => live && setToggles(list))
+      .catch(() => live && setToggles([]));
+    return () => {
+      live = false;
+    };
+  }, [store, project.serverId, project.rootPath, launch, provider, model, mode]);
+  const featureValues = Object.fromEntries(toggles.map((toggle) => [toggle.id, toggleValues[toggle.id] ?? toggle.value]));
+
   const canCreate = !busy && (launch === "terminal" || (!!provider && !!model));
   const create = () => {
     if (!canCreate) return;
@@ -58,10 +78,10 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
         rootPath: project.rootPath,
         isolation,
         branchName: isolation === "worktree" ? branch : undefined,
-        launch: launch === "agent" && provider && model ? { kind: "agent", provider: provider.id, model: model.id, modeId: mode?.id, prompt } : { kind: "terminal" },
+        launch: launch === "agent" && provider && model ? { kind: "agent", provider: provider.id, model: model.id, modeId: mode?.id, prompt, featureValues } : { kind: "terminal" },
       })
       .then((workspaceId) => {
-        if (provider && model) lastChoice.set(project.serverId, { provider: provider.id, model: model.id, modeId: mode?.id ?? null, launch, isolation });
+        if (provider && model) lastChoice.set(project.serverId, { provider: provider.id, model: model.id, modeId: mode?.id ?? null, launch, isolation, toggles: { ...toggleValues, ...featureValues } });
         onCreated(workspaceId);
       })
       .catch((reason: unknown) => {
@@ -180,6 +200,19 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
                   {picker === "mode" ? <View style={{ marginTop: 6 }}>{options(provider.modes, mode?.id, setModeId)}</View> : null}
                 </View>
               ) : null}
+              {toggles.map((toggle) => (
+                <View key={toggle.id} style={{ ...field, justifyContent: "space-between" }}>
+                  <View style={{ flex: 1, paddingVertical: 8 }}>
+                    <Text style={{ color: c.foreground, fontSize: 15 }}>{toggle.label}</Text>
+                    {toggle.description ? <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{toggle.description}</Text> : null}
+                  </View>
+                  <Switch
+                    accessibilityLabel={toggle.label}
+                    value={featureValues[toggle.id] ?? false}
+                    onValueChange={(value) => setToggleValues((current) => ({ ...current, [toggle.id]: value }))}
+                  />
+                </View>
+              ))}
               <View>
                 <Text style={label}>First message (optional)</Text>
                 <View style={{ ...field, alignItems: "flex-start" }}>

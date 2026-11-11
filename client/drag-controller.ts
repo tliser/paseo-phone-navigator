@@ -27,6 +27,12 @@ export interface DragController {
   handleFor(index: number): GestureResponderHandlers;
 }
 
+/** On web a mouse drag also selects the text it passes; drop any selection when a row is picked up. */
+function clearTextSelection() {
+  const scope = globalThis as { getSelection?: () => { removeAllRanges(): void } | null };
+  if (typeof scope.getSelection === "function") scope.getSelection()?.removeAllRanges();
+}
+
 export function useDragController(options: {
   rows: readonly TreeRow[];
   heights: RowHeights;
@@ -64,6 +70,7 @@ export function useDragController(options: {
     if (row) ref.current.options.onDrop(row, current.drop);
   };
   const pickUp = (index: number) => {
+    clearTextSelection();
     ref.current.startScroll = ref.current.scrollY;
     update({ index, dy: 0, drop: null });
   };

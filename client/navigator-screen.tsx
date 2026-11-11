@@ -230,7 +230,8 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
         </Text>
       ) : null}
 
-      <View style={{ flex: 1 }} {...drag.handlers}>
+      {/* While a row is dragged, the text it passes must not get selected (web/desktop). */}
+      <View style={{ flex: 1, ...(dragging ? { userSelect: "none" } : null) } as never} {...drag.handlers}>
         <FlatList
           data={tree.rows}
           extraData={dragging}
@@ -324,7 +325,7 @@ function Grip({ theme, handlers, height, label }: { theme: PluginTheme; handlers
     <View
       {...handlers}
       accessibilityLabel={`Drag to reorder ${label}`}
-      style={{ width: 24, height, alignItems: "center", justifyContent: "center", cursor: "grab" } as never}
+      style={{ width: 24, height, alignItems: "center", justifyContent: "center", cursor: "grab", userSelect: "none" } as never}
     >
       <Icon name="GripVertical" size={14} color={theme.colors.foregroundMuted} />
     </View>

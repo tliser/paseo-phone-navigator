@@ -25,6 +25,10 @@ A Host → Project → Workspace tree for [Paseo](https://paseo.sh), built for t
 | --- | --- | --- | --- |
 | <img src="docs/screenshots/desktop.png" width="260"> | <img src="docs/screenshots/settings.png" width="200"> | <img src="docs/screenshots/phone-profiles.png" width="160"> | <img src="docs/screenshots/phone-search.png" width="160"> |
 
+| All, with a pin | Row actions | New workspace |
+| --- | --- | --- |
+| <img src="docs/screenshots/phone-all.png" width="200"> | <img src="docs/screenshots/phone-row-menu.png" width="200"> | <img src="docs/screenshots/phone-new-workspace.png" width="200"> |
+
 See [OVERVIEW.md](OVERVIEW.md) for more detail.
 
 ## Install

@@ -333,20 +333,23 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
         accessibilityState={online ? { expanded: !row.collapsed } : { disabled: true }}
         disabled={!online}
         onPress={() => onToggle(row.key)}
-        style={{ height: groupHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 8, paddingRight: 12, backgroundColor: c.surface1, ...separator }}
+        style={{ height: groupHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: 12, backgroundColor: c.surface1, ...separator }}
       >
-        <View style={{ width: 20, alignItems: "center", opacity: dim }}>{online ? <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} /> : null}</View>
-        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot, opacity: dim }} />
+        {/* Status dot in the 18pt left column so host and project names align; the chevron moves to the trailing end. */}
+        <View style={{ width: 18, alignItems: "center", opacity: dim }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />
+        </View>
         <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>{row.label}</Text>
         {online ? <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.count}</Text> : <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.state === "offline" ? "offline" : "loading…"}</Text>}
         {online ? <TallyBadge theme={theme} tally={row.tally} /> : null}
+        {online ? <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} /> : null}
       </Pressable>
     );
   }
 
   if (row.type === "project") {
     return (
-      <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", paddingRight: 6, backgroundColor: c.surface0, ...separator, ...liftStyle }}>
+      <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", paddingRight: row.rootPath ? 0 : 12, backgroundColor: c.surface0, ...separator, ...liftStyle }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${row.name}, ${row.count} workspaces${row.collapsed && row.tally.needsYou ? ", something asks you" : row.collapsed && row.tally.unread ? ", unread" : ""}`}
@@ -355,13 +358,12 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
         onPress={() => onToggle(row.key)}
         onLongPress={onPickUp}
         delayLongPress={350}
-        style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 24 }}
+        style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12 }}
       >
-        <View style={{ width: 20, alignItems: "center" }}>
+        <View style={{ width: 18, alignItems: "center" }}>
           <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} />
         </View>
-        <Icon name="Folder" size={14} color={c.foregroundMuted} />
-        <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize }}>{row.name}</Text>
+        <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize, fontWeight: "500" }}>{row.name}</Text>
         {row.collapsed && (row.tally.needsYou || row.tally.unread) ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: row.tally.needsYou ? c.statusWarning : UNREAD_BLUE }} /> : null}
         <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.count}</Text>
       </Pressable>
@@ -370,7 +372,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
             accessibilityRole="button"
             accessibilityLabel={`New workspace in ${row.name}`}
             onPress={() => onCreate(row)}
-            hitSlop={{ left: 2, right: 2 }}
+            hitSlop={{ left: 4 }}
             style={{ width: 40, height: groupHeight, alignItems: "center", justifyContent: "center" }}
           >
             <Icon name="Plus" size={16} color={c.foregroundMuted} />
@@ -382,7 +384,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
 
   if (row.type === "skeleton") {
     return (
-      <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 48, paddingRight: 12 }}>
+      <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 20, paddingRight: 12 }}>
         <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: c.surface2 }} />
         <View style={{ flex: 1, gap: 6 }}>
           <View style={{ height: 12, width: "70%", borderRadius: 6, backgroundColor: c.surface2 }} />
@@ -394,7 +396,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
 
   if (row.type === "note") {
     return (
-      <View style={{ height: noteHeight, justifyContent: "center", paddingLeft: 56, paddingRight: 12 }}>
+      <View style={{ height: noteHeight, justifyContent: "center", paddingLeft: 46, paddingRight: 12 }}>
         <Text style={{ color: c.foregroundMuted, fontSize: 13 }}>{row.text}</Text>
       </View>
     );
@@ -421,21 +423,22 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
         onPress={() => canOpen && onOpen(row)}
         onLongPress={onPickUp}
         delayLongPress={350}
-        style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 48, backgroundColor: pressed && lifted === null ? c.surface1 : "transparent" })}
+        style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 20, backgroundColor: pressed && lifted === null ? c.surface1 : "transparent" })}
       >
         <StateIcon theme={theme} state={row.state} status={workspace.status} />
         <View style={{ flex: 1, minWidth: 0, gap: comfortable ? 4 : 2 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize, fontWeight: row.state === "unread" || row.state === "needs_you" ? "700" : "400" }}>{workspace.title}</Text>
-            {hasDiff ? (
-              <Text style={{ fontSize: 11.5, fontVariant: ["tabular-nums"] }}>
-                <Text style={{ color: c.statusSuccess }}>{`+${workspace.additions}`}</Text>
-                <Text style={{ color: c.statusDanger }}>{` −${workspace.deletions}`}</Text>
-              </Text>
-            ) : null}
-          </View>
-          {parts.length ? (
-            <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: comfortable ? 13 : 12 }}>{parts.join(" · ")}</Text>
+          <Text numberOfLines={1} style={{ color: c.foreground, fontSize, fontWeight: row.state === "unread" || row.state === "needs_you" ? "700" : "400" }}>{workspace.title}</Text>
+          {parts.length || hasDiff ? (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              {/* Meta truncates first; the diff keeps its width at the right end. */}
+              <Text numberOfLines={1} style={{ flex: 1, color: c.foregroundMuted, fontSize: comfortable ? 13 : 12 }}>{parts.join(" · ")}</Text>
+              {hasDiff ? (
+                <Text style={{ flexShrink: 0, fontSize: 11.5, fontVariant: ["tabular-nums"] }}>
+                  <Text style={{ color: c.statusSuccess }}>{`+${workspace.additions}`}</Text>
+                  <Text style={{ color: c.statusDanger }}>{` −${workspace.deletions}`}</Text>
+                </Text>
+              ) : null}
+            </View>
           ) : null}
         </View>
       </Pressable>
@@ -443,12 +446,11 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
         accessibilityRole="button"
         accessibilityLabel={`Actions for ${workspace.title}`}
         onPress={() => onMenu(row)}
-        hitSlop={{ left: 2, right: 2 }}
-        style={{ width: 40, height: 44, alignItems: "center", justifyContent: "center" }}
+        hitSlop={{ left: 4 }}
+        style={{ width: 40, height: workspaceHeight, alignItems: "center", justifyContent: "center" }}
       >
-        <Icon name="Ellipsis" size={18} color={row.state === "unread" ? UNREAD_BLUE : c.foregroundMuted} />
+        <Icon name="Ellipsis" size={16} color={row.state === "unread" ? UNREAD_BLUE : c.foregroundMuted} />
       </Pressable>
-      <View style={{ width: 6 }} />
     </View>
   );
 }

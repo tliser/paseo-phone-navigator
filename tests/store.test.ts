@@ -173,10 +173,16 @@ describe("store read state", () => {
     expect(host.writes()).toBe(1);
     expect(Object.keys((host.docs.reads!.values as { seen: object }).seen).sort()).toEqual(["h:w1", "h:w2"]);
     store.markUnread("h", "w1");
-    expect(store.getSnapshot().reads["h:w1"]).toBe(0);
+    expect(store.getSnapshot().reads["h:w1"]).toBeLessThan(0);
     vi.advanceTimersByTime(800);
     await flush();
-    expect(Object.keys((host.docs.reads!.values as { seen: object }).seen)).toEqual(["h:w2"]);
+    const seen = (host.docs.reads!.values as { seen: Record<string, number> }).seen;
+    expect(seen["h:w1"]).toBeLessThan(0);
+    expect(seen["h:w2"]).toBeGreaterThan(0);
+    store.markRead("h", ["w1"]);
+    vi.advanceTimersByTime(800);
+    await flush();
+    expect((host.docs.reads!.values as { seen: Record<string, number> }).seen["h:w1"]).toBeGreaterThan(0);
     store.dispose();
   });
 

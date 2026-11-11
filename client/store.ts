@@ -122,7 +122,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   const readsDoc = createSyncedDoc<ReadsDocument>({ rpc, settingsId: readsSettings.id, label: "read state", normalize: normalizeReads, changed: () => emitNow() });
   /** Reads changed on this device and not handed to the document yet (batched). */
   let unsavedReads: Record<string, number> = {};
-  /** "Mark unread" sets the key to 0 locally until saved. */
+  /** "Mark unread" stores the key as -now until you view it again. */
   let sessionProfileId: string | null = null;
   let deviceProfileId = readDeviceProfileId();
   const deviceCollapse = new Map<string, CollapseMap>();
@@ -287,9 +287,9 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     const now = Date.now();
     readsDoc.edit((doc) => {
       const seen: Record<string, number> = { ...doc.seen };
-      // 0 means "mark unread": drop the entry. Otherwise the later view wins.
+      // Negative = marked unread now (always wins); otherwise the later view wins.
       for (const [key, at] of Object.entries(batch)) {
-        if (at === 0) delete seen[key];
+        if (at < 0) seen[key] = at;
         else seen[key] = Math.max(seen[key] ?? 0, at);
       }
       return { seen: markSeen(seen, [], now) };
@@ -310,7 +310,8 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   }
 
   function markUnread(serverId: string, workspaceId: string) {
-    unsavedReads[readKey(serverId, workspaceId)] = 0;
+    // Kept as an explicit mark: a workspace whose news Paseo has already cleared would otherwise read as read again.
+    unsavedReads[readKey(serverId, workspaceId)] = -Date.now();
     scheduleReads();
   }
 

@@ -1,7 +1,10 @@
 // Read/unread state, kept by the plugin because plugins cannot clear Paseo's own attention flag. Pure.
 import { z } from "zod";
 
-/** "<serverId>:<workspaceId>" -> when you last viewed it (epoch ms). */
+/**
+ * "<serverId>:<workspaceId>" -> when you last viewed it (epoch ms). A negative value means you marked
+ * it unread at that time (as -epoch): it stays unread until you view it again, whatever Paseo reports.
+ */
 export type ReadMap = Readonly<Record<string, number>>;
 
 export const readsDocumentSchema = z.object({
@@ -16,10 +19,12 @@ export function normalizeReads(raw: unknown): ReadsDocument {
   return parsed.success ? parsed.data : { seen: {} };
 }
 
-/** Unread when something new happened (`unreadAt`) after the last view. */
+/** Unread when you marked it so, or when something new happened (`unreadAt`) after the last view. */
 export function isUnread(reads: ReadMap, serverId: string, workspaceId: string, unreadAt: number): boolean {
+  const seen = reads[readKey(serverId, workspaceId)] ?? 0;
+  if (seen < 0) return true;
   if (!unreadAt) return false;
-  return unreadAt > (reads[readKey(serverId, workspaceId)] ?? 0);
+  return unreadAt > seen;
 }
 
 const KEEP_DAYS = 60;
@@ -31,8 +36,8 @@ export function markSeen(reads: ReadMap, keys: readonly string[], now: number): 
   for (const key of keys) next[key] = Math.max(next[key] ?? 0, now);
   const cutoff = now - KEEP_DAYS * 86_400_000;
   const kept = Object.entries(next)
-    .filter(([, at]) => at >= cutoff)
-    .sort((a, b) => b[1] - a[1])
+    .filter(([, at]) => Math.abs(at) >= cutoff)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
     .slice(0, MAX_ENTRIES);
   return Object.fromEntries(kept);
 }

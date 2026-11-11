@@ -11,6 +11,13 @@ describe("read state", () => {
     expect(isUnread({ [readKey("h", "w")]: 5 }, "h", "w", 10)).toBe(true);
     expect(isUnread({}, "h", "w", 0)).toBe(false);
   });
+  it("stays unread when marked so, even with no news from Paseo", () => {
+    expect(isUnread({ [readKey("h", "w")]: -NOW }, "h", "w", 0)).toBe(true);
+    expect(isUnread({ [readKey("h", "w")]: -NOW }, "h", "w", NOW + 5)).toBe(true);
+  });
+  it("prunes marks by age like views", () => {
+    expect(markSeen({ a: -(NOW - 70 * DAY), b: -(NOW - DAY) }, [], NOW)).toEqual({ b: -(NOW - DAY) });
+  });
   it("marks seen, keeps the later time, and prunes old entries", () => {
     const reads = { a: NOW - 70 * DAY, b: NOW - DAY, c: NOW };
     const next = markSeen(reads, ["b"], NOW - 2 * DAY);

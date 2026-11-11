@@ -132,7 +132,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
           />
           <SettingsSelect
             label="Order"
-            hint={s.sort === "manual" ? "Long-press a project or workspace and drag it. Status shows through icons and badges." : "Asking, unread and running first, then most recent."}
+            hint={s.sort === "manual" ? "Drag a project or workspace: by its grip on desktop, by long-press on phones. Status shows through icons and badges." : "Asking, unread and running first, then most recent."}
             value={s.sort}
             options={[{ value: "auto", label: "Automatic" }, { value: "manual", label: "Manual (drag and drop)" }]}
             onValueChange={(sort) => updateSettings({ sort })}

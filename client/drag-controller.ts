@@ -23,6 +23,8 @@ export interface DragController {
   pickUp(index: number): void;
   /** Spread onto the list wrapper so moves keep arriving after the long-press. */
   handlers: GestureResponderHandlers;
+  /** Handlers for a drag handle (desktop): pressing it picks the row up at once, no long-press. */
+  handleFor(index: number): GestureResponderHandlers;
 }
 
 export function useDragController(options: {
@@ -44,6 +46,28 @@ export function useDragController(options: {
     setState(next);
   };
 
+  const move = (dy: number) => {
+    const current = ref.current.state;
+    if (!current) return;
+    const { rows } = ref.current.options;
+    const offs = offsetsRef.current;
+    const top = offs[current.index] ?? 0;
+    const height = (offs[current.index + 1] ?? top) - top;
+    const center = top + height / 2 + dy;
+    update({ index: current.index, dy, drop: findDropTarget(rows, offs, current.index, center) });
+  };
+  const release = () => {
+    const current = ref.current.state;
+    update(null);
+    if (!current?.drop) return;
+    const row = ref.current.options.rows[current.index];
+    if (row) ref.current.options.onDrop(row, current.drop);
+  };
+  const pickUp = (index: number) => {
+    ref.current.startScroll = ref.current.scrollY;
+    update({ index, dy: 0, drop: null });
+  };
+
   const handlers = useMemo(
     () =>
       PanResponder.create({
@@ -53,27 +77,31 @@ export function useDragController(options: {
         onMoveShouldSetPanResponder: () => ref.current.state !== null,
         onMoveShouldSetPanResponderCapture: () => ref.current.state !== null,
         onPanResponderTerminationRequest: () => false,
-        onPanResponderMove: (_event, gesture) => {
-          const current = ref.current.state;
-          if (!current) return;
-          const { rows } = ref.current.options;
-          const offs = offsetsRef.current;
-          const top = offs[current.index] ?? 0;
-          const height = (offs[current.index + 1] ?? top) - top;
-          const center = top + height / 2 + gesture.dy;
-          update({ index: current.index, dy: gesture.dy, drop: findDropTarget(rows, offs, current.index, center) });
-        },
-        onPanResponderRelease: () => {
-          const current = ref.current.state;
-          update(null);
-          if (!current?.drop) return;
-          const row = ref.current.options.rows[current.index];
-          if (row) ref.current.options.onDrop(row, current.drop);
-        },
+        onPanResponderMove: (_event, gesture) => move(gesture.dy),
+        onPanResponderRelease: release,
         onPanResponderTerminate: () => update(null),
       }).panHandlers,
     [],
   );
+
+  // One responder per handle, keyed by row index; the handle keeps the gesture (refuses termination),
+  // so the travel is measured from the press itself.
+  const handleCache = useRef(new Map<number, GestureResponderHandlers>());
+  const handleFor = (index: number) => {
+    let cached = handleCache.current.get(index);
+    if (!cached) {
+      cached = PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => pickUp(index),
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderMove: (_event, gesture) => move(gesture.dy),
+        onPanResponderRelease: release,
+        onPanResponderTerminate: () => update(null),
+      }).panHandlers;
+      handleCache.current.set(index, cached);
+    }
+    return cached;
+  };
 
   return {
     state,
@@ -81,10 +109,8 @@ export function useDragController(options: {
       ref.current.scrollY = y;
     },
     scrollAtPickUp: () => ref.current.startScroll,
-    pickUp: (index) => {
-      ref.current.startScroll = ref.current.scrollY;
-      update({ index, dy: 0, drop: null });
-    },
+    pickUp,
     handlers,
+    handleFor,
   };
 }

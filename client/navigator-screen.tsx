@@ -2,7 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { FlatList, Icon, TextInput } from "@getpaseo/plugin/client/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, View, type GestureResponderHandlers } from "react-native";
 import { timeAgo } from "../shared/format";
 import { expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
 import { dragId, heightsFor, rowOffsets, type DropTarget } from "../shared/drag";
@@ -108,6 +108,8 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
   );
   const offsets = useMemo(() => rowOffsets(tree.rows, heights), [tree.rows, heights]);
   const drag = useDragController({ rows: tree.rows, heights, onDrop: drop });
+  // Desktop and web: a grip handle drags at once. Phones: long-press the row.
+  const useHandle = layout.platform === "web";
   const dragging = drag.state;
 
   const renderItem = ({ item, index }: { item: TreeRow; index: number }) => (
@@ -123,7 +125,8 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
       onMenu={setMenuFor}
       onCreate={setDraftFor}
       canOpen={!!navigation}
-      onPickUp={canArrange && dragId(item) ? () => drag.pickUp(index) : undefined}
+      onPickUp={canArrange && !useHandle && dragId(item) ? () => drag.pickUp(index) : undefined}
+      dragHandle={canArrange && useHandle && dragId(item) ? drag.handleFor(index) : undefined}
       lifted={dragging?.index === index ? dragging.dy : null}
     />
   );
@@ -312,9 +315,23 @@ interface RowProps {
   onPickUp?: () => void;
   /** Drag offset while this row is picked up, else null. */
   lifted: number | null;
+  /** Set on desktop in manual mode: responder handlers for the grip at the row's end. */
+  dragHandle?: GestureResponderHandlers;
 }
 
-function Row({ row, theme, profile, comfortable, searching, now, canOpen, onToggle, onOpen, onMenu, onCreate, onPickUp, lifted }: RowProps) {
+function Grip({ theme, handlers, height, label }: { theme: PluginTheme; handlers: GestureResponderHandlers; height: number; label: string }) {
+  return (
+    <View
+      {...handlers}
+      accessibilityLabel={`Drag to reorder ${label}`}
+      style={{ width: 24, height, alignItems: "center", justifyContent: "center", cursor: "grab" } as never}
+    >
+      <Icon name="GripVertical" size={14} color={theme.colors.foregroundMuted} />
+    </View>
+  );
+}
+
+function Row({ row, theme, profile, comfortable, searching, now, canOpen, onToggle, onOpen, onMenu, onCreate, onPickUp, lifted, dragHandle }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null
@@ -352,7 +369,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
 
   if (row.type === "project") {
     return (
-      <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", paddingRight: row.rootPath ? 0 : 12, backgroundColor: c.surface0, ...separator, ...liftStyle }}>
+      <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", paddingRight: row.rootPath || dragHandle ? 0 : 12, backgroundColor: c.surface0, ...separator, ...liftStyle }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${row.name}, ${row.count} workspaces${row.collapsed && row.tally.needsYou ? ", something asks you" : row.collapsed && row.tally.unread ? ", unread" : ""}`}
@@ -381,6 +398,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
             <Icon name="Plus" size={16} color={c.foregroundMuted} />
           </Pressable>
         ) : null}
+        {dragHandle ? <Grip theme={theme} handlers={dragHandle} height={groupHeight} label={row.name} /> : null}
       </View>
     );
   }
@@ -461,6 +479,7 @@ function Row({ row, theme, profile, comfortable, searching, now, canOpen, onTogg
       >
         <Icon name="Ellipsis" size={16} color={row.state === "unread" ? UNREAD_BLUE : c.foregroundMuted} />
       </Pressable>
+      {dragHandle ? <Grip theme={theme} handlers={dragHandle} height={workspaceHeight} label={workspace.title} /> : null}
     </View>
   );
 }

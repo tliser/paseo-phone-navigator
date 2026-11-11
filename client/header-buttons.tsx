@@ -6,17 +6,33 @@ import { Icon } from "@getpaseo/plugin/client/ui";
 import { View } from "react-native";
 import { createHostObserver } from "./host-observer";
 import { SCREEN_ID, useTally } from "./runtime";
-import { TallyBadge } from "./visual";
+import { UNREAD_BLUE } from "./visual";
 
 function WorkspacesIcon({ theme, size, color }: PluginButtonIconProps) {
   const tally = useTally();
+  // Paseo draws plugin button icons in a box exactly `size` wide that clips overflow (header and the
+  // "More actions" menu alike), so the indicator must stay inside it: a dot in the top-right corner,
+  // amber when something asks you, blue for unread news.
+  const dot = Math.max(6, Math.round(size * 0.45));
+  const signal = tally.needsYou ? theme.colors.statusWarning : tally.unread ? UNREAD_BLUE : null;
   return (
-    <View style={{ width: size + 8, height: size + 8, alignItems: "center", justifyContent: "center" }}>
+    <View
+      style={{ width: size, height: size }}
+      accessibilityLabel={tally.needsYou ? `${tally.needsYou} asking you` : tally.unread ? `${tally.unread} unread` : undefined}
+    >
       <Icon name="Layers" size={size} color={color} />
-      {tally.needsYou || tally.unread ? (
-        <View style={{ position: "absolute", top: -4, right: -6 }}>
-          <TallyBadge theme={theme} tally={tally.needsYou ? { needsYou: tally.needsYou, unread: 0 } : tally} small />
-        </View>
+      {signal ? (
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            width: dot,
+            height: dot,
+            borderRadius: dot / 2,
+            backgroundColor: signal,
+          }}
+        />
       ) : null}
     </View>
   );

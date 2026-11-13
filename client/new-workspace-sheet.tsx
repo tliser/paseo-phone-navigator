@@ -3,10 +3,10 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/ui";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, Switch, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Switch, Text, View } from "react-native";
 import type { ProjectRow } from "../shared/tree";
 import { useNavigatorStore } from "./runtime";
-import type { ProviderChoice, ProviderToggle } from "./store";
+import type { ProviderChoice, ProviderListState, ProviderToggle } from "./store";
 
 /** Last choice per host for this app session, so the next draft starts where you left off. */
 const lastChoice = new Map<
@@ -20,8 +20,11 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
   const remembered = lastChoice.get(project.serverId);
   const isGit = project.kind === "git";
 
-  const [providers, setProviders] = useState<ProviderChoice[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // null until the host answered; then the ready providers plus the ones still being discovered.
+  const [providerState, setProviderState] = useState<ProviderListState | null>(null);
+  const providers: ProviderChoice[] | null = providerState && (providerState.ready.length || !providerState.loading.length) ? providerState.ready : null;
+  const loadError = providerState?.error ?? null;
+  const stillLoading = providerState === null ? null : providerState.loading;
   const [launch, setLaunch] = useState<"agent" | "terminal">(remembered?.launch ?? "agent");
   const [isolation, setIsolation] = useState<"worktree" | "local">(isGit ? (remembered?.isolation ?? "worktree") : "local");
   const [providerId, setProviderId] = useState<string | null>(remembered?.provider ?? null);
@@ -33,16 +36,7 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let live = true;
-    store
-      .providers(project.serverId, project.rootPath)
-      .then((list) => live && setProviders(list))
-      .catch((reason: unknown) => live && setLoadError(reason instanceof Error ? reason.message : String(reason)));
-    return () => {
-      live = false;
-    };
-  }, [store, project.serverId, project.rootPath]);
+  useEffect(() => store.watchProviders(project.serverId, project.rootPath, setProviderState), [store, project.serverId, project.rootPath]);
 
   // Keep the selection valid once providers are known: fall back to the first provider and its default model.
   const provider = useMemo(() => providers?.find((entry) => entry.id === providerId) ?? providers?.[0] ?? null, [providers, providerId]);
@@ -169,8 +163,14 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
         </View>
 
         {launch === "agent" ? (
-          providers === null ? (
-            <Text style={{ color: loadError ? c.statusDanger : c.foregroundMuted }}>{loadError ? `Could not load agents: ${loadError}` : "Loading agents…"}</Text>
+          loadError ? (
+            <Text style={{ color: c.statusDanger }}>{`Could not load agents: ${loadError}`}</Text>
+          ) : providers === null ? (
+            // The host is still discovering its providers: a spinner instead of an empty list.
+            <View accessibilityLabel="Loading agents" style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44 }}>
+              <ActivityIndicator color={c.foregroundMuted} />
+              <Text style={{ color: c.foregroundMuted }}>{stillLoading?.length ? `Loading agents: ${stillLoading.join(", ")}…` : "Loading agents…"}</Text>
+            </View>
           ) : providers.length === 0 ? (
             <Text style={{ color: c.foregroundMuted }}>No agent provider is ready on this host.</Text>
           ) : (
@@ -178,6 +178,12 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
               <View>
                 <Text style={label}>Agent</Text>
                 {select("provider", provider?.label ?? "Choose an agent")}
+                {stillLoading?.length ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6 }}>
+                    <ActivityIndicator size="small" color={c.foregroundMuted} />
+                    <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{`Still loading: ${stillLoading.join(", ")}`}</Text>
+                  </View>
+                ) : null}
                 {picker === "provider" ? (
                   <View style={{ marginTop: 6 }}>
                     {options(providers, provider?.id, (id) => {

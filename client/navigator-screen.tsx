@@ -7,7 +7,7 @@ import { timeAgo } from "../shared/format";
 import { expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
 import { dragId, heightsFor, rowOffsets, type DropTarget } from "../shared/drag";
 import { buildTree, type ProjectRow, type TreeRow, type WorkspaceRow } from "../shared/tree";
-import type { Filter } from "../shared/types";
+import { FILTERS, type Filter } from "../shared/types";
 import { useDragController } from "./drag-controller";
 import { NewWorkspaceSheet } from "./new-workspace-sheet";
 import { ProfileSheet } from "./profile-sheet";
@@ -15,8 +15,7 @@ import { useActiveProfile, useNavigatorStore } from "./runtime";
 import { StateIcon, TallyBadge, UNREAD_BLUE } from "./visual";
 import { WorkspaceMenu } from "./workspace-menu";
 
-const FILTER_LABEL: Record<Filter, string> = { all: "All", active: "Active", inbox: "Inbox" };
-const FILTERS: Filter[] = ["all", "active", "inbox"];
+const FILTER_LABEL: Record<Filter, string> = { all: "All", recent: "Recent", active: "Active", inbox: "Inbox" };
 
 /** Filter picked in this session per profile; starts at the profile's default. */
 const sessionFilters = new Map<string, Filter>();
@@ -137,7 +136,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
     <EmptyState
       theme={theme}
       icon="Search"
-      title={query.trim() ? `No workspaces match "${query.trim()}"` : filter === "inbox" ? "Inbox zero: nothing new, nothing asking" : "Nothing running, new or asking"}
+      title={query.trim() ? `No workspaces match "${query.trim()}"` : filter === "inbox" ? "Inbox zero: nothing new, nothing asking" : filter === "recent" ? `Nothing active in the last ${settings.recentDays === 1 ? "day" : `${settings.recentDays} days`}` : "Nothing running, new or asking"}
       action={{ label: "Show all", onPress: () => { setFilter("all"); closeSearch(); } }}
     />
   ) : null;
@@ -165,7 +164,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
               </View>
               <HeaderButton theme={theme} icon="X" label="Clear search" onPress={closeSearch} />
             </View>
-            <View style={{ flexDirection: "row", gap: 6, paddingHorizontal: 12, paddingBottom: 8 }}>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 12, paddingBottom: 8 }}>
               {FILTERS.map((key) => (
                 <Chip key={key} theme={theme} active={filter === key} onPress={() => setFilter(key)} label={`${FILTER_LABEL[key]} ${tree.counts[key]}`} />
               ))}
@@ -216,7 +215,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
           </View>
         )}
         {menu && !searchOpen ? (
-          <View style={{ flexDirection: "row", gap: 6, paddingHorizontal: 12, paddingBottom: 8 }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 12, paddingBottom: 8 }}>
             {FILTERS.map((key) => (
               <Chip key={key} theme={theme} active={filter === key} onPress={() => { setFilter(key); setMenu(false); }} label={`${FILTER_LABEL[key]} ${tree.counts[key]}`} />
             ))}
@@ -325,14 +324,14 @@ function Grip({ theme, handlers, height, label }: { theme: PluginTheme; handlers
     <View
       {...handlers}
       accessibilityLabel={`Drag to reorder ${label}`}
-      style={{ width: 24, height, alignItems: "center", justifyContent: "center", cursor: "grab", userSelect: "none" } as never}
+      style={{ width: 24, height, alignItems: "center", justifyContent: "center", cursor: "grab", userSelect: "none", touchAction: "none" } as never}
     >
       <Icon name="GripVertical" size={14} color={theme.colors.foregroundMuted} />
     </View>
   );
 }
 
-function Row({ row, theme, profile, comfortable, searching, now, canOpen, onToggle, onOpen, onMenu, onCreate, onPickUp, lifted, dragHandle }: RowProps) {
+export function Row({ row, theme, profile, comfortable, searching, now, canOpen, onToggle, onOpen, onMenu, onCreate, onPickUp, lifted, dragHandle }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null

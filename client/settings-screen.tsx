@@ -10,7 +10,7 @@ import {
   SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
 import { useEffect, useState } from "react";
-import { Text } from "react-native";
+import { Text, View } from "react-native";
 import {
   bindPlatform,
   defaultSettings,
@@ -22,8 +22,11 @@ import {
 import type { Platform } from "../shared/types";
 import { PLATFORM_LABEL } from "./profile-sheet";
 import { useActiveProfile, useNavigatorStore } from "./runtime";
+import { SettingsPreview } from "./settings-preview";
 
 type PlatformChoice = Platform | "none";
+
+const RECENT_DAYS = [1, 2, 3, 7, 14, 30];
 
 export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   const { store, snapshot } = useNavigatorStore();
@@ -73,7 +76,11 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
     <SettingsSwitch key={key ?? label} label={label} hint={hint} value={value} onValueChange={set} disabled={!snapshot.profilesReady} />
   );
 
+  const preview = <SettingsPreview theme={theme} profile={edit} snapshot={snapshot} maxRows={layout.compact ? 4 : 8} />;
   return (
+    <View style={{ flex: 1, backgroundColor: c.surface0 }}>
+    {/* Phones: the preview stays above the scrolling settings so each change shows at once. */}
+    {layout.compact ? <View style={{ padding: 12, paddingBottom: 0 }}>{preview}</View> : null}
     <ScrollView style={{ flex: 1, backgroundColor: c.surface0 }} contentContainerStyle={{ padding: layout.compact ? 12 : 24, gap: 16 }}>
       <SettingsSection title="Profiles" info="Profiles are shared by every client of this host. Each device picks one; the first profile bound to a platform is used until you pick another.">
         <SettingsCard>
@@ -90,6 +97,12 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
         </SettingsCard>
         {snapshot.savingError ? <Text style={{ color: c.statusDanger, fontSize: 12 }}>{snapshot.savingError}</Text> : null}
       </SettingsSection>
+
+      {layout.compact ? null : (
+        <SettingsSection title="Preview" info="How the navigator looks with this profile: its density, default filter, order and the fields rows show.">
+          {preview}
+        </SettingsSection>
+      )}
 
       <SettingsSection title={`Profile "${edit.name}"`}>
         <SettingsCard>
@@ -126,8 +139,21 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
           <SettingsSelect
             label="Default filter"
             value={s.defaultFilter}
-            options={[{ value: "all", label: "All" }, { value: "active", label: "Active (running, new or asking)" }, { value: "inbox", label: "Inbox (new or asking)" }]}
+            options={[
+              { value: "all", label: "All" },
+              { value: "recent", label: "Recent (active lately, or new)" },
+              { value: "active", label: "Active (running, new or asking)" },
+              { value: "inbox", label: "Inbox (new or asking)" },
+            ]}
             onValueChange={(defaultFilter) => updateSettings({ defaultFilter })}
+            disabled={!snapshot.profilesReady}
+          />
+          <SettingsSelect
+            label="Recent means"
+            hint="The Recent filter shows workspaces active within this time, plus anything running, new or asking."
+            value={String(s.recentDays)}
+            options={RECENT_DAYS.map((days) => ({ value: String(days), label: days === 1 ? "Last day" : `Last ${days} days` }))}
+            onValueChange={(value) => updateSettings({ recentDays: Number(value) })}
             disabled={!snapshot.profilesReady}
           />
           <SettingsSelect
@@ -201,5 +227,6 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
         </SettingsCard>
       </SettingsSection>
     </ScrollView>
+    </View>
   );
 }

@@ -6,7 +6,7 @@ import type { Platform } from "../shared/types";
 import { useNavigatorStore } from "./runtime";
 
 export const PLATFORM_LABEL: Record<Platform, string> = { ios: "iOS", android: "Android", web: "Web / Desktop" };
-const FILTER_LABEL = { all: "All", active: "Active", inbox: "Inbox" } as const;
+const FILTER_LABEL = { all: "All", recent: "Recent", active: "Active", inbox: "Inbox" } as const;
 
 export function ProfileSheet({ theme, platform, active, onClose, onEdit }: { theme: PluginTheme; platform: Platform; active: Profile; onClose(): void; onEdit(): void }) {
   const { store, snapshot } = useNavigatorStore();

@@ -4,7 +4,7 @@ import type { Platform } from "./types";
 
 const platformSchema = z.enum(["ios", "android", "web"]);
 /** "attention" was the filter's name before read state existed; it maps to the inbox. */
-const filterSchema = z.preprocess((value) => (value === "attention" ? "inbox" : value), z.enum(["all", "active", "inbox"]));
+const filterSchema = z.preprocess((value) => (value === "attention" ? "inbox" : value), z.enum(["all", "recent", "active", "inbox"]));
 
 const profileSettingsSchema = z.object({
   density: z.enum(["compact", "comfortable"]).default("compact"),
@@ -18,6 +18,8 @@ const profileSettingsSchema = z.object({
     .default({ model: true, branch: true, diff: true, time: true }),
   defaultFilter: filterSchema.default("all"),
   hideDone: z.enum(["off", "1d", "7d"]).default("off"),
+  /** The Recent filter shows workspaces active within this many days. */
+  recentDays: z.number().int().min(1).max(90).default(2),
   /** "auto": asking, unread, running first, then by activity. "manual": your drag-and-drop order. */
   sort: z.enum(["auto", "manual"]).default("auto"),
   hiddenHosts: z.array(z.string()).default([]),

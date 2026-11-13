@@ -2,7 +2,8 @@
 
 export type WorkspaceStatus = "needs_input" | "failed" | "running" | "attention" | "done";
 type HostStatus = "idle" | "connecting" | "online" | "offline" | "error";
-export type Filter = "all" | "active" | "inbox";
+export type Filter = "all" | "recent" | "active" | "inbox";
+export const FILTERS: readonly Filter[] = ["all", "recent", "active", "inbox"];
 export type Platform = "ios" | "android" | "web";
 export type ProjectKind = "git" | "directory" | "non_git";
 

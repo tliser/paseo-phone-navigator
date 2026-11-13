@@ -76,6 +76,17 @@ describe("filters and search", () => {
     expect(passesFilter(item(ws("1", "p", "attention", 1, { news: 1 })), "inbox", settings, NOW)).toBe(true);
     expect(passesFilter(item(ws("1", "p", "attention", 1, { news: 5 }), { [readKey("h", "1")]: NOW }), "inbox", settings, NOW)).toBe(false);
   });
+  it("recent = active within the configured days, plus anything running, new or asking", () => {
+    const day = 60 * 24;
+    expect(passesFilter(item(ws("1", "p", "done", day + 60)), "recent", settings, NOW)).toBe(true); // default 2 days
+    expect(passesFilter(item(ws("1", "p", "done", 2 * day + 60)), "recent", settings, NOW)).toBe(false);
+    expect(passesFilter(item(ws("1", "p", "done", 2 * day + 60)), "recent", { ...settings, recentDays: 7 }, NOW)).toBe(true);
+    expect(passesFilter(item(ws("1", "p", "running", 30 * day)), "recent", settings, NOW)).toBe(true);
+    expect(passesFilter(item(ws("1", "p", "needs_input", 30 * day)), "recent", settings, NOW)).toBe(true);
+    const tree = buildTree([host("h", [ws("new", "p", "done", 60), ws("old", "p", "done", 5 * day)])], opts({ filter: "recent" }));
+    expect(wsIds(tree.rows)).toEqual(["new"]);
+    expect(tree.counts).toMatchObject({ all: 2, recent: 1 });
+  });
   it("hides old read workspaces when hideDone is set, never unread ones", () => {
     const s = { ...settings, hideDone: "1d" as const };
     expect(passesFilter(item(ws("1", "p", "done", 60 * 30)), "all", s, NOW)).toBe(false);
@@ -101,7 +112,7 @@ describe("filters and search", () => {
   });
   it("counts per filter honor the search", () => {
     const tree = buildTree([host("h", [ws("1", "p", "done", 1, { title: "x" }), ws("2", "p", "failed", 1, { title: "x", news: 1 }), ws("3", "p", "running", 1, { title: "y" })])], opts({ query: "x" }));
-    expect(tree.counts).toEqual({ all: 2, active: 1, inbox: 1 });
+    expect(tree.counts).toEqual({ all: 2, recent: 2, active: 1, inbox: 1 });
   });
   it("reports empty because filtered", () => {
     const tree = buildTree([host("h", [ws("1", "p", "done", 1)])], opts({ filter: "inbox" }));
@@ -183,10 +194,10 @@ describe("pins", () => {
     const row = tree.rows.find((r) => r.type === "workspace" && r.workspace.id === "old");
     expect(row?.type === "workspace" && row.pinned).toBe(true);
   });
-  it("have no effect in filtered views", () => {
-    const tree = buildTree(hosts(), opts({ pins: new Set(["h:a", "h:b"]), filter: "active" }));
-    expect(wsIds(tree.rows)).toEqual(["b"]);
+  it("show and lead in filtered views too", () => {
+    const tree = buildTree(hosts(), opts({ pins: new Set(["h:a"]), filter: "active" }));
+    expect(wsIds(tree.rows)).toEqual(["a", "b"]);
     const row = tree.rows.find((r) => r.type === "workspace");
-    expect(row?.type === "workspace" && row.pinned).toBe(false);
+    expect(row?.type === "workspace" && row.pinned).toBe(true);
   });
 });

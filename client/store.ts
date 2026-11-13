@@ -41,7 +41,7 @@ export interface StoreSnapshot {
   deviceStorage: boolean;
   /** Collapse map per profile as this device sees it (device copy on web, profile copy elsewhere). */
   collapseFor(profileId: string): CollapseMap;
-  /** Pinned workspaces ("serverId:workspaceId") as this device sees them (device copy on web, profile copy elsewhere). */
+  /** Pinned workspaces ("serverId:workspaceId") of a profile, shared by every device using it. */
   pinsFor(profileId: string): ReadonlySet<string>;
   /** When you last viewed each workspace ("serverId:workspaceId"). */
   reads: ReadMap;
@@ -58,7 +58,7 @@ export interface Store {
   refresh(): void;
   selectProfile(id: string): void;
   setCollapse(profileId: string, map: CollapseMap): void;
-  /** Pins or unpins a workspace at the top of its project for this device. */
+  /** Pins or unpins a workspace at the top of its project, in the profile. */
   setPinned(profileId: string, serverId: string, workspaceId: string, pinned: boolean): void;
   /** Renames a workspace on its host. */
   renameWorkspace(serverId: string, workspaceId: string, title: string): Promise<void>;
@@ -70,14 +70,25 @@ export interface Store {
   markRead(serverId: string, workspaceIds: readonly string[]): void;
   /** Show the workspace as unread again until you next view it. */
   markUnread(serverId: string, workspaceId: string): void;
-  /** Agents and models the host can launch in this folder. */
-  providers(serverId: string, cwd: string): Promise<ProviderChoice[]>;
+  /**
+   * Agents and models the host can launch in this folder. Paseo discovers providers lazily, so the
+   * first answer may still have some loading: `onChange` gets every newer list until none is
+   * loading. Returns a function that stops listening.
+   */
+  watchProviders(serverId: string, cwd: string, onChange: (state: ProviderListState) => void): () => void;
   /** On/off options (e.g. Auto Accept) the provider offers for this agent setup. */
   providerToggles(serverId: string, draft: { provider: string; model: string; modeId?: string; cwd: string }): Promise<ProviderToggle[]>;
   /** Creates a workspace with its first agent or terminal. Nothing exists before this resolves. Returns the workspace id. */
   launchWorkspace(serverId: string, input: LaunchInput): Promise<string>;
   archiveWorkspace(serverId: string, workspaceId: string): Promise<void>;
   dispose(): void;
+}
+
+export interface ProviderListState {
+  ready: ProviderChoice[];
+  /** Labels of providers the host is still discovering. */
+  loading: string[];
+  error: string | null;
 }
 
 export interface ProviderChoice {
@@ -126,7 +137,6 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   let sessionProfileId: string | null = null;
   let deviceProfileId = readDeviceProfileId();
   const deviceCollapse = new Map<string, CollapseMap>();
-  const devicePins = new Map<string, ReadonlySet<string>>();
   /** Phone collapse edits waiting for the debounced save, per profile. */
   const unsavedCollapse = new Map<string, CollapseMap>();
 
@@ -184,14 +194,6 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
         return unsavedCollapse.get(profileId) ?? profiles.find((profile) => profile.id === profileId)?.collapse ?? {};
       },
       pinsFor(profileId) {
-        if (deviceStorage) {
-          let set = devicePins.get(profileId);
-          if (!set) {
-            set = new Set(readDevicePins(profileId) ?? []);
-            devicePins.set(profileId, set);
-          }
-          return set;
-        }
         return new Set(profiles.find((profile) => profile.id === profileId)?.pins ?? []);
       },
       reads: currentReads(),
@@ -203,6 +205,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   function emitNow() {
     if (timers.emit !== undefined) clearTimeout(timers.emit);
     timers.emit = undefined;
+    migrateDevicePins();
     snapshot = build();
     for (const listener of [...listeners]) listener();
   }
@@ -347,16 +350,29 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   function setPinned(profileId: string, serverId: string, workspaceId: string, pinned: boolean) {
     const key = readKey(serverId, workspaceId);
     const apply = (pins: readonly string[]) => (pinned ? (pins.includes(key) ? [...pins] : [...pins, key]) : pins.filter((value) => value !== key));
-    if (deviceStorage) {
-      const next = apply([...(devicePins.get(profileId) ?? readDevicePins(profileId) ?? [])]);
-      devicePins.set(profileId, new Set(next));
-      writeDevicePins(profileId, next);
-      emitNow();
-      return;
-    }
-    // Phones have no storage of their own: the pin lives in the profile this phone uses.
+    // Pins live in the profile on the host, so every device using the profile sees them.
     const now = Date.now();
     editProfiles((profiles) => profiles.map((profile) => (profile.id === profileId ? { ...profile, pins: apply(profile.pins), updatedAt: now } : profile)));
+  }
+
+  /** Earlier versions kept desktop pins in this browser only: move them into the profiles once. */
+  let pinsMigrated = !deviceStorage;
+  function migrateDevicePins() {
+    if (pinsMigrated || !profilesDoc.ready()) return;
+    pinsMigrated = true;
+    const moves = currentProfiles().flatMap((profile) => {
+      const local = readDevicePins(profile.id) ?? [];
+      return local.length ? [{ id: profile.id, local }] : [];
+    });
+    if (!moves.length) return;
+    const now = Date.now();
+    editProfiles((profiles) =>
+      profiles.map((profile) => {
+        const move = moves.find((entry) => entry.id === profile.id);
+        return move ? { ...profile, pins: [...new Set([...profile.pins, ...move.local])], updatedAt: now } : profile;
+      }),
+    );
+    for (const move of moves) writeDevicePins(move.id, []);
   }
 
   function selectProfile(id: string) {
@@ -437,17 +453,30 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     move,
     markRead,
     markUnread,
-    async providers(serverId, cwd) {
-      const snapshot = await apiFor(serverId).providers.snapshot({ cwd });
-      return snapshot.entries
-        .filter((entry) => entry.enabled && entry.status === "ready" && (entry.models?.length ?? 0) > 0)
-        .map((entry) => ({
-          id: entry.provider,
-          label: entry.label ?? entry.provider,
-          models: (entry.models ?? []).filter((model) => model.isSelectable !== false).map((model) => ({ id: model.id, label: model.label, isDefault: !!model.isDefault })),
-          modes: (entry.modes ?? []).map((mode) => ({ id: mode.id, label: mode.label })),
-          defaultModeId: entry.defaultModeId ?? null,
-        }));
+    watchProviders(serverId, cwd, onChange) {
+      const api = apiFor(serverId);
+      let live = true;
+      let done = false;
+      const publish = (entries: readonly ProviderEntry[]) => {
+        if (!live || done) return;
+        const state = providerListState(entries);
+        if (!state.loading.length) done = true;
+        onChange(state);
+      };
+      const fail = (reason: unknown) => {
+        if (live && !done) onChange({ ready: [], loading: [], error: reason instanceof Error ? reason.message : String(reason) });
+      };
+      // Updates arrive while discovery runs; the snapshot gives the current state at once.
+      const unsubscribe = api.providers.subscribe((update) => {
+        if (!update.cwd || update.cwd === cwd) publish(update.entries);
+      });
+      api.providers.snapshot({ cwd }).then((snapshot) => publish(snapshot.entries), fail);
+      // Safety net if no update ever comes: wait for discovery to finish once.
+      api.providers.waitForReady({ cwd, timeoutMs: 60_000 }).then((snapshot) => publish(snapshot.entries), () => undefined);
+      return () => {
+        live = false;
+        unsubscribe();
+      };
     },
     async providerToggles(serverId, draft) {
       const result = await apiFor(serverId).providers.listFeatures({
@@ -504,5 +533,33 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       timers = {};
       listeners.clear();
     },
+  };
+}
+
+interface ProviderEntry {
+  provider: string;
+  label?: string | null;
+  enabled?: boolean;
+  status: string;
+  defaultModeId?: string | null;
+  models?: readonly { id: string; label: string; isDefault?: boolean; isSelectable?: boolean }[] | null;
+  modes?: readonly { id: string; label: string }[] | null;
+}
+
+/** Ready providers with selectable models, and which enabled providers are still being discovered. */
+export function providerListState(entries: readonly ProviderEntry[]): ProviderListState {
+  const enabled = entries.filter((entry) => entry.enabled !== false);
+  return {
+    ready: enabled
+      .filter((entry) => entry.status === "ready" && (entry.models?.length ?? 0) > 0)
+      .map((entry) => ({
+        id: entry.provider,
+        label: entry.label ?? entry.provider,
+        models: (entry.models ?? []).filter((model) => model.isSelectable !== false).map((model) => ({ id: model.id, label: model.label, isDefault: !!model.isDefault })),
+        modes: (entry.modes ?? []).map((mode) => ({ id: mode.id, label: mode.label })),
+        defaultModeId: entry.defaultModeId ?? null,
+      })),
+    loading: enabled.filter((entry) => entry.status === "loading").map((entry) => entry.label ?? entry.provider),
+    error: null,
   };
 }

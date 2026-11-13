@@ -3,7 +3,7 @@ import { shortenModel } from "./format";
 import { applyOrder, type OrderMap } from "./order";
 import { hostKey, isCollapsed, projectKey, type CollapseMap, type ProfileSettings } from "./profiles";
 import { isUnread, type ReadMap } from "./reads";
-import type { Filter, HostInput, ProjectKind, WorkspaceInput, WorkspaceState } from "./types";
+import { FILTERS, type Filter, type HostInput, type ProjectKind, type WorkspaceInput, type WorkspaceState } from "./types";
 
 const DAY_MS = 86_400_000;
 
@@ -48,7 +48,7 @@ export interface WorkspaceRow {
   workspace: WorkspaceInput;
   state: WorkspaceState;
   modelShort: string;
-  /** Pinned to the top of its project (shown in the "all" view only). */
+  /** Pinned to the top of its project; shown in every view. */
   pinned: boolean;
   /** The order list this row belongs to ("proj:<serverId>:<projectId>"). */
   group: string;
@@ -90,7 +90,7 @@ export interface TreeOptions {
   now: number;
   /** Host order as configured in the app. */
   hostOrder?: readonly string[];
-  /** Pinned workspaces ("serverId:workspaceId"); they lead their project in the "all" view. */
+  /** Pinned workspaces ("serverId:workspaceId"); they lead their project in every view. */
   pins?: ReadonlySet<string>;
 }
 
@@ -128,6 +128,7 @@ export function passesFilter(item: Ranked, filter: Filter, settings: ProfileSett
     const limit = (settings.hideDone === "1d" ? 1 : 7) * DAY_MS;
     if (!workspace.activityAt || now - workspace.activityAt > limit) return false;
   }
+  if (filter === "recent") return state !== "read" || (!!workspace.activityAt && now - workspace.activityAt <= settings.recentDays * DAY_MS);
   if (filter === "active") return state !== "read";
   if (filter === "inbox") return state === "needs_you" || state === "unread";
   return true;
@@ -166,7 +167,8 @@ function addTally(tally: Tally, state: WorkspaceState): void {
 
 export function buildTree(hosts: readonly HostInput[], options: TreeOptions): TreeResult {
   const { filter, settings, collapse, reads, now } = options;
-  const pins = filter === "all" ? (options.pins ?? new Set<string>()) : new Set<string>();
+  // Pinned workspaces show in every view, lead their project, and are never hidden by a filter.
+  const pins = options.pins ?? new Set<string>();
   const isPinned = (serverId: string, workspaceId: string) => pins.has(`${serverId}:${workspaceId}`);
   const manual = settings.sort === "manual";
   const order = options.order ?? {};
@@ -176,7 +178,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   const hidden = new Set(settings.hiddenHosts);
   const rows: TreeRow[] = [];
   const groupKeys: string[] = [];
-  const counts: Record<Filter, number> = { all: 0, active: 0, inbox: 0 };
+  const counts: Record<Filter, number> = { all: 0, recent: 0, active: 0, inbox: 0 };
   const total: Tally = { needsYou: 0, unread: 0 };
   let matched = 0;
   let totalOnline = 0;
@@ -214,7 +216,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       addTally(project.tally, item.state);
       addTally(hostTally, item.state);
       if (matchesSearch(workspace, host.label, query)) {
-        for (const key of ["all", "active", "inbox"] as const) {
+        for (const key of FILTERS) {
           if (passesFilter(item, key, settings, now)) counts[key]++;
         }
       }
@@ -233,7 +235,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
         const pKey = projectKey(host.serverId, project.id);
         const all = manual ? applyOrder(project.all, (entry) => entry.workspace.id, order[pKey], compareRanked) : [...project.all].sort(compareRanked);
         groups[pKey] = all.map((entry) => entry.workspace.id);
-        // In the "all" view pinned workspaces lead their project and are never hidden as old.
+        // Pinned workspaces lead their project and pass every filter.
         const shown = all.filter(
           (entry) => (isPinned(host.serverId, entry.workspace.id) || passesFilter(entry, filter, settings, now)) && matchesSearch(entry.workspace, host.label, query),
         );
@@ -259,7 +261,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       continue;
     }
     if (visibleProjects.length === 0) {
-      rows.push({ type: "note", key: `${hKey}#filtered`, text: filter === "inbox" ? "Nothing new" : filter === "active" ? "Nothing active or new" : "Nothing matches" });
+      rows.push({ type: "note", key: `${hKey}#filtered`, text: filter === "inbox" ? "Nothing new" : filter === "active" ? "Nothing active or new" : filter === "recent" ? "Nothing recent" : "Nothing matches" });
       continue;
     }
     for (const project of visibleProjects) {

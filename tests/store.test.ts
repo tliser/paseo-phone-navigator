@@ -15,7 +15,7 @@ vi.mock("@getpaseo/plugin", () => ({
 }));
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
 
-const { createStore } = await import("../client/store");
+const { createStore, providerListState } = await import("../client/store");
 
 type Doc = { profiles: unknown[] };
 
@@ -251,6 +251,8 @@ describe("store workspace actions", () => {
           calls.push({ kind: "features", value: draft }),
           { features: [{ type: "toggle", id: "auto_accept", label: "Auto Accept", value: false }, { type: "select", id: "x", label: "X", value: null, options: [] }] }
         ),
+        subscribe: () => () => undefined,
+        waitForReady: () => new Promise(() => undefined),
         snapshot: async () => ({
           entries: [
             { provider: "plexus", label: "Plexus", enabled: true, status: "ready", defaultModeId: "build", modes: [{ id: "build", label: "Build" }], models: [{ id: "m1", label: "M1", isDefault: true }, { id: "hidden", label: "H", isSelectable: false }] },
@@ -269,10 +271,26 @@ describe("store workspace actions", () => {
   it("lists only ready providers with selectable models", async () => {
     const { store } = setup();
     await flush();
-    expect(await store.providers("h", "/repo")).toEqual([
-      { id: "plexus", label: "Plexus", models: [{ id: "m1", label: "M1", isDefault: true }], modes: [{ id: "build", label: "Build" }], defaultModeId: "build" },
-    ]);
+    const states: unknown[] = [];
+    const stop = store.watchProviders("h", "/repo", (state) => states.push(state));
+    await flush();
+    stop();
+    expect(states[0]).toEqual({
+      ready: [{ id: "plexus", label: "Plexus", models: [{ id: "m1", label: "M1", isDefault: true }], modes: [{ id: "build", label: "Build" }], defaultModeId: "build" }],
+      loading: [],
+      error: null,
+    });
     store.dispose();
+  });
+
+  it("keeps reporting providers until none is still loading", () => {
+    const loading = providerListState([
+      { provider: "a", label: "A", enabled: true, status: "ready", models: [{ id: "m", label: "M" }] },
+      { provider: "b", label: "B", enabled: true, status: "loading", models: [] },
+      { provider: "c", enabled: false, status: "loading" },
+    ]);
+    expect(loading.ready.map((entry) => entry.id)).toEqual(["a"]);
+    expect(loading.loading).toEqual(["B"]);
   });
 
   it("creates the workspace together with its first agent, or a terminal", async () => {

@@ -341,6 +341,25 @@ export function Row({ row, theme, profile, comfortable, searching, now, canOpen,
   const fontSize = comfortable ? 15 : 14;
   const separator = { borderBottomWidth: 1, borderBottomColor: c.border };
 
+  if (row.type === "pinned") {
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Pinned, ${row.count} workspaces`}
+        accessibilityState={{ expanded: !row.collapsed }}
+        onPress={() => onToggle(row.key)}
+        style={{ height: groupHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: 12, backgroundColor: c.surface1, ...separator }}
+      >
+        <View style={{ width: 18, alignItems: "center" }}>
+          <Icon name="Pin" size={14} color={c.foregroundMuted} />
+        </View>
+        <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>Pinned</Text>
+        <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.count}</Text>
+        <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} />
+      </Pressable>
+    );
+  }
+
   if (row.type === "host") {
     const online = row.state === "online";
     // Offline: name and "offline" stay readable; only the dot and chevron are dimmed.
@@ -426,7 +445,9 @@ export function Row({ row, theme, profile, comfortable, searching, now, canOpen,
   const { workspace } = row;
   const show = profile.settings.show;
   const parts: string[] = [];
-  if (searching) parts.push(row.hostLabel);
+  // In the Pinned section a row names where it lives; in search it names its host.
+  if (row.inPinned) parts.push(`${workspace.projectName} · ${row.hostLabel}`);
+  else if (searching) parts.push(row.hostLabel);
   if (show.branch && workspace.branch) parts.push(workspace.branch);
   if (show.model && row.modelShort) parts.push(row.modelShort);
   if (show.time) {

@@ -23,6 +23,7 @@ import type { Platform } from "../shared/types";
 import { PLATFORM_LABEL } from "./profile-sheet";
 import { useActiveProfile, useNavigatorStore } from "./runtime";
 import { SettingsPreview } from "./settings-preview";
+import { UpdatesSection } from "./updates-section";
 
 type PlatformChoice = Platform | "none";
 
@@ -226,6 +227,8 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
           )}
         </SettingsCard>
       </SettingsSection>
+
+      <UpdatesSection />
     </ScrollView>
     </View>
   );

@@ -40,6 +40,15 @@ export interface ProjectRow {
   /** The order list this row belongs to ("host:<serverId>"). */
   group: string;
 }
+/** Heading of the Pinned section at the very top, above every host. */
+export interface PinnedHeadingRow {
+  type: "pinned";
+  key: typeof PINNED_KEY;
+  collapsed: boolean;
+  count: number;
+}
+export const PINNED_KEY = "pinned";
+
 export interface WorkspaceRow {
   type: "workspace";
   key: string;
@@ -48,8 +57,10 @@ export interface WorkspaceRow {
   workspace: WorkspaceInput;
   state: WorkspaceState;
   modelShort: string;
-  /** Pinned to the top of its project; shown in every view. */
+  /** Pinned: shown in the Pinned section at the top, in every view. */
   pinned: boolean;
+  /** This row is the copy in the Pinned section (it names its project and host). */
+  inPinned?: boolean;
   /** The order list this row belongs to ("proj:<serverId>:<projectId>"). */
   group: string;
 }
@@ -62,7 +73,7 @@ interface NoteRow {
   key: string;
   text: string;
 }
-export type TreeRow = HostRow | ProjectRow | WorkspaceRow | SkeletonRow | NoteRow;
+export type TreeRow = PinnedHeadingRow | HostRow | ProjectRow | WorkspaceRow | SkeletonRow | NoteRow;
 
 export interface TreeResult {
   rows: TreeRow[];
@@ -90,7 +101,7 @@ export interface TreeOptions {
   now: number;
   /** Host order as configured in the app. */
   hostOrder?: readonly string[];
-  /** Pinned workspaces ("serverId:workspaceId"); they lead their project in every view. */
+  /** Pinned workspaces ("serverId:workspaceId"); shown in the Pinned section at the top, in every view. */
   pins?: ReadonlySet<string>;
 }
 
@@ -165,10 +176,26 @@ function addTally(tally: Tally, state: WorkspaceState): void {
   else if (state === "unread") tally.unread++;
 }
 
+function workspaceRow(host: HostInput, item: Ranked, group: string, inPinned: boolean): WorkspaceRow {
+  return {
+    type: "workspace",
+    key: `${inPinned ? "pin" : "ws"}:${host.serverId}:${item.workspace.id}`,
+    serverId: host.serverId,
+    hostLabel: host.label,
+    workspace: item.workspace,
+    state: item.state,
+    modelShort: shortenModel(item.workspace.model),
+    pinned: inPinned,
+    ...(inPinned ? { inPinned: true } : {}),
+    group,
+  };
+}
+
 export function buildTree(hosts: readonly HostInput[], options: TreeOptions): TreeResult {
   const { filter, settings, collapse, reads, now } = options;
-  // Pinned workspaces show in every view, lead their project, and are never hidden by a filter.
+  // Pinned workspaces move to the Pinned section at the very top; filters never hide them.
   const pins = options.pins ?? new Set<string>();
+  const pinnedRows: WorkspaceRow[] = [];
   const isPinned = (serverId: string, workspaceId: string) => pins.has(`${serverId}:${workspaceId}`);
   const manual = settings.sort === "manual";
   const order = options.order ?? {};
@@ -235,17 +262,21 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
         const pKey = projectKey(host.serverId, project.id);
         const all = manual ? applyOrder(project.all, (entry) => entry.workspace.id, order[pKey], compareRanked) : [...project.all].sort(compareRanked);
         groups[pKey] = all.map((entry) => entry.workspace.id);
-        // Pinned workspaces lead their project and pass every filter.
-        const shown = all.filter(
-          (entry) => (isPinned(host.serverId, entry.workspace.id) || passesFilter(entry, filter, settings, now)) && matchesSearch(entry.workspace, host.label, query),
+        // Pinned workspaces go to the Pinned section (search still applies); the rest follow the filter.
+        for (const entry of all) {
+          if (!isPinned(host.serverId, entry.workspace.id) || !matchesSearch(entry.workspace, host.label, query)) continue;
+          pinnedRows.push(workspaceRow(host, entry, pKey, true));
+        }
+        const visible = all.filter(
+          (entry) => !isPinned(host.serverId, entry.workspace.id) && passesFilter(entry, filter, settings, now) && matchesSearch(entry.workspace, host.label, query),
         );
-        const visible = [...shown.filter((entry) => isPinned(host.serverId, entry.workspace.id)), ...shown.filter((entry) => !isPinned(host.serverId, entry.workspace.id))];
         return { ...project, visible };
       })
       .filter((project) => project.visible.length > 0);
 
     const count = visibleProjects.reduce((sum, project) => sum + project.visible.length, 0);
-    matched += count;
+    const pinnedHere = pinnedRows.filter((row) => row.serverId === host.serverId).length;
+    matched += count + pinnedHere;
     if (searching && count === 0) continue;
 
     groupKeys.push(hKey);
@@ -269,20 +300,17 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       const projectCollapsed = searching ? false : isCollapsed(collapse, pKey, settings);
       rows.push({ type: "project", key: pKey, serverId: host.serverId, projectId: project.id, name: project.name, kind: project.kind, rootPath: project.rootPath, collapsed: projectCollapsed, count: project.visible.length, tally: project.tally, group: hKey });
       if (projectCollapsed) continue;
-      for (const item of project.visible) {
-        rows.push({
-          type: "workspace",
-          key: `ws:${host.serverId}:${item.workspace.id}`,
-          serverId: host.serverId,
-          hostLabel: host.label,
-          workspace: item.workspace,
-          state: item.state,
-          modelShort: shortenModel(item.workspace.model),
-          pinned: isPinned(host.serverId, item.workspace.id),
-          group: pKey,
-        });
-      }
+      for (const item of project.visible) rows.push(workspaceRow(host, item, pKey, false));
     }
+  }
+
+  if (pinnedRows.length) {
+    // Pinned section first, in pin order is not tracked: most urgent first like any project.
+    pinnedRows.sort((x, y) => compareRanked({ workspace: x.workspace, state: x.state }, { workspace: y.workspace, state: y.state }));
+    const collapsed = searching ? false : isCollapsed(collapse, PINNED_KEY, settings);
+    const heading: PinnedHeadingRow = { type: "pinned", key: PINNED_KEY, collapsed, count: pinnedRows.length };
+    rows.unshift(heading, ...(collapsed ? [] : pinnedRows));
+    groupKeys.unshift(PINNED_KEY);
   }
 
   return {

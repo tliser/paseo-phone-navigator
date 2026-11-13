@@ -3,6 +3,7 @@ import { defaultSettings } from "../shared/profiles";
 import { readKey } from "../shared/reads";
 import { buildTree, matchesSearch, passesFilter, tallyHosts, workspaceState, type TreeOptions } from "../shared/tree";
 import type { HostInput, WorkspaceInput } from "../shared/types";
+import { dragId } from "../shared/drag";
 
 const NOW = 1_000_000_000_000;
 const min = (m: number) => NOW - m * 60_000;
@@ -187,17 +188,24 @@ describe("manual order", () => {
 
 describe("pins", () => {
   const hosts = () => [host("h", [ws("a", "p", "done", 1), ws("b", "p", "running", 5), ws("old", "p", "done", 60 * 24 * 30)])];
-  const pins = new Set(["h:old"]);
-  it("lead their project in the all view, even when old finished ones are hidden", () => {
-    const tree = buildTree(hosts(), opts({ pins, settings: { ...settings, hideDone: "7d" } }));
+  it("move to a Pinned section above every host, even when old finished ones are hidden", () => {
+    const tree = buildTree(hosts(), opts({ pins: new Set(["h:old"]), settings: { ...settings, hideDone: "7d" } }));
+    expect(types(tree.rows)).toEqual(["pinned", "workspace", "host", "project", "workspace", "workspace"]);
     expect(wsIds(tree.rows)).toEqual(["old", "b", "a"]);
-    const row = tree.rows.find((r) => r.type === "workspace" && r.workspace.id === "old");
-    expect(row?.type === "workspace" && row.pinned).toBe(true);
+    const pinned = tree.rows[1];
+    expect(pinned?.type === "workspace" && pinned.inPinned && pinned.pinned).toBe(true);
+    expect(tree.groupKeys[0]).toBe("pinned");
   });
-  it("show and lead in filtered views too", () => {
+  it("stay in the Pinned section in filtered views, outside the manual order", () => {
     const tree = buildTree(hosts(), opts({ pins: new Set(["h:a"]), filter: "active" }));
+    expect(types(tree.rows)).toEqual(["pinned", "workspace", "host", "project", "workspace"]);
     expect(wsIds(tree.rows)).toEqual(["a", "b"]);
-    const row = tree.rows.find((r) => r.type === "workspace");
-    expect(row?.type === "workspace" && row.pinned).toBe(true);
+    expect(dragId(tree.rows[1]!)).toBeNull();
+  });
+  it("fold with the section and still match search", () => {
+    const folded = buildTree(hosts(), opts({ pins: new Set(["h:a"]), collapse: { pinned: true } }));
+    expect(types(folded.rows).slice(0, 2)).toEqual(["pinned", "host"]);
+    const searched = buildTree(hosts(), opts({ pins: new Set(["h:a"]), query: "br-b" }));
+    expect(types(searched.rows)[0]).toBe("host");
   });
 });

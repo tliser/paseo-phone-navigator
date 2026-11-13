@@ -13,7 +13,7 @@ export function heightsFor(comfortable: boolean): RowHeights {
 }
 
 function rowHeight(row: TreeRow, heights: RowHeights): number {
-  if (row.type === "host" || row.type === "project") return heights.group;
+  if (row.type === "host" || row.type === "project" || row.type === "pinned") return heights.group;
   if (row.type === "workspace" || row.type === "skeleton") return heights.workspace;
   return heights.note;
 }
@@ -32,7 +32,8 @@ export function rowOffsets(rows: readonly TreeRow[], heights: RowHeights): numbe
 
 /** The id a draggable row carries in its order group, or null for rows that cannot be dragged. */
 export function dragId(row: TreeRow): string | null {
-  if (row.type === "workspace") return row.workspace.id;
+  // Rows in the Pinned section are copies outside the manual order: not draggable.
+  if (row.type === "workspace") return row.inPinned ? null : row.workspace.id;
   if (row.type === "project") return row.projectId;
   return null;
 }

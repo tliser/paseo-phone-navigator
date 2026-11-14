@@ -52,6 +52,11 @@ export const profilesDocumentSchema = z.object({
   profiles: z.array(profileSchema).default(() => builtinProfiles(0)),
   /** Deleted profiles (id -> when), so a host that still has one does not bring it back when hosts sync. */
   deleted: z.record(z.string(), z.number()).default({}),
+  /**
+   * Folder colour per project ("serverId:projectId"), for every profile and device. Set by long-pressing
+   * the folder icon; `color` is a PROJECT_COLORS id ("default" = theme accent). `at` lets the newest win.
+   */
+  projectColors: z.record(z.string(), z.object({ color: z.string(), at: z.number() })).default({}),
 });
 export type ProfilesDocument = z.output<typeof profilesDocumentSchema>;
 
@@ -92,7 +97,8 @@ export function normalizeDocument(raw: unknown): ProfilesDocument {
   const parsed = profilesDocumentSchema.safeParse(raw ?? {});
   const profiles = parsed.success ? parsed.data.profiles : [];
   const deleted = parsed.success ? parsed.data.deleted : {};
-  return { profiles: profiles.length ? dedupe(profiles) : builtinProfiles(0), deleted };
+  const projectColors = parsed.success ? parsed.data.projectColors : {};
+  return { profiles: profiles.length ? dedupe(profiles) : builtinProfiles(0), deleted, projectColors };
 }
 
 function dedupe(profiles: Profile[]): Profile[] {

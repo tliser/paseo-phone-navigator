@@ -16,6 +16,8 @@ import { ProfileSheet } from "./profile-sheet";
 import { useActiveProfile, useNavigatorStore } from "./runtime";
 import { RUNNING_VIOLET, StateIcon, TallyBadge, UNREAD_BLUE } from "./visual";
 import { WorkspaceMenu } from "./workspace-menu";
+import { ColorPicker } from "./color-picker";
+import { projectColorHex, projectColorKey } from "../shared/colors";
 
 const FILTER_LABEL: Record<Filter, string> = { all: "All", recent: "Recent", active: "Active", inbox: "Inbox" };
 
@@ -48,6 +50,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
   /** Project whose new-workspace draft is open, and workspace whose menu is open. */
   const [draftFor, setDraftFor] = useState<ProjectRow | null>(null);
   const [menuFor, setMenuFor] = useState<WorkspaceRow | null>(null);
+  const [colorFor, setColorFor] = useState<ProjectRow | null>(null);
 
   // Relative times stay fresh without re-rendering on every data tick.
   useEffect(() => {
@@ -179,6 +182,8 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
           onOpenAgent={openAgent}
           onMenu={setMenuFor}
           onCreate={setDraftFor}
+          projectColors={snapshot.projectColors}
+          onPickColor={setColorFor}
           canOpen={!!navigation}
           dragHandle={canArrange && dragId(item) ? drag.handleFor(index) : undefined}
           lifted={dragging?.index === index ? dragging.dy : null}
@@ -318,6 +323,15 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
         {peek && canPeek ? <NamesCard theme={theme} peek={peek} scale={scale} now={now} areaHeight={areaHeight} /> : null}
       </View>
 
+      {colorFor ? (
+        <ColorPicker
+          theme={theme}
+          name={colorFor.name}
+          current={snapshot.projectColors[projectColorKey(colorFor.serverId, colorFor.projectId)] ?? "default"}
+          onPick={(id) => store.setProjectColor(colorFor.serverId, colorFor.projectId, id)}
+          onClose={() => setColorFor(null)}
+        />
+      ) : null}
       {draftFor ? <NewWorkspaceSheet theme={theme} project={draftFor} onClose={() => setDraftFor(null)} onCreated={(id) => created(draftFor.serverId, id)} /> : null}
       {menuFor ? <WorkspaceMenu theme={theme} row={menuFor} profileId={profile.id} onClose={() => setMenuFor(null)} /> : null}
       {sheet ? <ProfileSheet theme={theme} platform={layout.platform} active={profile} onClose={() => setSheet(false)} onEdit={() => { setSheet(false); openSettings(); }} /> : null}
@@ -407,6 +421,10 @@ interface RowProps {
   onOpenAgent?(row: AgentRow): void;
   onMenu(row: WorkspaceRow): void;
   onCreate(row: ProjectRow): void;
+  /** Folder colour id per project ("serverId:projectId"). */
+  projectColors?: Readonly<Record<string, string>>;
+  /** Long-press on a project's folder icon: choose its colour. */
+  onPickColor?(row: ProjectRow): void;
   /** Set while this row is picked up (any value): it is drawn raised. */
   lifted: number | null;
   /** Set in manual mode: responder handlers for the grip at the row's end. */
@@ -434,7 +452,7 @@ function hoverProps(onPeek: ((show: boolean) => void) | undefined, touch: boolea
   return { onHoverIn: () => onPeek(true), onHoverOut: () => onPeek(false) };
 }
 
-export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenAgent, onMenu, onCreate, lifted, dragHandle, onPeek }: RowProps) {
+export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenAgent, onMenu, onCreate, projectColors, onPickColor, lifted, dragHandle, onPeek }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null
@@ -492,10 +510,11 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
   }
 
   if (row.type === "project") {
+    const folder = projectColorHex(projectColors?.[projectColorKey(row.serverId, row.projectId)], c.accent);
     // A section heading: tinted band, folder icon, bold name and a coloured bar, so it never reads as a workspace.
     return (
       <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", paddingRight: row.rootPath || dragHandle ? 0 : 12, backgroundColor: c.surface1, borderTopWidth: 1, borderTopColor: c.border, ...separator, ...liftStyle }}>
-      <View style={{ width: 3, alignSelf: "stretch", backgroundColor: row.tally.needsYou ? c.statusWarning : row.tally.unread ? UNREAD_BLUE : c.accent, opacity: row.tally.needsYou || row.tally.unread ? 1 : 0.55 }} />
+      <View style={{ width: 3, alignSelf: "stretch", backgroundColor: row.tally.needsYou ? c.statusWarning : row.tally.unread ? UNREAD_BLUE : folder, opacity: row.tally.needsYou || row.tally.unread ? 1 : 0.55 }} />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Project ${row.name}, ${row.count} workspaces${row.collapsed && row.tally.needsYou ? ", something asks you" : row.collapsed && row.tally.unread ? ", unread" : ""}`}
@@ -503,9 +522,17 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         onPress={() => onToggle(row.key)}
         style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 9 }}
       >
-        <View style={{ width: 18, alignItems: "center" }}>
-          <Icon name={row.collapsed ? "Folder" : "FolderOpen"} size={16} color={c.accent} />
-        </View>
+        {/* Long-press the folder to choose its colour; a tap still folds the project. */}
+        <Pressable
+          accessibilityLabel={`Folder colour of ${row.name}`}
+          onPress={() => onToggle(row.key)}
+          onLongPress={onPickColor ? () => onPickColor(row) : undefined}
+          delayLongPress={400}
+          hitSlop={8}
+          style={{ width: 18, alignItems: "center" }}
+        >
+          <Icon name={row.collapsed ? "Folder" : "FolderOpen"} size={16} color={folder} />
+        </Pressable>
         <Text numberOfLines={1} style={{ flexShrink: 1, color: c.foreground, fontSize: fs(comfortable ? 15 : 14), fontWeight: "700", letterSpacing: 0.2 }}>{row.name}</Text>
         <View style={{ paddingHorizontal: 6, minWidth: 20, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: c.surface2 }}>
           <Text style={{ color: c.foregroundMuted, fontSize: fs(11), fontWeight: "600" }}>{row.count}</Text>

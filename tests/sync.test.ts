@@ -47,3 +47,11 @@ describe("mergeUpdateDocs", () => {
     expect(merged).toEqual({ autoUpdate: false, updatedAt: 5, latestVersion: { commit: "b", installedAt: 20 } });
   });
 });
+
+describe("project colours", () => {
+  it("the newest choice per project wins and colours survive normalisation", () => {
+    const a = { ...normalizeDocument({ projectColors: { "h:p": { color: "red", at: 5 } } }) };
+    const b = { ...normalizeDocument({ projectColors: { "h:p": { color: "teal", at: 9 }, "h:q": { color: "pink", at: 1 } } }) };
+    expect(mergeProfileDocs([a, b]).projectColors).toEqual({ "h:p": { color: "teal", at: 9 }, "h:q": { color: "pink", at: 1 } });
+  });
+});

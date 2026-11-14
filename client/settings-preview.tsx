@@ -65,6 +65,7 @@ export function SettingsPreview({ theme, profile, snapshot, maxRows }: { theme: 
             onOpen={noop}
             onMenu={noop}
             onCreate={noop}
+            projectColors={snapshot.projectColors}
             lifted={null}
           />
         ))

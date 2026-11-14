@@ -22,6 +22,7 @@ import { hasDeviceStorage, readDeviceCollapse, readDevicePins, readDeviceProfile
 import { createHostObserver, type HostDirectory, type HostObserver } from "./host-observer";
 import type { PaseoApi } from "./paseo";
 import { createSyncedDoc } from "./synced-doc";
+import { projectColorKey } from "../shared/colors";
 
 const EMIT_DELAY_MS = 250;
 const RECONCILE_MS = 15_000;
@@ -47,6 +48,8 @@ export interface StoreSnapshot {
   collapseFor(profileId: string): CollapseMap;
   /** Pinned workspaces ("serverId:workspaceId") of a profile, shared by every device using it. */
   pinsFor(profileId: string): ReadonlySet<string>;
+  /** Folder colour id per project ("serverId:projectId"), shared by every profile and device. */
+  projectColors: Readonly<Record<string, string>>;
   /** When you last viewed each workspace ("serverId:workspaceId"). */
   reads: ReadMap;
   savingError: string | null;
@@ -64,6 +67,8 @@ export interface Store {
   setCollapse(profileId: string, map: CollapseMap): void;
   /** Pins or unpins a workspace at the top of its project, in the profile. */
   setPinned(profileId: string, serverId: string, workspaceId: string, pinned: boolean): void;
+  /** Gives a project's folder a colour (a PROJECT_COLORS id). */
+  setProjectColor(serverId: string, projectId: string, color: string): void;
   /** Renames a workspace on its host. */
   renameWorkspace(serverId: string, workspaceId: string, title: string): Promise<void>;
   /** Applies a change to the profiles list and saves it. */
@@ -262,6 +267,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
         return new Set(profiles.find((profile) => profile.id === profileId)?.pins ?? []);
       },
       reads: currentReads(),
+      projectColors: Object.fromEntries(Object.entries(profilesDoc.value().projectColors).map(([key, entry]) => [key, entry.color])),
       savingError: profilesDoc.error() ?? readsDoc.error(),
       errors: hostInputs.flatMap((host) => (host.error ? [`${host.label}: ${host.error}`] : [])),
     };
@@ -340,7 +346,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       const deleted = { ...doc.deleted };
       for (const old of doc.profiles) if (!profiles.some((profile) => profile.id === old.id)) deleted[old.id] = Math.max(now, old.updatedAt);
       for (const profile of profiles) delete deleted[profile.id];
-      return { profiles, deleted };
+      return { ...doc, profiles, deleted };
     });
   }
 
@@ -527,6 +533,11 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     selectProfile,
     setCollapse,
     setPinned,
+    setProjectColor(serverId, projectId, color) {
+      const key = projectColorKey(serverId, projectId);
+      const at = Date.now();
+      profilesDoc.edit((doc) => ({ ...doc, projectColors: { ...doc.projectColors, [key]: { color, at } } }));
+    },
     async renameWorkspace(serverId, workspaceId, title) {
       await apiFor(serverId).workspaces.ref(workspaceId).setTitle(title.trim() || null);
     },

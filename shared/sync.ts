@@ -8,7 +8,7 @@ import { markSeen, type ReadsDocument } from "./reads";
 /** Per profile the newest edit wins; a deletion wins over edits made before it. */
 export function mergeProfileDocs(docs: readonly ProfilesDocument[]): ProfilesDocument {
   const deleted: Record<string, number> = {};
-  for (const doc of docs) for (const [id, at] of Object.entries(doc.deleted)) deleted[id] = Math.max(deleted[id] ?? 0, at);
+  for (const doc of docs) for (const [id, at] of Object.entries(doc.deleted ?? {})) deleted[id] = Math.max(deleted[id] ?? 0, at);
   const order: string[] = [];
   const newest = new Map<string, Profile>();
   for (const doc of docs) {
@@ -23,7 +23,14 @@ export function mergeProfileDocs(docs: readonly ProfilesDocument[]): ProfilesDoc
     const gone = deleted[id];
     return gone !== undefined && gone >= profile.updatedAt ? [] : [profile];
   });
-  return { profiles: profiles.length ? profiles : builtinProfiles(0), deleted };
+  const projectColors: ProfilesDocument["projectColors"] = {};
+  for (const doc of docs) {
+    for (const [key, entry] of Object.entries(doc.projectColors ?? {})) {
+      const known = projectColors[key];
+      if (!known || entry.at > known.at) projectColors[key] = entry;
+    }
+  }
+  return { profiles: profiles.length ? profiles : builtinProfiles(0), deleted, projectColors };
 }
 
 /** Per workspace the later event wins: a view (positive) or a "mark unread" (negative, stored as -when). */

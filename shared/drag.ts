@@ -8,8 +8,10 @@ export interface RowHeights {
   note: number;
 }
 
-export function heightsFor(comfortable: boolean): RowHeights {
-  return { group: comfortable ? 52 : 44, workspace: comfortable ? 68 : 56, note: 44 };
+/** Row heights for the density, grown with the interface font size (`scale`, 1 = Paseo's default). */
+export function heightsFor(comfortable: boolean, scale = 1): RowHeights {
+  const grow = (px: number) => Math.round(px * Math.max(1, scale));
+  return { group: grow(comfortable ? 52 : 44), workspace: grow(comfortable ? 68 : 56), note: grow(44) };
 }
 
 function rowHeight(row: TreeRow, heights: RowHeights): number {
@@ -40,6 +42,43 @@ export function dragId(row: TreeRow): string | null {
 
 function dragGroup(row: TreeRow): string | null {
   return row.type === "workspace" || row.type === "project" ? row.group : null;
+}
+
+/** Index after the last row of the block that moves with a dragged row (a project carries its open workspaces). */
+export function blockEnd(rows: readonly TreeRow[], index: number): number {
+  const row = rows[index];
+  if (row?.type !== "project") return index + 1;
+  let end = index + 1;
+  while (end < rows.length && rows[end]!.type !== "project" && rows[end]!.type !== "host" && rows[end]!.type !== "pinned") end++;
+  return end;
+}
+
+/**
+ * While a row is dragged towards `drop`, the rows it passes glide out of its way: rows with an index in
+ * [start, end) move by `shift` px (up when dragging down, down when dragging up). Rows in
+ * [from, carried) travel with the pointer.
+ */
+export interface DragShift {
+  carried: number;
+  start: number;
+  end: number;
+  shift: number;
+}
+
+export function dragShift(rows: readonly TreeRow[], offsets: readonly number[], from: number, drop: DropTarget | null): DragShift {
+  const carried = blockEnd(rows, from);
+  const none = { carried, start: 0, end: 0, shift: 0 };
+  if (!drop) return none;
+  const target = rows.findIndex((row) => dragId(row) === drop.targetId && row.type === rows[from]?.type);
+  if (target === -1) return none;
+  const height = (offsets[carried] ?? 0) - (offsets[from] ?? 0);
+  if (target > from) {
+    // Dragged down: everything from the block's end up to the landing slot moves up.
+    const end = drop.place === "after" ? blockEnd(rows, target) : target;
+    return { carried, start: carried, end, shift: -height };
+  }
+  const start = drop.place === "before" ? target : blockEnd(rows, target);
+  return { carried, start, end: from, shift: height };
 }
 
 export interface DropTarget {
@@ -76,15 +115,8 @@ export function findDropTarget(rows: readonly TreeRow[], offsets: readonly numbe
 
   if (before === -1) {
     const last = others[others.length - 1]!;
-    // After the last sibling, below its whole block: a workspace's block is the row itself; a
-    // project's block runs until the next project or host.
-    const blockEnd = (index: number) => {
-      if (dragged.type === "workspace") return index + 1;
-      let end = index + 1;
-      while (end < rows.length && rows[end]!.type !== "project" && rows[end]!.type !== "host") end++;
-      return end;
-    };
-    return { targetId: last.id, place: "after", lineY: offsets[blockEnd(last.index)] ?? 0 };
+    // After the last sibling, below its whole block (a project's block includes its open workspaces).
+    return { targetId: last.id, place: "after", lineY: offsets[blockEnd(rows, last.index)] ?? 0 };
   }
   const target = others[before]!;
   return { targetId: target.id, place: "before", lineY: offsets[target.index] ?? 0 };

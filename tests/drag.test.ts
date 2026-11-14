@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findDropTarget, heightsFor, rowOffsets } from "../shared/drag";
+import { dragShift, findDropTarget, heightsFor, rowOffsets } from "../shared/drag";
 import { moveRelative } from "../shared/order";
 import type { TreeRow } from "../shared/tree";
 import type { WorkspaceInput } from "../shared/types";
@@ -45,7 +45,31 @@ describe("findDropTarget", () => {
     expect(findDropTarget(rows, offsets, 5, 50)).toEqual({ targetId: "p", place: "before", lineY: 44 });
     expect(findDropTarget(rows, offsets, 1, 380)).toEqual({ targetId: "q", place: "after", lineY: 356 });
   });
+  it("grows with the interface font size, never shrinks", () => {
+    expect(heightsFor(false, 1.25)).toEqual({ group: 55, workspace: 70, note: 55 });
+    expect(heightsFor(false, 0.8)).toEqual(h);
+  });
   it("ignores rows that cannot be dragged", () => {
     expect(findDropTarget(rows, offsets, 0, 200)).toBeNull();
+  });
+});
+
+describe("dragShift", () => {
+  it("rows passed while dragging down glide up by the dragged row's height", () => {
+    const drop = findDropTarget(rows, offsets, 2, 240)!; // a after c
+    expect(dragShift(rows, offsets, 2, drop)).toEqual({ carried: 3, start: 3, end: 5, shift: -56 });
+  });
+  it("rows passed while dragging up glide down", () => {
+    const drop = findDropTarget(rows, offsets, 4, 100)!; // c before a
+    expect(dragShift(rows, offsets, 4, drop)).toEqual({ carried: 5, start: 2, end: 4, shift: 56 });
+  });
+  it("a project carries its open workspaces and the other project moves by the whole block", () => {
+    const drop = findDropTarget(rows, offsets, 5, 50)!; // q before p
+    expect(dragShift(rows, offsets, 5, drop)).toEqual({ carried: 7, start: 1, end: 5, shift: 100 });
+    const down = findDropTarget(rows, offsets, 1, 380)!; // p after q
+    expect(dragShift(rows, offsets, 1, down)).toEqual({ carried: 5, start: 5, end: 7, shift: -212 });
+  });
+  it("nothing moves without a drop target", () => {
+    expect(dragShift(rows, offsets, 3, null).shift).toBe(0);
   });
 });

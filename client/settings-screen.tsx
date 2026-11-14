@@ -83,7 +83,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
     {/* Phones: the preview stays above the scrolling settings so each change shows at once. */}
     {layout.compact ? <View style={{ padding: 12, paddingBottom: 0 }}>{preview}</View> : null}
     <ScrollView style={{ flex: 1, backgroundColor: c.surface0 }} contentContainerStyle={{ padding: layout.compact ? 12 : 24, gap: 16 }}>
-      <SettingsSection title="Profiles" info="Profiles are shared by every client of this host. Each device picks one; the first profile bound to a platform is used until you pick another.">
+      <SettingsSection title="Profiles" info="Profiles are shared by every device, and kept the same on every host where this plugin runs. Each device picks one; the first profile bound to a platform is used until you pick another.">
         <SettingsCard>
           <SettingsSelect
             label="Profile to edit"
@@ -159,7 +159,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
           />
           <SettingsSelect
             label="Order"
-            hint={s.sort === "manual" ? "Drag a project or workspace: by its grip on desktop, by long-press on phones. Status shows through icons and badges." : "Asking, unread and running first, then most recent."}
+            hint={s.sort === "manual" ? "Drag a project or workspace by its grip: at once with a mouse, after a short hold on phones (a swipe still scrolls). Status shows through icons and badges." : "Asking, unread and running first, then most recent."}
             value={s.sort}
             options={[{ value: "auto", label: "Automatic" }, { value: "manual", label: "Manual (drag and drop)" }]}
             onValueChange={(sort) => updateSettings({ sort })}
@@ -181,6 +181,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
           {yesNo(s.show.branch, (branch) => updateSettings({ show: { ...s.show, branch } }), "Branch")}
           {yesNo(s.show.diff, (diff) => updateSettings({ show: { ...s.show, diff } }), "Diff (+added −deleted)")}
           {yesNo(s.show.time, (time) => updateSettings({ show: { ...s.show, time } }), "Last activity")}
+          {yesNo(s.namesCard, (namesCard) => updateSettings({ namesCard }), "Full names card", "Hover a row on desktop, or long-press it on a phone, to see title, project, branch, model and folder in full.")}
         </SettingsCard>
       </SettingsSection>
 

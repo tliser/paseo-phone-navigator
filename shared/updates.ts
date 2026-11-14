@@ -10,6 +10,10 @@ export type InstalledVersion = z.output<typeof installedVersionSchema>;
 export const updatesDocumentSchema = z.object({
   /** Check for and install new versions of this plugin on its own. */
   autoUpdate: z.boolean().default(true),
+  /** When the switch was last changed (ms): the newest change wins when hosts sync. 0 = never. */
+  updatedAt: z.number().default(0),
+  /** Newest version installed on any host. A host with an older one checks for an update at once. */
+  latestVersion: installedVersionSchema.nullable().default(null),
 });
 export type UpdatesDocument = z.output<typeof updatesDocumentSchema>;
 

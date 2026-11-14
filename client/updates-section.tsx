@@ -27,7 +27,7 @@ export function UpdatesSection() {
     version === undefined ? "Checking…" : version ? `${version.commit.slice(0, 7)}, installed ${new Date(version.installedAt).toLocaleDateString()}` : "Local folder (development): not updated automatically";
 
   return (
-    <SettingsSection title="Updates" info="Installed from GitHub, the plugin checks for a new version a few minutes after the host starts and every 6 hours, and installs it on its own.">
+    <SettingsSection title="Updates" info="Installed from GitHub, the plugin checks for a new version a few minutes after the host starts and every 6 hours, and installs it on its own. When one host has a newer version, the others update at once. The switch applies to every host.">
       <SettingsCard>
         <SettingsRow label="Installed version" hint={versionText} />
         <SettingsSwitch
@@ -35,7 +35,8 @@ export function UpdatesSection() {
           value={settings.status === "ready" ? settings.values.autoUpdate : true}
           disabled={settings.status !== "ready" || !fromGit}
           onValueChange={(autoUpdate) => {
-            if (settings.status === "ready") void settings.save({ ...settings.values, autoUpdate }, settings.revision);
+            // Stamped, so the newest change wins when the hosts sync this setting.
+            if (settings.status === "ready") void settings.save({ ...settings.values, autoUpdate, updatedAt: Date.now() }, settings.revision);
           }}
         />
         <SettingsAction

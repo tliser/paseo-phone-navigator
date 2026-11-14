@@ -1,14 +1,16 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { FlatList, Icon, TextInput } from "@getpaseo/plugin/client/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, Text, View, type GestureResponderHandlers } from "react-native";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Animated, Easing, Platform, Pressable, Text, View, type GestureResponderHandlers } from "react-native";
 import { timeAgo } from "../shared/format";
 import { expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
-import { dragId, heightsFor, rowOffsets, type DropTarget } from "../shared/drag";
+import { blockEnd, dragId, dragShift, heightsFor, rowOffsets, type DropTarget } from "../shared/drag";
 import { buildTree, type ProjectRow, type TreeRow, type WorkspaceRow } from "../shared/tree";
 import { FILTERS, type Filter } from "../shared/types";
-import { useDragController } from "./drag-controller";
+import { GLIDE_MS, useDragController } from "./drag-controller";
+import { MONO_FONT, useFontScale } from "./font-scale";
+import { NamesCard, type Peek } from "./names-card";
 import { NewWorkspaceSheet } from "./new-workspace-sheet";
 import { ProfileSheet } from "./profile-sheet";
 import { useActiveProfile, useNavigatorStore } from "./runtime";
@@ -89,12 +91,14 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
   const anyCollapsed = tree.groupKeys.some((key) => isCollapsed(collapse, key, settings));
 
   const comfortable = settings.density === "comfortable";
+  const scale = useFontScale();
+  const fs = (size: number) => Math.round(size * scale * 2) / 2;
   const c = theme.colors;
   const muted = { color: c.foregroundMuted };
   const searching = query.trim().length > 0;
   // Dragging only in manual mode and outside search (search reshapes the tree temporarily).
   const canArrange = settings.sort === "manual" && !searching;
-  const heights = useMemo(() => heightsFor(comfortable), [comfortable]);
+  const heights = useMemo(() => heightsFor(comfortable, scale), [comfortable, scale]);
 
   const drop = useCallback(
     (row: TreeRow, target: DropTarget) => {
@@ -106,29 +110,74 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
     [store, profile.id, tree.groups],
   );
   const offsets = useMemo(() => rowOffsets(tree.rows, heights), [tree.rows, heights]);
-  const drag = useDragController({ rows: tree.rows, heights, onDrop: drop });
-  // Desktop and web: a grip handle drags at once. Phones: long-press the row.
-  const useHandle = layout.platform === "web";
+  // Rows are dragged by their grip: at once with a mouse, after a short hold on touch screens, so a
+  // swipe that starts on the grip still scrolls.
+  const touch = layout.platform !== "web";
+  const drag = useDragController({ rows: tree.rows, heights, hold: touch, onDrop: drop });
   const dragging = drag.state;
+  const shift = useMemo(() => (dragging ? dragShift(tree.rows, offsets, dragging.index, dragging.drop) : null), [dragging, tree.rows, offsets]);
+  // After a drop the new order is drawn at once; the moved block glides from where it was let go.
+  const landing = useMemo(() => {
+    if (!drag.landing) return null;
+    const index = tree.rows.findIndex((row) => row.key === drag.landing!.key);
+    if (index === -1) return null;
+    return { start: index, end: blockEnd(tree.rows, index), from: drag.landing.top - (offsets[index] ?? 0) };
+  }, [drag.landing, tree.rows, offsets]);
 
-  const renderItem = ({ item, index }: { item: TreeRow; index: number }) => (
-    <Row
-      row={item}
-      theme={theme}
-      profile={profile}
-      comfortable={comfortable}
-      searching={searching}
-      now={now}
-      onToggle={toggle}
-      onOpen={open}
-      onMenu={setMenuFor}
-      onCreate={setDraftFor}
-      canOpen={!!navigation}
-      onPickUp={canArrange && !useHandle && dragId(item) ? () => drag.pickUp(index) : undefined}
-      dragHandle={canArrange && useHandle && dragId(item) ? drag.handleFor(index) : undefined}
-      lifted={dragging?.index === index ? dragging.dy : null}
-    />
+  // Full names: on hover (desktop) or while long-pressing (phones).
+  const [peek, setPeek] = useState<Peek | null>(null);
+  const [areaHeight, setAreaHeight] = useState(0);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const peekAt = useCallback(
+    (row: TreeRow, index: number, show: boolean, delay: number) => {
+      if (hoverTimer.current) clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+      if (!show) {
+        setPeek((current) => (current?.row.key === row.key ? null : current));
+        return;
+      }
+      const place = () => setPeek({ row, top: (offsets[index + 1] ?? 0) - drag.scrollY(), rowTop: (offsets[index] ?? 0) - drag.scrollY() });
+      if (delay) hoverTimer.current = setTimeout(place, delay);
+      else place();
+    },
+    [offsets, drag],
   );
+  useEffect(() => () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+  }, []);
+  const canPeek = settings.namesCard && !dragging;
+
+  const renderItem = ({ item, index }: { item: TreeRow; index: number }) => {
+    const carried = !!dragging && !!shift && index >= dragging.index && index < shift.carried;
+    const lands = landing && index >= landing.start && index < landing.end ? landing.from : null;
+    return (
+      <Glide
+        follow={carried ? dragging!.dy : null}
+        shift={shift && index >= shift.start && index < shift.end ? shift.shift : 0}
+        dragging={!!dragging}
+        landFrom={lands}
+      >
+        <Row
+          row={item}
+          theme={theme}
+          profile={profile}
+          comfortable={comfortable}
+          scale={scale}
+          touch={touch}
+          searching={searching}
+          now={now}
+          onToggle={toggle}
+          onOpen={open}
+          onMenu={setMenuFor}
+          onCreate={setDraftFor}
+          canOpen={!!navigation}
+          dragHandle={canArrange && dragId(item) ? drag.handleFor(index) : undefined}
+          lifted={dragging?.index === index ? dragging.dy : null}
+          onPeek={canPeek ? (show) => peekAt(item, index, show, touch ? 0 : 600) : undefined}
+        />
+      </Glide>
+    );
+  };
 
   const empty = snapshot.hosts.length === 0 ? (
     <EmptyState theme={theme} icon="Server" title="No hosts configured" text="Add a host in Paseo to see its workspaces here." />
@@ -181,12 +230,12 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
             >
               <View style={{ height: 32, paddingHorizontal: 9, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderColor: filter === "inbox" ? c.foreground : c.border, backgroundColor: filter === "inbox" ? c.surface2 : "transparent" }}>
                 <Icon name="Inbox" size={14} color={c.foreground} />
-                {tree.tally.needsYou || tree.tally.unread ? <TallyBadge theme={theme} tally={tree.tally} small /> : <Text style={{ fontSize: 13, color: c.foregroundMuted }}>0</Text>}
+                {tree.tally.needsYou || tree.tally.unread ? <TallyBadge theme={theme} tally={tree.tally} small /> : <Text style={{ fontSize: fs(13), color: c.foregroundMuted }}>0</Text>}
               </View>
             </Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel={`Filter: ${FILTER_LABEL[filter]}`} onPress={() => setMenu((value) => !value)} style={{ height: 44, justifyContent: "center", marginLeft: 4 }}>
               <View style={{ height: 32, paddingHorizontal: 10, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: c.surface1, borderWidth: 1, borderColor: c.border }}>
-                <Text style={{ fontSize: 13, color: c.foreground }}>{FILTER_LABEL[filter]}</Text>
+                <Text style={{ fontSize: fs(13), color: c.foreground }}>{FILTER_LABEL[filter]}</Text>
                 <Icon name="ChevronDown" size={14} color={c.foregroundMuted} />
               </View>
             </Pressable>
@@ -208,7 +257,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
             <Pressable accessibilityRole="button" accessibilityLabel={`Profile: ${profile.name}`} onPress={() => setSheet(true)} style={{ height: 44, justifyContent: "center", paddingRight: 4 }}>
               <View style={{ height: 32, paddingHorizontal: 10, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: c.surface1, borderWidth: 1, borderColor: c.border, maxWidth: 140 }}>
                 <Icon name="UserRound" size={14} color={c.foregroundMuted} />
-                <Text numberOfLines={1} style={{ fontSize: 13, color: c.foreground, flexShrink: 1 }}>{profile.name}</Text>
+                <Text numberOfLines={1} style={{ fontSize: fs(13), color: c.foreground, flexShrink: 1 }}>{profile.name}</Text>
                 <Icon name="ChevronDown" size={14} color={c.foregroundMuted} />
               </View>
             </Pressable>
@@ -230,16 +279,19 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
       ) : null}
 
       {/* While a row is dragged, the text it passes must not get selected (web/desktop). */}
-      <View style={{ flex: 1, ...(dragging ? { userSelect: "none" } : null) } as never} {...drag.handlers}>
+      <View style={{ flex: 1, ...(dragging ? { userSelect: "none" } : null) } as never} {...drag.handlers} onLayout={(event) => setAreaHeight(event.nativeEvent.layout.height)}>
         <FlatList
           data={tree.rows}
-          extraData={dragging}
+          extraData={[dragging, landing, canPeek, scale, canArrange, profile]}
           keyExtractor={(row) => row.key}
           renderItem={renderItem}
           ListFooterComponent={empty}
           keyboardShouldPersistTaps="handled"
           scrollEnabled={!dragging}
-          onScroll={(event) => drag.setScrollY(event.nativeEvent.contentOffset.y)}
+          onScroll={(event) => {
+            drag.setScrollY(event.nativeEvent.contentOffset.y);
+            if (peek) setPeek(null);
+          }}
           scrollEventThrottle={32}
           onRefresh={() => {
             setRefreshing(true);
@@ -254,9 +306,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
             return { index, offset: top, length: (offsets[index + 1] ?? top) - top };
           }}
         />
-        {dragging?.drop ? (
-          <View pointerEvents="none" style={{ position: "absolute", left: 40, right: 12, top: dragging.drop.lineY - drag.scrollAtPickUp() - 1, height: 3, borderRadius: 2, backgroundColor: c.accent }} />
-        ) : null}
+        {peek && canPeek ? <NamesCard theme={theme} peek={peek} scale={scale} now={now} areaHeight={areaHeight} /> : null}
       </View>
 
       {draftFor ? <NewWorkspaceSheet theme={theme} project={draftFor} onClose={() => setDraftFor(null)} onCreated={(id) => created(draftFor.serverId, id)} /> : null}
@@ -299,11 +349,47 @@ function EmptyState({ theme, icon, title, text, action }: { theme: PluginTheme; 
   );
 }
 
+/**
+ * One list row's motion. While dragging: the carried rows follow the pointer (`follow`), the rows they
+ * pass glide aside by `shift`. After the drop the list is drawn in its new order and the moved rows glide
+ * from where they were let go (`landFrom`) into place, so nothing snaps back first.
+ */
+function Glide({ follow, shift, dragging, landFrom, children }: { follow: number | null; shift: number; dragging: boolean; landFrom: number | null; children: ReactNode }) {
+  const offset = useRef(new Animated.Value(0)).current;
+  // Before paint, so the first frame of the new order already has the right offsets.
+  useLayoutEffect(() => {
+    const glide = (toValue: number) => Animated.timing(offset, { toValue, duration: GLIDE_MS, easing: Easing.out(Easing.quad), useNativeDriver: Platform.OS !== "web" });
+    if (follow !== null) {
+      offset.setValue(follow);
+      return;
+    }
+    if (landFrom !== null) {
+      offset.setValue(landFrom);
+      const land = glide(0);
+      land.start();
+      return () => land.stop();
+    }
+    if (!dragging) {
+      offset.setValue(0);
+      return;
+    }
+    const move = glide(shift);
+    move.start();
+    return () => move.stop();
+  }, [follow, shift, dragging, landFrom, offset]);
+  const raised = follow !== null || landFrom !== null;
+  return <Animated.View style={{ transform: [{ translateY: offset }], zIndex: raised ? 20 : 0, elevation: raised ? 8 : 0 }}>{children}</Animated.View>;
+}
+
 interface RowProps {
   row: TreeRow;
   theme: PluginTheme;
   profile: Profile;
   comfortable: boolean;
+  /** Interface font size over Paseo's default (1 = 14 px). */
+  scale?: number;
+  /** Phones and tablets: taller tap targets. */
+  touch?: boolean;
   searching: boolean;
   now: number;
   canOpen: boolean;
@@ -311,36 +397,45 @@ interface RowProps {
   onOpen(row: WorkspaceRow): void;
   onMenu(row: WorkspaceRow): void;
   onCreate(row: ProjectRow): void;
-  /** Set in manual mode: long-press picks the row up for dragging. */
-  onPickUp?: () => void;
-  /** Drag offset while this row is picked up, else null. */
+  /** Set while this row is picked up (any value): it is drawn raised. */
   lifted: number | null;
-  /** Set on desktop in manual mode: responder handlers for the grip at the row's end. */
+  /** Set in manual mode: responder handlers for the grip at the row's end. */
   dragHandle?: GestureResponderHandlers;
+  /** Show (true) or hide the full-names card for this row: hover on desktop, long-press on phones. */
+  onPeek?: (show: boolean) => void;
 }
 
-function Grip({ theme, handlers, height, label }: { theme: PluginTheme; handlers: GestureResponderHandlers; height: number; label: string }) {
+function Grip({ theme, handlers, height, label, wide }: { theme: PluginTheme; handlers: GestureResponderHandlers; height: number; label: string; wide: boolean }) {
   return (
     <View
       {...handlers}
       accessibilityLabel={`Drag to reorder ${label}`}
-      style={{ width: 24, height, alignItems: "center", justifyContent: "center", cursor: "grab", userSelect: "none", touchAction: "none" } as never}
+      accessibilityHint={wide ? "Hold, then drag" : undefined}
+      style={{ width: wide ? 36 : 24, height, alignItems: "center", justifyContent: "center", cursor: "grab", userSelect: "none", touchAction: "none" } as never}
     >
-      <Icon name="GripVertical" size={14} color={theme.colors.foregroundMuted} />
+      <Icon name="GripVertical" size={wide ? 16 : 14} color={theme.colors.foregroundMuted} />
     </View>
   );
 }
 
-export function Row({ row, theme, profile, comfortable, searching, now, canOpen, onToggle, onOpen, onMenu, onCreate, onPickUp, lifted, dragHandle }: RowProps) {
+/** Hover handlers for the names card on the web; nothing elsewhere. */
+function hoverProps(onPeek: ((show: boolean) => void) | undefined, touch: boolean) {
+  if (!onPeek || touch) return {};
+  return { onHoverIn: () => onPeek(true), onHoverOut: () => onPeek(false) };
+}
+
+export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onMenu, onCreate, lifted, dragHandle, onPeek }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null
-      ? { transform: [{ translateY: lifted }], zIndex: 20, elevation: 8, opacity: 0.95, backgroundColor: c.surface2, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }
+      ? { opacity: 0.95, backgroundColor: c.surface2, borderRadius: 8, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }
       : null;
-  const { group: groupHeight, workspace: workspaceHeight, note: noteHeight } = heightsFor(comfortable);
-  const fontSize = comfortable ? 15 : 14;
+  const { group: groupHeight, workspace: workspaceHeight, note: noteHeight } = heightsFor(comfortable, scale);
+  const fs = (size: number) => Math.round(size * scale * 2) / 2;
+  const fontSize = fs(comfortable ? 15 : 14);
   const separator = { borderBottomWidth: 1, borderBottomColor: c.border };
-
+  /** Trailing buttons: wider on touch screens. */
+  const buttonWidth = touch ? 44 : 40;
   if (row.type === "pinned") {
     return (
       <Pressable
@@ -354,7 +449,7 @@ export function Row({ row, theme, profile, comfortable, searching, now, canOpen,
           <Icon name="Pin" size={14} color={c.foregroundMuted} />
         </View>
         <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>Pinned</Text>
-        <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.count}</Text>
+        <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.count}</Text>
         <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} />
       </Pressable>
     );
@@ -379,7 +474,7 @@ export function Row({ row, theme, profile, comfortable, searching, now, canOpen,
           <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />
         </View>
         <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>{row.label}</Text>
-        {online ? <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.count}</Text> : <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.state === "offline" ? "offline" : "loading…"}</Text>}
+        {online ? <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.count}</Text> : <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.state === "offline" ? "offline" : "loading…"}</Text>}
         {online ? <TallyBadge theme={theme} tally={row.tally} /> : null}
         {online ? <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} /> : null}
       </Pressable>
@@ -393,10 +488,7 @@ export function Row({ row, theme, profile, comfortable, searching, now, canOpen,
         accessibilityRole="button"
         accessibilityLabel={`${row.name}, ${row.count} workspaces${row.collapsed && row.tally.needsYou ? ", something asks you" : row.collapsed && row.tally.unread ? ", unread" : ""}`}
         accessibilityState={{ expanded: !row.collapsed }}
-        accessibilityHint={onPickUp ? "Long press and drag to reorder" : undefined}
         onPress={() => onToggle(row.key)}
-        onLongPress={onPickUp}
-        delayLongPress={350}
         style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12 }}
       >
         <View style={{ width: 18, alignItems: "center" }}>
@@ -404,7 +496,7 @@ export function Row({ row, theme, profile, comfortable, searching, now, canOpen,
         </View>
         <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize, fontWeight: "500" }}>{row.name}</Text>
         {row.collapsed && (row.tally.needsYou || row.tally.unread) ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: row.tally.needsYou ? c.statusWarning : UNREAD_BLUE }} /> : null}
-        <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{row.count}</Text>
+        <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.count}</Text>
       </Pressable>
         {row.rootPath ? (
           <Pressable
@@ -412,12 +504,12 @@ export function Row({ row, theme, profile, comfortable, searching, now, canOpen,
             accessibilityLabel={`New workspace in ${row.name}`}
             onPress={() => onCreate(row)}
             hitSlop={{ left: 4 }}
-            style={{ width: 40, height: groupHeight, alignItems: "center", justifyContent: "center" }}
+            style={{ width: buttonWidth, height: groupHeight, alignItems: "center", justifyContent: "center" }}
           >
             <Icon name="Plus" size={16} color={c.foregroundMuted} />
           </Pressable>
         ) : null}
-        {dragHandle ? <Grip theme={theme} handlers={dragHandle} height={groupHeight} label={row.name} /> : null}
+        {dragHandle ? <Grip theme={theme} handlers={dragHandle} height={groupHeight} label={row.name} wide={touch} /> : null}
       </View>
     );
   }
@@ -437,7 +529,7 @@ export function Row({ row, theme, profile, comfortable, searching, now, canOpen,
   if (row.type === "note") {
     return (
       <View style={{ height: noteHeight, justifyContent: "center", paddingLeft: 46, paddingRight: 12 }}>
-        <Text style={{ color: c.foregroundMuted, fontSize: 13 }}>{row.text}</Text>
+        <Text style={{ color: c.foregroundMuted, fontSize: fs(13) }}>{row.text}</Text>
       </View>
     );
   }
@@ -448,7 +540,8 @@ export function Row({ row, theme, profile, comfortable, searching, now, canOpen,
   // In the Pinned section a row names where it lives; in search it names its host.
   if (row.inPinned) parts.push(`${workspace.projectName} · ${row.hostLabel}`);
   else if (searching) parts.push(row.hostLabel);
-  if (show.branch && workspace.branch) parts.push(workspace.branch);
+  // The branch is drawn in monospace before the other details.
+  const branch = show.branch && workspace.branch ? workspace.branch : null;
   if (show.model && row.modelShort) parts.push(row.modelShort);
   if (show.time) {
     const ago = timeAgo(workspace.activityAt, now);
@@ -459,12 +552,12 @@ export function Row({ row, theme, profile, comfortable, searching, now, canOpen,
     <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", backgroundColor: c.surface0, ...liftStyle }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${row.pinned ? "Pinned, " : ""}${workspace.title}, ${row.state === "needs_you" ? "asking you" : row.state === "unread" ? "unread" : row.state}, ${parts.join(", ")}`}
-        accessibilityHint={onPickUp ? "Long press and drag to reorder" : undefined}
-        disabled={!canOpen && !onPickUp}
+        accessibilityLabel={`${row.pinned ? "Pinned, " : ""}${workspace.title}, ${row.state === "needs_you" ? "asking you" : row.state === "unread" ? "unread" : row.state}, ${[branch, ...parts].filter(Boolean).join(", ")}`}
+        accessibilityHint={onPeek && touch ? "Long press to see full names" : undefined}
+        disabled={!canOpen && !onPeek}
         onPress={() => canOpen && onOpen(row)}
-        onLongPress={onPickUp}
-        delayLongPress={350}
+        {...(onPeek && touch ? { onLongPress: () => onPeek(true), onPressOut: () => onPeek(false), delayLongPress: 400 } : {})}
+        {...hoverProps(onPeek, touch)}
         style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 20, backgroundColor: pressed && lifted === null ? c.surface1 : "transparent" })}
       >
         <View>
@@ -477,12 +570,16 @@ export function Row({ row, theme, profile, comfortable, searching, now, canOpen,
         </View>
         <View style={{ flex: 1, minWidth: 0, gap: comfortable ? 4 : 2 }}>
           <Text numberOfLines={1} style={{ color: c.foreground, fontSize, fontWeight: row.state === "unread" || row.state === "needs_you" ? "700" : "400" }}>{workspace.title}</Text>
-          {parts.length || hasDiff ? (
+          {parts.length || branch || hasDiff ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               {/* Meta truncates first; the diff keeps its width at the right end. */}
-              <Text numberOfLines={1} style={{ flex: 1, color: c.foregroundMuted, fontSize: comfortable ? 13 : 12 }}>{parts.join(" · ")}</Text>
+              <Text numberOfLines={1} style={{ flex: 1, color: c.foregroundMuted, fontSize: fs(comfortable ? 13 : 12) }}>
+                {branch ? <Text style={{ fontFamily: MONO_FONT, fontSize: fs(comfortable ? 12 : 11) }}>{branch}</Text> : null}
+                {branch && parts.length ? " · " : ""}
+                {parts.join(" · ")}
+              </Text>
               {hasDiff ? (
-                <Text style={{ flexShrink: 0, fontSize: 11.5, fontVariant: ["tabular-nums"] }}>
+                <Text style={{ flexShrink: 0, fontSize: fs(11.5), fontVariant: ["tabular-nums"] }}>
                   <Text style={{ color: c.statusSuccess }}>{`+${workspace.additions}`}</Text>
                   <Text style={{ color: c.statusDanger }}>{` −${workspace.deletions}`}</Text>
                 </Text>
@@ -496,11 +593,11 @@ export function Row({ row, theme, profile, comfortable, searching, now, canOpen,
         accessibilityLabel={`Actions for ${workspace.title}`}
         onPress={() => onMenu(row)}
         hitSlop={{ left: 4 }}
-        style={{ width: 40, height: workspaceHeight, alignItems: "center", justifyContent: "center" }}
+        style={{ width: buttonWidth, height: workspaceHeight, alignItems: "center", justifyContent: "center" }}
       >
         <Icon name="Ellipsis" size={16} color={row.state === "unread" ? UNREAD_BLUE : c.foregroundMuted} />
       </Pressable>
-      {dragHandle ? <Grip theme={theme} handlers={dragHandle} height={workspaceHeight} label={workspace.title} /> : null}
+      {dragHandle ? <Grip theme={theme} handlers={dragHandle} height={workspaceHeight} label={workspace.title} wide={touch} /> : null}
     </View>
   );
 }

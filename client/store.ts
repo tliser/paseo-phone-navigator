@@ -13,6 +13,10 @@ import {
 import { moveRelative, type Place } from "../shared/order";
 import { markSeen, normalizeReads, readKey, type ReadMap, type ReadsDocument } from "../shared/reads";
 import { profilesSettings, readsSettings } from "../shared/settings";
+import { mergeProfileDocs, mergeReadDocs, mergeUpdateDocs, sameDoc } from "../shared/sync";
+import { checkForUpdateRpc, installedVersionRpc, updatesDocumentSchema, updatesSettings, type InstalledVersion, type UpdatesDocument } from "../shared/updates";
+import { createHostSync, type HostSync, type SyncedKind } from "./host-sync";
+import { createPeerDirectory, type Peer, type PeerDirectory } from "./peers";
 import type { HostInput, ProjectKind } from "../shared/types";
 import { hasDeviceStorage, readDeviceCollapse, readDevicePins, readDeviceProfileId, writeDeviceCollapse, writeDevicePins, writeDeviceProfileId } from "./device";
 import { createHostObserver, type HostDirectory, type HostObserver } from "./host-observer";
@@ -116,7 +120,13 @@ export type LaunchInput = {
   launch: { kind: "agent"; provider: string; model: string; modeId?: string; prompt?: string; featureValues?: Record<string, boolean> } | { kind: "terminal" };
 };
 
-export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => () => void): Store {
+export interface StoreOptions {
+  /** This host's serverId; with it the store joins the other hosts' copies and keeps settings in sync. */
+  resolveSelf?(): Promise<string>;
+  directory?: PeerDirectory;
+}
+
+export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => () => void, options: StoreOptions = {}): Store {
   const listeners = new Set<() => void>();
   const observers = new Map<string, { api: PaseoApi; observer: HostObserver }>();
   const directories = new Map<string, HostDirectory>();
@@ -131,6 +141,61 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   // ---- host documents ----
   const profilesDoc = createSyncedDoc<ProfilesDocument>({ rpc, settingsId: profilesSettings.id, label: "profiles", normalize: normalizeDocument, changed: () => emitNow() });
   const readsDoc = createSyncedDoc<ReadsDocument>({ rpc, settingsId: readsSettings.id, label: "read state", normalize: normalizeReads, changed: () => emitNow() });
+  const normalizeUpdates = (raw: unknown): UpdatesDocument => {
+    const parsed = updatesDocumentSchema.safeParse(raw ?? {});
+    return parsed.success ? parsed.data : updatesDocumentSchema.parse({});
+  };
+  const updatesDoc = createSyncedDoc<UpdatesDocument>({ rpc, settingsId: updatesSettings.id, label: "updates", normalize: normalizeUpdates, changed: () => undefined });
+
+  // ---- other hosts ----
+  const directory = options.directory ?? createPeerDirectory();
+  let selfId: string | null = null;
+  let unregister: (() => void) | null = null;
+  let stopPeers: (() => void) | null = null;
+  let ownVersion: Promise<InstalledVersion | null> | null = null;
+  const kinds = [
+    { settingsId: profilesSettings.id, doc: profilesDoc, normalize: normalizeDocument, merge: mergeProfileDocs, same: sameDoc },
+    { settingsId: readsSettings.id, doc: readsDoc, normalize: normalizeReads, merge: (docs: readonly ReadsDocument[]) => mergeReadDocs(docs, Date.now()), same: sameDoc },
+    { settingsId: updatesSettings.id, doc: updatesDoc, normalize: normalizeUpdates, merge: mergeUpdateDocs, same: sameDoc },
+  ] as SyncedKind<unknown>[];
+  /** This host's copy is skipped: the synced documents hold it. Only online hosts are asked. */
+  const reachablePeers = (): Peer[] =>
+    directory.list().filter((peer) => peer.serverId !== selfId && hosts.some((host) => host.serverId === peer.serverId && host.status === "online"));
+  let hostSync: HostSync | null = null;
+  function startHostSync() {
+    if (hostSync || !selfId) return;
+    hostSync = createHostSync({
+      kinds,
+      peers: reachablePeers,
+      installedVersion: (peer) => peer.rpc(installedVersionRpc, {}),
+      onVersions: (versions) => void publishLatest(versions),
+      // An older copy dropped part of the settings: ask it to update itself (once per session).
+      onOutdated: (peer) => void peer.rpc(checkForUpdateRpc, {}).catch(() => undefined),
+    });
+    stopPeers = directory.subscribe(() => hostSync?.schedule());
+    hostSync.schedule();
+  }
+  /** Records the newest version installed anywhere; every host's server compares it with its own. */
+  async function publishLatest(versions: InstalledVersion[]) {
+    ownVersion ??= rpc(installedVersionRpc, {}).catch(() => null);
+    const own = await ownVersion;
+    const all = own ? [own, ...versions] : versions;
+    const newest = all.reduce<InstalledVersion | null>((best, version) => (version.installedAt > (best?.installedAt ?? 0) ? version : best), null);
+    const known = updatesDoc.value().latestVersion;
+    if (!newest || !updatesDoc.ready() || (known && known.installedAt >= newest.installedAt)) return;
+    updatesDoc.edit((doc) => (doc.latestVersion && doc.latestVersion.installedAt >= newest.installedAt ? doc : { ...doc, latestVersion: newest }));
+  }
+  async function joinPeers() {
+    if (!options.resolveSelf || selfId) return;
+    try {
+      selfId = await options.resolveSelf();
+    } catch {
+      return; // no sync this session; every host keeps working with its own copy
+    }
+    unregister = directory.register({ serverId: selfId, rpc });
+    if (started) startHostSync();
+  }
+  void joinPeers();
   /** Reads changed on this device and not handed to the document yet (batched). */
   let unsavedReads: Record<string, number> = {};
   /** "Mark unread" stores the key as -now until you view it again. */
@@ -203,6 +268,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   }
 
   function emitNow() {
+    hostSync?.schedule();
     if (timers.emit !== undefined) clearTimeout(timers.emit);
     timers.emit = undefined;
     migrateDevicePins();
@@ -267,7 +333,15 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   }
 
   function editProfiles(change: (profiles: Profile[]) => Profile[]) {
-    profilesDoc.edit((doc) => ({ profiles: change(doc.profiles) }));
+    profilesDoc.edit((doc) => {
+      const profiles = change(doc.profiles);
+      // Removed profiles are remembered, so syncing with a host that still has them does not bring them back.
+      const now = Date.now();
+      const deleted = { ...doc.deleted };
+      for (const old of doc.profiles) if (!profiles.some((profile) => profile.id === old.id)) deleted[old.id] = Math.max(now, old.updatedAt);
+      for (const profile of profiles) delete deleted[profile.id];
+      return { profiles, deleted };
+    });
   }
 
   function move(profileId: string, group: string, ids: readonly string[], id: string, targetId: string, place: Place) {
@@ -394,9 +468,12 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     stopWatch = watchSettings(() => {
       void profilesDoc.read();
       void readsDoc.read();
+      void updatesDoc.read();
     });
     void profilesDoc.read();
     void readsDoc.read();
+    void updatesDoc.read();
+    startHostSync();
   }
 
   function stop() {
@@ -406,6 +483,10 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     timers.reconcile = undefined;
     stopWatch?.();
     stopWatch = null;
+    stopPeers?.();
+    stopPeers = null;
+    hostSync?.dispose();
+    hostSync = null;
     for (const entry of observers.values()) entry.observer.stop();
     observers.clear();
     directories.clear();
@@ -532,6 +613,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       if (timers.reads !== undefined) clearTimeout(timers.reads);
       timers = {};
       listeners.clear();
+      unregister?.();
     },
   };
 }

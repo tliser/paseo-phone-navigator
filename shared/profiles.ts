@@ -26,6 +26,8 @@ const profileSettingsSchema = z.object({
   newGroupsExpanded: z
     .object({ hosts: z.boolean().default(true), projects: z.boolean().default(false) })
     .default({ hosts: true, projects: false }),
+  /** Hovering (desktop) or long-pressing (phones) a row shows its full names in a card. */
+  namesCard: z.boolean().default(true),
 });
 
 const profileSchema = z.object({
@@ -48,6 +50,8 @@ export type CollapseMap = Readonly<Record<string, boolean>>;
 
 export const profilesDocumentSchema = z.object({
   profiles: z.array(profileSchema).default(() => builtinProfiles(0)),
+  /** Deleted profiles (id -> when), so a host that still has one does not bring it back when hosts sync. */
+  deleted: z.record(z.string(), z.number()).default({}),
 });
 export type ProfilesDocument = z.output<typeof profilesDocumentSchema>;
 
@@ -87,7 +91,8 @@ export function builtinProfiles(now: number): Profile[] {
 export function normalizeDocument(raw: unknown): ProfilesDocument {
   const parsed = profilesDocumentSchema.safeParse(raw ?? {});
   const profiles = parsed.success ? parsed.data.profiles : [];
-  return { profiles: profiles.length ? dedupe(profiles) : builtinProfiles(0) };
+  const deleted = parsed.success ? parsed.data.deleted : {};
+  return { profiles: profiles.length ? dedupe(profiles) : builtinProfiles(0), deleted };
 }
 
 function dedupe(profiles: Profile[]): Profile[] {

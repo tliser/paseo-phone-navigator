@@ -12,6 +12,7 @@ vi.mock("@getpaseo/plugin/client", () => ({
 vi.mock("@getpaseo/plugin", () => ({
   defineSettings: <T>(definition: T) => definition,
   settingsRpc: (id: string) => ({ read: { name: `${id}.read` }, write: { name: `${id}.write` } }),
+  defineRpc: <T>(definition: T) => definition,
 }));
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
 

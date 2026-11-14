@@ -42,10 +42,24 @@ export default function contribute(server: PluginServerContext) {
   });
   server.handle(installedVersionRpc, () => own);
 
+  // Another host installed a newer version (the app records it in the synced settings): check now
+  // instead of at the next scheduled check.
+  let followed: string | null = null;
+  const follow = async (latest: InstalledVersion | null) => {
+    const mine = await own;
+    if (!latest || !mine || latest.commit === mine.commit || latest.installedAt <= mine.installedAt) return;
+    if (followed === latest.commit) return;
+    followed = latest.commit;
+    await check(`another host has ${latest.commit.slice(0, 7)}`);
+  };
+  const unsubscribe = updates.subscribe((state) => (state.status === "ready" ? follow(state.values.latestVersion) : undefined));
+  void updates.read().then((state) => (state.status === "ready" ? follow(state.values.latestVersion) : undefined));
+
   const first = setTimeout(() => void check("after start"), FIRST_CHECK_MS);
   const every = setInterval(() => void check("scheduled"), CHECK_EVERY_MS);
   return () => {
     clearTimeout(first);
     clearInterval(every);
+    unsubscribe();
   };
 }

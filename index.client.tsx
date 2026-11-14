@@ -6,13 +6,15 @@ import { watchSettings } from "./client/settings-watch";
 import { SettingsScreen } from "./client/settings-screen";
 import { SidebarItem } from "./client/sidebar-item";
 import { createStore } from "./client/store";
-import { profilesSettings } from "./shared/settings";
+import { profilesSettings, readsSettings } from "./shared/settings";
+import { updatesSettings } from "./shared/updates";
 
 export default function contribute(client: PluginClientContext) {
   setStore(
     createStore(
       (contract, input) => client.rpc(contract, input),
-      (changed) => watchSettings(client, profilesSettings.id, changed),
+      (changed) => watchSettings(client, [profilesSettings.id, readsSettings.id, updatesSettings.id], changed),
+      { resolveSelf: async () => (await client.paseo.hosts.list()).self.serverId },
     ),
   );
   const openSettings = () => client.openSettings(SETTINGS_ID);

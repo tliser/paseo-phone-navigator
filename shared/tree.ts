@@ -192,8 +192,8 @@ function addTally(tally: Tally, state: WorkspaceState): void {
 }
 
 /** A workspace row, followed by its agent rows when it has several agents and they are unfolded. */
-function workspaceRows(host: HostInput, item: Ranked, group: string, inPinned: boolean, collapse: CollapseMap, settings: ProfileSettings): TreeRow[] {
-  const row = workspaceRow(host, item, group, inPinned);
+function workspaceRows(host: HostInput, item: Ranked, group: string, inPinned: boolean, pinned: boolean, collapse: CollapseMap, settings: ProfileSettings): TreeRow[] {
+  const row = workspaceRow(host, item, group, inPinned, pinned);
   const agents = item.workspace.agents ?? [];
   if (agents.length < 2) return [row];
   const key = agentsKey(host.serverId, item.workspace.id);
@@ -217,7 +217,7 @@ function workspaceRows(host: HostInput, item: Ranked, group: string, inPinned: b
   ];
 }
 
-function workspaceRow(host: HostInput, item: Ranked, group: string, inPinned: boolean): WorkspaceRow {
+function workspaceRow(host: HostInput, item: Ranked, group: string, inPinned: boolean, pinned: boolean): WorkspaceRow {
   return {
     type: "workspace",
     key: `${inPinned ? "pin" : "ws"}:${host.serverId}:${item.workspace.id}`,
@@ -226,7 +226,7 @@ function workspaceRow(host: HostInput, item: Ranked, group: string, inPinned: bo
     workspace: item.workspace,
     state: item.state,
     modelShort: shortenModel(item.workspace.model),
-    pinned: inPinned,
+    pinned,
     ...(inPinned ? { inPinned: true } : {}),
     group,
   };
@@ -234,7 +234,7 @@ function workspaceRow(host: HostInput, item: Ranked, group: string, inPinned: bo
 
 export function buildTree(hosts: readonly HostInput[], options: TreeOptions): TreeResult {
   const { filter, settings, collapse, reads, now } = options;
-  // Pinned workspaces move to the Pinned section at the very top; filters never hide them.
+  // Pinned workspaces are listed in the Pinned section at the very top and in their project; filters never hide them.
   const pins = options.pins ?? new Set<string>();
   /** Each pinned workspace with its agent rows. */
   const pinnedRows: { row: WorkspaceRow; rows: TreeRow[] }[] = [];
@@ -304,22 +304,22 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
         const pKey = projectKey(host.serverId, project.id);
         const all = manual ? applyOrder(project.all, (entry) => entry.workspace.id, order[pKey], compareRanked) : [...project.all].sort(compareRanked);
         groups[pKey] = all.map((entry) => entry.workspace.id);
-        // Pinned workspaces go to the Pinned section (search still applies); the rest follow the filter.
+        // Pinned workspaces are shown in the Pinned section and also keep their place in their project.
+        // They pass every filter (search still applies), so pinning never hides a project.
         for (const entry of all) {
           if (!isPinned(host.serverId, entry.workspace.id) || !matchesSearch(entry.workspace, host.label, query)) continue;
-          const block = workspaceRows(host, entry, pKey, true, collapse, settings);
+          const block = workspaceRows(host, entry, pKey, true, true, collapse, settings);
           pinnedRows.push({ row: block[0] as WorkspaceRow, rows: block });
         }
         const visible = all.filter(
-          (entry) => !isPinned(host.serverId, entry.workspace.id) && passesFilter(entry, filter, settings, now) && matchesSearch(entry.workspace, host.label, query),
+          (entry) => (isPinned(host.serverId, entry.workspace.id) || passesFilter(entry, filter, settings, now)) && matchesSearch(entry.workspace, host.label, query),
         );
         return { ...project, visible };
       })
       .filter((project) => project.visible.length > 0);
 
     const count = visibleProjects.reduce((sum, project) => sum + project.visible.length, 0);
-    const pinnedHere = pinnedRows.filter((entry) => entry.row.serverId === host.serverId).length;
-    matched += count + pinnedHere;
+    matched += count;
     if (searching && count === 0) continue;
 
     groupKeys.push(hKey);
@@ -343,7 +343,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       const projectCollapsed = searching ? false : isCollapsed(collapse, pKey, settings);
       rows.push({ type: "project", key: pKey, serverId: host.serverId, projectId: project.id, name: project.name, kind: project.kind, rootPath: project.rootPath, collapsed: projectCollapsed, count: project.visible.length, tally: project.tally, group: hKey });
       if (projectCollapsed) continue;
-      for (const item of project.visible) rows.push(...workspaceRows(host, item, pKey, false, collapse, settings));
+      for (const item of project.visible) rows.push(...workspaceRows(host, item, pKey, false, isPinned(host.serverId, item.workspace.id), collapse, settings));
     }
   }
 

@@ -108,7 +108,7 @@ export function WorkspaceMenu({ theme, row, profileId, onClose }: { theme: Plugi
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              accessibilityHint="Pinned workspaces lead their project in every view, on every device using this profile"
+              accessibilityHint="Pinned workspaces show at the top and in their project, in every view, on every device using this profile"
               onPress={() => {
                 store.setPinned(profileId, row.serverId, workspace.id, !pinned);
                 onClose();

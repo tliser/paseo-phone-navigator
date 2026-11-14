@@ -188,19 +188,26 @@ describe("manual order", () => {
 
 describe("pins", () => {
   const hosts = () => [host("h", [ws("a", "p", "done", 1), ws("b", "p", "running", 5), ws("old", "p", "done", 60 * 24 * 30)])];
-  it("move to a Pinned section above every host, even when old finished ones are hidden", () => {
+  it("show in a Pinned section above every host and keep their place in their project, even when old finished ones are hidden", () => {
     const tree = buildTree(hosts(), opts({ pins: new Set(["h:old"]), settings: { ...settings, hideDone: "7d" } }));
-    expect(types(tree.rows)).toEqual(["pinned", "workspace", "host", "project", "workspace", "workspace"]);
-    expect(wsIds(tree.rows)).toEqual(["old", "b", "a"]);
+    expect(types(tree.rows)).toEqual(["pinned", "workspace", "host", "project", "workspace", "workspace", "workspace"]);
+    expect(wsIds(tree.rows)).toEqual(["old", "b", "a", "old"]);
+    const inProject = tree.rows[6];
+    expect(inProject?.type === "workspace" && inProject.pinned && !inProject.inPinned).toBe(true);
     const pinned = tree.rows[1];
     expect(pinned?.type === "workspace" && pinned.inPinned && pinned.pinned).toBe(true);
     expect(tree.groupKeys[0]).toBe("pinned");
   });
-  it("stay in the Pinned section in filtered views, outside the manual order", () => {
+  it("keep their project visible in filtered views; only the copy in the project can be dragged", () => {
     const tree = buildTree(hosts(), opts({ pins: new Set(["h:a"]), filter: "active" }));
-    expect(types(tree.rows)).toEqual(["pinned", "workspace", "host", "project", "workspace"]);
-    expect(wsIds(tree.rows)).toEqual(["a", "b"]);
+    expect(types(tree.rows)).toEqual(["pinned", "workspace", "host", "project", "workspace", "workspace"]);
+    expect(wsIds(tree.rows)).toEqual(["a", "b", "a"]);
     expect(dragId(tree.rows[1]!)).toBeNull();
+    expect(dragId(tree.rows[5]!)).toBe("a");
+  });
+  it("a project whose only shown workspace is pinned does not vanish", () => {
+    const tree = buildTree([host("h", [ws("x", "solo", "done", 60 * 24 * 30)])], opts({ pins: new Set(["h:x"]), filter: "inbox" }));
+    expect(types(tree.rows)).toEqual(["pinned", "workspace", "host", "project", "workspace"]);
   });
   it("fold with the section and still match search", () => {
     const folded = buildTree(hosts(), opts({ pins: new Set(["h:a"]), collapse: { pinned: true } }));
@@ -226,7 +233,7 @@ describe("agent rows", () => {
   });
   it("unfold under their workspace, also in the Pinned section", () => {
     const tree = buildTree(hosts(), opts({ collapse: { "agents:h:a": false }, pins: new Set(["h:a"]) }));
-    expect(types(tree.rows)).toEqual(["pinned", "workspace", "agent", "agent", "host", "project", "workspace"]);
+    expect(types(tree.rows)).toEqual(["pinned", "workspace", "agent", "agent", "host", "project", "workspace", "agent", "agent", "workspace"]);
     const first = tree.rows[2];
     expect(first?.type === "agent" && first.agent.title).toBe("Plan");
   });

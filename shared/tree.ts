@@ -1,9 +1,9 @@
 // Builds the flattened tree the FlatList renders. Pure.
 import { shortenModel } from "./format";
 import { applyOrder, type OrderMap } from "./order";
-import { hostKey, isCollapsed, projectKey, type CollapseMap, type ProfileSettings } from "./profiles";
+import { agentsKey, hostKey, isCollapsed, projectKey, type CollapseMap, type ProfileSettings } from "./profiles";
 import { isUnread, type ReadMap } from "./reads";
-import { FILTERS, type Filter, type HostInput, type ProjectKind, type WorkspaceInput, type WorkspaceState } from "./types";
+import { FILTERS, type AgentInput, type Filter, type HostInput, type ProjectKind, type WorkspaceInput, type WorkspaceState } from "./types";
 
 const DAY_MS = 86_400_000;
 
@@ -63,6 +63,20 @@ export interface WorkspaceRow {
   inPinned?: boolean;
   /** The order list this row belongs to ("proj:<serverId>:<projectId>"). */
   group: string;
+  /** Collapse key of its agent rows; set when it has two or more agents. */
+  agentsKey?: string;
+  agentsOpen?: boolean;
+}
+/** One agent of an unfolded workspace. */
+export interface AgentRow {
+  type: "agent";
+  key: string;
+  serverId: string;
+  workspaceId: string;
+  workspaceTitle: string;
+  agent: AgentInput;
+  /** Shortened model name. */
+  modelShort: string;
 }
 interface SkeletonRow {
   type: "skeleton";
@@ -73,7 +87,7 @@ interface NoteRow {
   key: string;
   text: string;
 }
-export type TreeRow = PinnedHeadingRow | HostRow | ProjectRow | WorkspaceRow | SkeletonRow | NoteRow;
+export type TreeRow = PinnedHeadingRow | HostRow | ProjectRow | WorkspaceRow | AgentRow | SkeletonRow | NoteRow;
 
 export interface TreeResult {
   rows: TreeRow[];
@@ -149,7 +163,8 @@ export function passesFilter(item: Ranked, filter: Filter, settings: ProfileSett
 export function matchesSearch(workspace: WorkspaceInput, hostLabel: string, query: string): boolean {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return true;
-  const fields = [workspace.title, workspace.branch ?? "", workspace.projectName, hostLabel, shortenModel(workspace.model)].map(
+  const agentTitles = (workspace.agents ?? []).map((agent) => agent.title);
+  const fields = [workspace.title, workspace.branch ?? "", workspace.projectName, hostLabel, shortenModel(workspace.model), ...agentTitles].map(
     (field) => field.toLowerCase(),
   );
   return terms.every((term) => fields.some((field) => field.includes(term)));
@@ -176,6 +191,32 @@ function addTally(tally: Tally, state: WorkspaceState): void {
   else if (state === "unread") tally.unread++;
 }
 
+/** A workspace row, followed by its agent rows when it has several agents and they are unfolded. */
+function workspaceRows(host: HostInput, item: Ranked, group: string, inPinned: boolean, collapse: CollapseMap, settings: ProfileSettings): TreeRow[] {
+  const row = workspaceRow(host, item, group, inPinned);
+  const agents = item.workspace.agents ?? [];
+  if (agents.length < 2) return [row];
+  const key = agentsKey(host.serverId, item.workspace.id);
+  const open = !isCollapsed(collapse, key, settings);
+  row.agentsKey = key;
+  row.agentsOpen = open;
+  if (!open) return [row];
+  return [
+    row,
+    ...agents.map(
+      (agent): AgentRow => ({
+        type: "agent",
+        key: `${row.key}#agent:${agent.id}`,
+        serverId: host.serverId,
+        workspaceId: item.workspace.id,
+        workspaceTitle: item.workspace.title,
+        agent,
+        modelShort: shortenModel(agent.model),
+      }),
+    ),
+  ];
+}
+
 function workspaceRow(host: HostInput, item: Ranked, group: string, inPinned: boolean): WorkspaceRow {
   return {
     type: "workspace",
@@ -195,7 +236,8 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   const { filter, settings, collapse, reads, now } = options;
   // Pinned workspaces move to the Pinned section at the very top; filters never hide them.
   const pins = options.pins ?? new Set<string>();
-  const pinnedRows: WorkspaceRow[] = [];
+  /** Each pinned workspace with its agent rows. */
+  const pinnedRows: { row: WorkspaceRow; rows: TreeRow[] }[] = [];
   const isPinned = (serverId: string, workspaceId: string) => pins.has(`${serverId}:${workspaceId}`);
   const manual = settings.sort === "manual";
   const order = options.order ?? {};
@@ -265,7 +307,8 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
         // Pinned workspaces go to the Pinned section (search still applies); the rest follow the filter.
         for (const entry of all) {
           if (!isPinned(host.serverId, entry.workspace.id) || !matchesSearch(entry.workspace, host.label, query)) continue;
-          pinnedRows.push(workspaceRow(host, entry, pKey, true));
+          const block = workspaceRows(host, entry, pKey, true, collapse, settings);
+          pinnedRows.push({ row: block[0] as WorkspaceRow, rows: block });
         }
         const visible = all.filter(
           (entry) => !isPinned(host.serverId, entry.workspace.id) && passesFilter(entry, filter, settings, now) && matchesSearch(entry.workspace, host.label, query),
@@ -275,7 +318,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       .filter((project) => project.visible.length > 0);
 
     const count = visibleProjects.reduce((sum, project) => sum + project.visible.length, 0);
-    const pinnedHere = pinnedRows.filter((row) => row.serverId === host.serverId).length;
+    const pinnedHere = pinnedRows.filter((entry) => entry.row.serverId === host.serverId).length;
     matched += count + pinnedHere;
     if (searching && count === 0) continue;
 
@@ -300,16 +343,16 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       const projectCollapsed = searching ? false : isCollapsed(collapse, pKey, settings);
       rows.push({ type: "project", key: pKey, serverId: host.serverId, projectId: project.id, name: project.name, kind: project.kind, rootPath: project.rootPath, collapsed: projectCollapsed, count: project.visible.length, tally: project.tally, group: hKey });
       if (projectCollapsed) continue;
-      for (const item of project.visible) rows.push(workspaceRow(host, item, pKey, false));
+      for (const item of project.visible) rows.push(...workspaceRows(host, item, pKey, false, collapse, settings));
     }
   }
 
   if (pinnedRows.length) {
     // Pinned section first, in pin order is not tracked: most urgent first like any project.
-    pinnedRows.sort((x, y) => compareRanked({ workspace: x.workspace, state: x.state }, { workspace: y.workspace, state: y.state }));
+    pinnedRows.sort((x, y) => compareRanked({ workspace: x.row.workspace, state: x.row.state }, { workspace: y.row.workspace, state: y.row.state }));
     const collapsed = searching ? false : isCollapsed(collapse, PINNED_KEY, settings);
     const heading: PinnedHeadingRow = { type: "pinned", key: PINNED_KEY, collapsed, count: pinnedRows.length };
-    rows.unshift(heading, ...(collapsed ? [] : pinnedRows));
+    rows.unshift(heading, ...(collapsed ? [] : pinnedRows.flatMap((entry) => entry.rows)));
     groupKeys.unshift(PINNED_KEY);
   }
 

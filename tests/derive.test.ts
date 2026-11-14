@@ -71,3 +71,17 @@ describe("asking vs unread", () => {
     expect(w).toMatchObject({ needsYou: false, unreadAt: Date.parse("2026-01-02T00:00:00Z") });
   });
 });
+
+describe("agents of a workspace", () => {
+  it("lists main agents newest first with their status; untitled ones are numbered by age", () => {
+    const [w] = deriveWorkspaces(
+      [workspace("x", { status: "running" })],
+      [
+        { ...agent("old", "x", "2026-01-01T00:00:00Z"), createdAt: "2026-01-01T00:00:00Z", title: null, requiresAttention: true, attentionReason: "finished" },
+        { ...agent("new", "x", "2026-01-03T00:00:00Z", { pendingPermissions: [{}] }), createdAt: "2026-01-02T00:00:00Z", title: "Review" },
+        agent("sub", "x", "2026-01-04T00:00:00Z", { labels: { "paseo.parent-agent-id": "new" } }),
+      ],
+    );
+    expect(w!.agents!.map((a) => `${a.title}:${a.status}`)).toEqual(["Review:asking", "Agent 1:finished"]);
+  });
+});

@@ -209,3 +209,29 @@ describe("pins", () => {
     expect(types(searched.rows)[0]).toBe("host");
   });
 });
+
+describe("agent rows", () => {
+  const agents = [
+    { id: "a1", title: "Plan", model: "anthropic/claude-opus-4-1", status: "asking" as const, activityAt: 2 },
+    { id: "a2", title: "Fix", model: null, status: "idle" as const, activityAt: 1 },
+  ];
+  const hosts = () => [host("h", [ws("a", "p", "running", 1, { agents }), ws("b", "p", "done", 5, { agents: [agents[0]!] })])];
+  it("are folded by default; a workspace with two or more agents offers them", () => {
+    const tree = buildTree(hosts(), opts());
+    expect(types(tree.rows)).toEqual(["host", "project", "workspace", "workspace"]);
+    const a = tree.rows[2];
+    expect(a?.type === "workspace" && a.agentsKey).toBe("agents:h:a");
+    const b = tree.rows[3];
+    expect(b?.type === "workspace" && b.agentsKey).toBeUndefined();
+  });
+  it("unfold under their workspace, also in the Pinned section", () => {
+    const tree = buildTree(hosts(), opts({ collapse: { "agents:h:a": false }, pins: new Set(["h:a"]) }));
+    expect(types(tree.rows)).toEqual(["pinned", "workspace", "agent", "agent", "host", "project", "workspace"]);
+    const first = tree.rows[2];
+    expect(first?.type === "agent" && first.agent.title).toBe("Plan");
+  });
+  it("agent titles are searchable", () => {
+    const tree = buildTree(hosts(), opts({ query: "plan" }));
+    expect(wsIds(tree.rows)).toEqual(["a", "b"]);
+  });
+});

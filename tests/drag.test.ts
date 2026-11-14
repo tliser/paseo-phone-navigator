@@ -46,7 +46,7 @@ describe("findDropTarget", () => {
     expect(findDropTarget(rows, offsets, 1, 380)).toEqual({ targetId: "q", place: "after", lineY: 356 });
   });
   it("grows with the interface font size, never shrinks", () => {
-    expect(heightsFor(false, 1.25)).toEqual({ group: 55, workspace: 70, note: 55 });
+    expect(heightsFor(false, 1.25)).toEqual({ group: 55, workspace: 70, note: 55, agent: 50 });
     expect(heightsFor(false, 0.8)).toEqual(h);
   });
   it("ignores rows that cannot be dragged", () => {

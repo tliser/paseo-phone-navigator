@@ -16,6 +16,17 @@ export type ProjectKind = "git" | "directory" | "non_git";
  */
 export type WorkspaceState = "needs_you" | "unread" | "running" | "read";
 
+/** One agent (chat tab) of a workspace, for the agent rows under an unfolded workspace. */
+export interface AgentInput {
+  id: string;
+  title: string;
+  model: string | null;
+  /** asking: waits for you; running; finished/failed: news since its last turn (Paseo's flag); idle. */
+  status: "asking" | "running" | "finished" | "failed" | "idle";
+  /** Last activity, epoch ms. */
+  activityAt: number;
+}
+
 export interface WorkspaceInput {
   id: string;
   projectId: string;
@@ -37,6 +48,8 @@ export interface WorkspaceInput {
   activityAt: number;
   /** Model of the most recently active agent, as the daemon reports it. */
   model: string | null;
+  /** Main agents (no sub-agents, internal or archived ones), most recently active first. */
+  agents?: readonly AgentInput[];
 }
 
 export interface HostInput {

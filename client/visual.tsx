@@ -6,7 +6,7 @@ import type { WorkspaceState, WorkspaceStatus } from "../shared/types";
 
 export const UNREAD_BLUE = "#60A5FA";
 /** Distinct from unread blue so running and unread never read as the same state. */
-const RUNNING_VIOLET = "#A78BFA";
+export const RUNNING_VIOLET = "#A78BFA";
 /** Dark text on amber/blue badge fills; white fails WCAG contrast there. */
 const BADGE_TEXT = "#0B1220";
 

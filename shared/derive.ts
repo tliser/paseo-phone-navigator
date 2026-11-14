@@ -1,7 +1,7 @@
 // Turns the daemon's workspace and agent payloads into WorkspaceInput. Pure; structural types only,
 // so it neither depends on the SDK's generated types nor breaks when fields are added.
 import { epoch } from "./format";
-import type { ProjectKind, WorkspaceInput, WorkspaceStatus } from "./types";
+import type { AgentInput, ProjectKind, WorkspaceInput, WorkspaceStatus } from "./types";
 
 export interface WorkspaceLike {
   id: string;
@@ -25,6 +25,8 @@ export interface WorkspaceLike {
 
 export interface AgentLike {
   id: string;
+  title?: string | null;
+  createdAt?: string;
   workspaceId?: string;
   model: string | null;
   provider: string;
@@ -81,8 +83,39 @@ export function latestAgentByWorkspace(agents: readonly AgentLike[]): Map<string
   return best;
 }
 
+function agentInput(agent: AgentLike, index: number): AgentInput {
+  const status: AgentInput["status"] = agentNeedsYou(agent)
+    ? "asking"
+    : agent.status === "running" || agent.status === "initializing"
+      ? "running"
+      : agent.status === "error" || (agent.requiresAttention && agent.attentionReason === "error")
+        ? "failed"
+        : agent.requiresAttention && agent.attentionReason === "finished"
+          ? "finished"
+          : "idle";
+  return { id: agent.id, title: agent.title?.trim() || `Agent ${index + 1}`, model: agent.model, status, activityAt: agentActivity(agent) };
+}
+
+/** Main agents per workspace, most recently active first. */
+export function agentsByWorkspace(agents: readonly AgentLike[]): Map<string, AgentInput[]> {
+  const grouped = new Map<string, AgentLike[]>();
+  for (const agent of agents) {
+    if (!agent.workspaceId || !isListedAgent(agent) || agent.status === "closed") continue;
+    grouped.set(agent.workspaceId, [...(grouped.get(agent.workspaceId) ?? []), agent]);
+  }
+  const result = new Map<string, AgentInput[]>();
+  for (const [workspaceId, list] of grouped) {
+    // Numbered by age so an untitled agent keeps its name; listed newest first.
+    const byAge = [...list].sort((a, b) => epoch(a.createdAt ?? a.updatedAt) - epoch(b.createdAt ?? b.updatedAt));
+    const inputs = list.map((agent) => agentInput(agent, byAge.indexOf(agent)));
+    result.set(workspaceId, inputs.sort((a, b) => b.activityAt - a.activityAt || a.id.localeCompare(b.id)));
+  }
+  return result;
+}
+
 export function deriveWorkspaces(workspaces: readonly WorkspaceLike[], agents: readonly AgentLike[]): WorkspaceInput[] {
   const latest = latestAgentByWorkspace(agents);
+  const agentLists = agentsByWorkspace(agents);
   const asking = new Set<string>();
   /** Latest finished/error flag of a main agent per workspace. */
   const finishedAt = new Map<string, number>();
@@ -123,6 +156,7 @@ export function deriveWorkspaces(workspaces: readonly WorkspaceLike[], agents: r
       deletions: workspace.diffStat?.deletions ?? 0,
       activityAt,
       model: agent?.model ?? null,
+      agents: agentLists.get(workspace.id) ?? [],
     });
   }
   return result;

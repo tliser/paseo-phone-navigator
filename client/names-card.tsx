@@ -62,6 +62,7 @@ export function NamesCard({ theme, peek, scale, now, areaHeight }: { theme: Plug
       {line("Status", `${STATE_LABEL[row.state]}${ago ? `, ${ago}` : ""}`)}
       {workspace.additions || workspace.deletions ? line("Changes", `+${workspace.additions} −${workspace.deletions}`) : null}
       {workspace.projectRootPath ? line("Folder", workspace.projectRootPath, true) : null}
+      {(workspace.agents?.length ?? 0) > 1 ? line("Agents", (workspace.agents ?? []).map((agent) => `${agent.title} (${agent.status})`).join("\n")) : null}
     </View>
   );
 }

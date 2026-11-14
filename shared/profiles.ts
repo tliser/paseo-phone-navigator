@@ -127,10 +127,13 @@ export function resolveProfile(
 
 export const hostKey = (serverId: string) => `host:${serverId}`;
 export const projectKey = (serverId: string, projectId: string) => `proj:${serverId}:${projectId}`;
+/** A workspace's agent rows; folded unless opened. */
+export const agentsKey = (serverId: string, workspaceId: string) => `agents:${serverId}:${workspaceId}`;
 
 function defaultCollapsed(key: string, settings: ProfileSettings): boolean {
   // The Pinned section at the top always starts open.
   if (key === "pinned") return false;
+  if (key.startsWith("agents:")) return true;
   return key.startsWith("host:") ? !settings.newGroupsExpanded.hosts : !settings.newGroupsExpanded.projects;
 }
 

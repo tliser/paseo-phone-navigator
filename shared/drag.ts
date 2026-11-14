@@ -6,17 +6,19 @@ export interface RowHeights {
   group: number;
   workspace: number;
   note: number;
+  agent: number;
 }
 
 /** Row heights for the density, grown with the interface font size (`scale`, 1 = Paseo's default). */
 export function heightsFor(comfortable: boolean, scale = 1): RowHeights {
   const grow = (px: number) => Math.round(px * Math.max(1, scale));
-  return { group: grow(comfortable ? 52 : 44), workspace: grow(comfortable ? 68 : 56), note: grow(44) };
+  return { group: grow(comfortable ? 52 : 44), workspace: grow(comfortable ? 68 : 56), note: grow(44), agent: grow(comfortable ? 44 : 40) };
 }
 
 function rowHeight(row: TreeRow, heights: RowHeights): number {
   if (row.type === "host" || row.type === "project" || row.type === "pinned") return heights.group;
   if (row.type === "workspace" || row.type === "skeleton") return heights.workspace;
+  if (row.type === "agent") return heights.agent;
   return heights.note;
 }
 
@@ -47,6 +49,11 @@ function dragGroup(row: TreeRow): string | null {
 /** Index after the last row of the block that moves with a dragged row (a project carries its open workspaces). */
 export function blockEnd(rows: readonly TreeRow[], index: number): number {
   const row = rows[index];
+  if (row?.type === "workspace") {
+    let end = index + 1;
+    while (rows[end]?.type === "agent") end++;
+    return end;
+  }
   if (row?.type !== "project") return index + 1;
   let end = index + 1;
   while (end < rows.length && rows[end]!.type !== "project" && rows[end]!.type !== "host" && rows[end]!.type !== "pinned") end++;

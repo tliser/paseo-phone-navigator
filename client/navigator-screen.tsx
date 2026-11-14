@@ -6,7 +6,7 @@ import { Animated, Easing, Platform, Pressable, Text, View, type GestureResponde
 import { timeAgo } from "../shared/format";
 import { expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
 import { blockEnd, dragId, dragShift, heightsFor, rowOffsets, type DropTarget } from "../shared/drag";
-import { buildTree, type ProjectRow, type TreeRow, type WorkspaceRow } from "../shared/tree";
+import { buildTree, type AgentRow, type ProjectRow, type TreeRow, type WorkspaceRow } from "../shared/tree";
 import { FILTERS, type Filter } from "../shared/types";
 import { GLIDE_MS, useDragController } from "./drag-controller";
 import { MONO_FONT, useFontScale } from "./font-scale";
@@ -14,7 +14,7 @@ import { NamesCard, type Peek } from "./names-card";
 import { NewWorkspaceSheet } from "./new-workspace-sheet";
 import { ProfileSheet } from "./profile-sheet";
 import { useActiveProfile, useNavigatorStore } from "./runtime";
-import { StateIcon, TallyBadge, UNREAD_BLUE } from "./visual";
+import { RUNNING_VIOLET, StateIcon, TallyBadge, UNREAD_BLUE } from "./visual";
 import { WorkspaceMenu } from "./workspace-menu";
 
 const FILTER_LABEL: Record<Filter, string> = { all: "All", recent: "Recent", active: "Active", inbox: "Inbox" };
@@ -71,6 +71,14 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
       navigation.openWorkspace({ workspaceId: row.workspace.id, serverId: row.serverId });
       // Viewing it is reading it. A prompt that is still waiting keeps the row amber regardless.
       store.markRead(row.serverId, [row.workspace.id]);
+    },
+    [navigation, store],
+  );
+  const openAgent = useCallback(
+    (row: AgentRow) => {
+      if (!navigation) return;
+      navigation.openAgent({ agentId: row.agent.id, serverId: row.serverId });
+      store.markRead(row.serverId, [row.workspaceId]);
     },
     [navigation, store],
   );
@@ -168,6 +176,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
           now={now}
           onToggle={toggle}
           onOpen={open}
+          onOpenAgent={openAgent}
           onMenu={setMenuFor}
           onCreate={setDraftFor}
           canOpen={!!navigation}
@@ -395,6 +404,7 @@ interface RowProps {
   canOpen: boolean;
   onToggle(key: string): void;
   onOpen(row: WorkspaceRow): void;
+  onOpenAgent?(row: AgentRow): void;
   onMenu(row: WorkspaceRow): void;
   onCreate(row: ProjectRow): void;
   /** Set while this row is picked up (any value): it is drawn raised. */
@@ -424,13 +434,13 @@ function hoverProps(onPeek: ((show: boolean) => void) | undefined, touch: boolea
   return { onHoverIn: () => onPeek(true), onHoverOut: () => onPeek(false) };
 }
 
-export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onMenu, onCreate, lifted, dragHandle, onPeek }: RowProps) {
+export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenAgent, onMenu, onCreate, lifted, dragHandle, onPeek }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null
       ? { opacity: 0.95, backgroundColor: c.surface2, borderRadius: 8, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }
       : null;
-  const { group: groupHeight, workspace: workspaceHeight, note: noteHeight } = heightsFor(comfortable, scale);
+  const { group: groupHeight, workspace: workspaceHeight, note: noteHeight, agent: agentHeight } = heightsFor(comfortable, scale);
   const fs = (size: number) => Math.round(size * scale * 2) / 2;
   const fontSize = fs(comfortable ? 15 : 14);
   const separator = { borderBottomWidth: 1, borderBottomColor: c.border };
@@ -482,21 +492,27 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
   }
 
   if (row.type === "project") {
+    // A section heading: tinted band, folder icon, bold name and a coloured bar, so it never reads as a workspace.
     return (
-      <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", paddingRight: row.rootPath || dragHandle ? 0 : 12, backgroundColor: c.surface0, ...separator, ...liftStyle }}>
+      <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", paddingRight: row.rootPath || dragHandle ? 0 : 12, backgroundColor: c.surface1, borderTopWidth: 1, borderTopColor: c.border, ...separator, ...liftStyle }}>
+      <View style={{ width: 3, alignSelf: "stretch", backgroundColor: row.tally.needsYou ? c.statusWarning : row.tally.unread ? UNREAD_BLUE : c.accent, opacity: row.tally.needsYou || row.tally.unread ? 1 : 0.55 }} />
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${row.name}, ${row.count} workspaces${row.collapsed && row.tally.needsYou ? ", something asks you" : row.collapsed && row.tally.unread ? ", unread" : ""}`}
+        accessibilityLabel={`Project ${row.name}, ${row.count} workspaces${row.collapsed && row.tally.needsYou ? ", something asks you" : row.collapsed && row.tally.unread ? ", unread" : ""}`}
         accessibilityState={{ expanded: !row.collapsed }}
         onPress={() => onToggle(row.key)}
-        style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12 }}
+        style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 9 }}
       >
         <View style={{ width: 18, alignItems: "center" }}>
-          <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} />
+          <Icon name={row.collapsed ? "Folder" : "FolderOpen"} size={16} color={c.accent} />
         </View>
-        <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize, fontWeight: "500" }}>{row.name}</Text>
-        {row.collapsed && (row.tally.needsYou || row.tally.unread) ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: row.tally.needsYou ? c.statusWarning : UNREAD_BLUE }} /> : null}
-        <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.count}</Text>
+        <Text numberOfLines={1} style={{ flexShrink: 1, color: c.foreground, fontSize: fs(comfortable ? 15 : 14), fontWeight: "700", letterSpacing: 0.2 }}>{row.name}</Text>
+        <View style={{ paddingHorizontal: 6, minWidth: 20, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: c.surface2 }}>
+          <Text style={{ color: c.foregroundMuted, fontSize: fs(11), fontWeight: "600" }}>{row.count}</Text>
+        </View>
+        <View style={{ flex: 1 }} />
+        {row.collapsed ? <TallyBadge theme={theme} tally={row.tally} small /> : null}
+        <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} />
       </Pressable>
         {row.rootPath ? (
           <Pressable
@@ -523,6 +539,37 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
           <View style={{ height: 10, width: "45%", borderRadius: 5, backgroundColor: c.surface1 }} />
         </View>
       </View>
+    );
+  }
+
+  if (row.type === "agent") {
+    const { agent } = row;
+    const look =
+      agent.status === "asking"
+        ? { icon: "MessageCircleQuestion", color: c.statusWarning, label: "asking you" }
+        : agent.status === "running"
+          ? { icon: "LoaderCircle", color: RUNNING_VIOLET, label: "running" }
+          : agent.status === "failed"
+            ? { icon: "CircleX", color: c.statusDanger, label: "failed" }
+            : agent.status === "finished"
+              ? { icon: "CircleDot", color: UNREAD_BLUE, label: "finished" }
+              : { icon: "Bot", color: c.foregroundMuted, label: "idle" };
+    const ago = timeAgo(agent.activityAt, now);
+    const meta = [row.modelShort, ago].filter(Boolean).join(" · ");
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Agent ${agent.title}, ${look.label}${meta ? `, ${meta}` : ""}`}
+        disabled={!canOpen}
+        onPress={() => onOpenAgent?.(row)}
+        style={({ pressed }) => ({ height: agentHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 29, paddingRight: 12, backgroundColor: pressed ? c.surface1 : c.surface0 })}
+      >
+        {/* Thread line from the workspace's icon down to its agents. */}
+        <View style={{ width: 1, alignSelf: "stretch", backgroundColor: c.border, marginRight: 6 }} />
+        <Icon name={look.icon} size={14} color={look.color} />
+        <Text numberOfLines={1} style={{ flex: 1, color: agent.status === "idle" ? c.foregroundMuted : c.foreground, fontSize: fs(comfortable ? 14 : 13), fontWeight: agent.status === "asking" || agent.status === "finished" || agent.status === "failed" ? "600" : "400" }}>{agent.title}</Text>
+        {meta ? <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: "45%", color: c.foregroundMuted, fontSize: fs(12) }}>{meta}</Text> : null}
+      </Pressable>
     );
   }
 
@@ -588,6 +635,21 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
           ) : null}
         </View>
       </Pressable>
+      {row.agentsKey ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${row.agentsOpen ? "Hide" : "Show"} ${workspace.agents?.length ?? 0} agents of ${workspace.title}`}
+          accessibilityState={{ expanded: !!row.agentsOpen }}
+          onPress={() => onToggle(row.agentsKey!)}
+          style={{ height: workspaceHeight, paddingHorizontal: 6, flexDirection: "row", alignItems: "center", gap: 2 }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, height: 22, borderRadius: 11, backgroundColor: row.agentsOpen ? c.surface2 : "transparent", borderWidth: 1, borderColor: c.border }}>
+            <Icon name="Bot" size={12} color={c.foregroundMuted} />
+            <Text style={{ color: c.foregroundMuted, fontSize: fs(11), fontWeight: "600" }}>{workspace.agents?.length ?? 0}</Text>
+            <Icon name={row.agentsOpen ? "ChevronUp" : "ChevronDown"} size={12} color={c.foregroundMuted} />
+          </View>
+        </Pressable>
+      ) : null}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Actions for ${workspace.title}`}

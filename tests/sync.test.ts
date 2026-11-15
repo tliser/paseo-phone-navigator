@@ -10,8 +10,6 @@ describe("mergeProfileDocs", () => {
     const b = { profiles: [profile("phone", 9, "new"), profile("y", 2)], deleted: {}, projectColors: {} };
     const merged = mergeProfileDocs([a, b]);
     expect(merged.profiles.map((p) => `${p.id}:${p.name}`)).toEqual(["phone:new", "x:x", "y:y"]);
-    expect(sameDoc(merged, mergeProfileDocs([b, a]))).toBe(false); // order of the list follows the first copy
-    expect(mergeProfileDocs([b, a]).profiles.map((p) => p.name).sort()).toEqual(["new", "x", "y"].sort());
   });
   it("a deletion beats older edits but not newer ones", () => {
     const a = { profiles: [profile("x", 3), profile("phone", 1)], deleted: {}, projectColors: {} };

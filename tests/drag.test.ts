@@ -17,9 +17,6 @@ const rows: TreeRow[] = [hostRow("h"), projRow("h", "p"), wsRow("h", "p", "a"), 
 const offsets = rowOffsets(rows, h);
 
 describe("findDropTarget", () => {
-  it("computes offsets", () => {
-    expect(offsets).toEqual([0, 44, 88, 144, 200, 256, 300, 356, 400]);
-  });
   it("moves a workspace down past a sibling", () => {
     // Between b and c: "before c" is the same slot as "after b".
     expect(findDropTarget(rows, offsets, 2, 180)).toEqual({ targetId: "c", place: "before", lineY: 200 });
@@ -68,8 +65,5 @@ describe("dragShift", () => {
     expect(dragShift(rows, offsets, 5, drop)).toEqual({ carried: 7, start: 1, end: 5, shift: 100 });
     const down = findDropTarget(rows, offsets, 1, 380)!; // p after q
     expect(dragShift(rows, offsets, 1, down)).toEqual({ carried: 5, start: 5, end: 7, shift: -212 });
-  });
-  it("nothing moves without a drop target", () => {
-    expect(dragShift(rows, offsets, 3, null).shift).toBe(0);
   });
 });

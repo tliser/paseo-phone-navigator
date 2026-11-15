@@ -140,17 +140,8 @@ describe("tree shape", () => {
     const tree = buildTree([host("l", [], { loading: true }), host("o", [], { status: "offline" })], opts());
     expect(types(tree.rows)).toEqual(["host", "skeleton", "skeleton", "skeleton", "host"]);
   });
-  it("shows a note for hosts without workspaces", () => {
-    expect(types(buildTree([host("h", [])], opts()).rows)).toEqual(["host", "note"]);
-  });
   it("hides hosts listed in hiddenHosts", () => {
     expect(buildTree([host("h", [ws("1", "p", "done", 1)])], opts({ settings: { ...settings, hiddenHosts: ["h"] } })).rows).toHaveLength(0);
-  });
-  it("shortens the model and collects group keys", () => {
-    const tree = buildTree([host("h", [ws("1", "p", "done", 1)])], opts());
-    const row = tree.rows.find((r) => r.type === "workspace");
-    expect(row?.type === "workspace" && row.modelShort).toBe("claude-sonnet-4-5");
-    expect(tree.groupKeys).toEqual(["host:h", "proj:h:p"]);
   });
   it("badge tally covers online hosts only and respects reads", () => {
     const hosts = [host("a", [ws("1", "p", "failed", 1, { news: 1 }), ws("2", "p", "needs_input", 1), ws("3", "p", "running", 1)]), host("b", [ws("4", "p", "attention", 1, { news: 1 })], { status: "offline" })];

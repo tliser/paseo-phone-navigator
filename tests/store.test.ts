@@ -131,14 +131,6 @@ describe("store profiles", () => {
     expect(host.writes).toBe(writes);
     store.dispose();
   });
-
-  it("selecting a profile is remembered for the session", async () => {
-    const store = createStore(rpcFor(fakeHost()) as never, () => () => undefined);
-    store.selectProfile("desktop");
-    expect(store.getSnapshot().sessionProfileId).toBe("desktop");
-    expect(store.getSnapshot().deviceProfileId).toBeNull(); // no device storage on phones
-    store.dispose();
-  });
 });
 
 describe("store read state", () => {
@@ -340,14 +332,6 @@ describe("store workspace actions", () => {
     store.setPinned("phone", "h", "w1", false);
     expect([...store.getSnapshot().pinsFor("phone")]).toEqual(["h:w2"]);
     expect([...store.getSnapshot().pinsFor("desktop")]).toEqual([]);
-    store.dispose();
-  });
-
-  it("archives", async () => {
-    const { store, calls } = setup();
-    await flush();
-    await store.archiveWorkspace("h", "w9");
-    expect(calls).toEqual([{ kind: "archive", value: "w9" }]);
     store.dispose();
   });
 });

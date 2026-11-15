@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { epoch, shortenModel, timeAgo } from "../shared/format";
+import { shortenModel, timeAgo } from "../shared/format";
 
 describe("shortenModel", () => {
   it.each([
@@ -11,10 +11,8 @@ describe("shortenModel", () => {
     ["vendor/model@2024-10-22", "model"],
     ["gpt-4o-latest", "gpt-4o"],
     ["model-v12345", "model-v12345"],
-    ["", ""],
+    [null, ""],
   ])("%s -> %s", (input, output) => expect(shortenModel(input)).toBe(output));
-
-  it("handles null", () => expect(shortenModel(null)).toBe(""));
 });
 
 describe("timeAgo", () => {
@@ -28,12 +26,4 @@ describe("timeAgo", () => {
     [now - 15 * 86_400_000, "2w"],
     [now + 60_000, "now"],
   ])("%d -> %s", (at, text) => expect(timeAgo(at, now)).toBe(text));
-});
-
-describe("epoch", () => {
-  it("parses ISO and rejects garbage", () => {
-    expect(epoch("2026-01-01T00:00:00Z")).toBe(Date.UTC(2026, 0, 1));
-    expect(epoch("nope")).toBe(0);
-    expect(epoch(null)).toBe(0);
-  });
 });

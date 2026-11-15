@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyOrder, moveRelative, pruneOrder } from "../shared/order";
+import { applyOrder, moveRelative } from "../shared/order";
 
 const byName = (a: string, b: string) => a.localeCompare(b);
 const id = (value: string) => value;
@@ -31,11 +31,5 @@ describe("moveRelative", () => {
   it("keeps hidden items' places when moving among visible ones", () => {
     // Visible: a, c, d (b hidden by a filter). Moving d before c keeps b after a.
     expect(moveRelative(["a", "b", "c", "d"], "d", "c", "before")).toEqual(["a", "b", "d", "c"]);
-  });
-});
-
-describe("pruneOrder", () => {
-  it("keeps only live groups", () => {
-    expect(pruneOrder({ "host:a": ["p"], "proj:a:p": ["w"], "host:gone": ["q"] }, new Set(["host:a", "proj:a:p"]))).toEqual({ "host:a": ["p"], "proj:a:p": ["w"] });
   });
 });

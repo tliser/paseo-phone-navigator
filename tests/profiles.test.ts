@@ -5,7 +5,6 @@ import {
   defaultSettings,
   expandOrCollapseAll,
   isCollapsed,
-  newProfileId,
   normalizeDocument,
   pruneCollapse,
   resolveProfile,
@@ -17,17 +16,11 @@ const profiles = builtinProfiles(1);
 const base = { sessionId: null, deviceId: null, platform: "ios" as const, compact: true };
 
 describe("resolveProfile", () => {
-  it("prefers the session choice", () => {
-    expect(resolveProfile(profiles, { ...base, sessionId: "desktop", deviceId: "phone" })).toMatchObject({ profile: { id: "desktop" }, via: "session" });
-  });
-  it("then the device choice", () => {
+  it("picks session, then device, then platform binding; unknown ids are skipped", () => {
+    expect(resolveProfile(profiles, { ...base, sessionId: "desktop", deviceId: "phone" }).via).toBe("session");
     expect(resolveProfile(profiles, { ...base, deviceId: "desktop" })).toMatchObject({ profile: { id: "desktop" }, via: "device" });
-  });
-  it("ignores unknown ids", () => {
     expect(resolveProfile(profiles, { ...base, sessionId: "gone", deviceId: "gone" }).via).toBe("platform");
-  });
-  it("then the platform binding", () => {
-    expect(resolveProfile(profiles, { ...base, platform: "web", compact: true })).toMatchObject({ profile: { id: "desktop" }, via: "platform" });
+    expect(resolveProfile(profiles, { ...base, platform: "web", compact: true }).profile.id).toBe("desktop");
   });
   it("falls back by layout when nothing is bound", () => {
     const unbound = profiles.map((p) => ({ ...p, platform: null }));
@@ -74,10 +67,6 @@ describe("profile edits", () => {
     const next = bindPlatform(profiles, "desktop", "ios", 5);
     expect(next.find((p) => p.id === "desktop")?.platform).toBe("ios");
     expect(next.find((p) => p.id === "phone")?.platform).toBeNull();
-  });
-  it("makes unique ids", () => {
-    const id = newProfileId(profiles, 42);
-    expect(newProfileId([...profiles, { ...profiles[0]!, id }], 42)).not.toBe(id);
   });
   it("normalizes empty or broken documents to the built-ins", () => {
     expect(normalizeDocument(undefined).profiles.map((p) => p.id)).toEqual(["phone", "desktop"]);

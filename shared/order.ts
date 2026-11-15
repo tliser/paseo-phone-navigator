@@ -27,10 +27,3 @@ export function moveRelative(ids: readonly string[], id: string, targetId: strin
   const index = without.indexOf(targetId) + (place === "after" ? 1 : 0);
   return [...without.slice(0, index), id, ...without.slice(index)];
 }
-
-/** Drops groups whose key no longer matches anything shown, keeping the profile document small. */
-export function pruneOrder(order: OrderMap, liveGroupKeys: ReadonlySet<string>): Record<string, string[]> {
-  const out: Record<string, string[]> = {};
-  for (const [key, ids] of Object.entries(order)) if (liveGroupKeys.has(key)) out[key] = [...ids];
-  return out;
-}

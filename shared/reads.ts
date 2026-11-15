@@ -41,10 +41,3 @@ export function markSeen(reads: ReadMap, keys: readonly string[], now: number): 
     .slice(0, MAX_ENTRIES);
   return Object.fromEntries(kept);
 }
-
-/** Merge two copies (another device saved meanwhile): the later view wins per key. */
-export function mergeReads(a: ReadMap, b: ReadMap): Record<string, number> {
-  const out: Record<string, number> = { ...a };
-  for (const [key, at] of Object.entries(b)) out[key] = Math.max(out[key] ?? 0, at);
-  return out;
-}

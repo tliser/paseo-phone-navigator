@@ -6,22 +6,22 @@ const profile = (id: string, updatedAt: number, name = id): Profile => ({ ...bui
 
 describe("mergeProfileDocs", () => {
   it("takes the newest copy of each profile and keeps every profile", () => {
-    const a = { profiles: [profile("phone", 5, "old"), profile("x", 1)], deleted: {} };
-    const b = { profiles: [profile("phone", 9, "new"), profile("y", 2)], deleted: {} };
+    const a = { profiles: [profile("phone", 5, "old"), profile("x", 1)], deleted: {}, projectColors: {} };
+    const b = { profiles: [profile("phone", 9, "new"), profile("y", 2)], deleted: {}, projectColors: {} };
     const merged = mergeProfileDocs([a, b]);
     expect(merged.profiles.map((p) => `${p.id}:${p.name}`)).toEqual(["phone:new", "x:x", "y:y"]);
     expect(sameDoc(merged, mergeProfileDocs([b, a]))).toBe(false); // order of the list follows the first copy
     expect(mergeProfileDocs([b, a]).profiles.map((p) => p.name).sort()).toEqual(["new", "x", "y"].sort());
   });
   it("a deletion beats older edits but not newer ones", () => {
-    const a = { profiles: [profile("x", 3), profile("phone", 1)], deleted: {} };
-    const b = { profiles: [profile("phone", 1)], deleted: { x: 5 } };
+    const a = { profiles: [profile("x", 3), profile("phone", 1)], deleted: {}, projectColors: {} };
+    const b = { profiles: [profile("phone", 1)], deleted: { x: 5 }, projectColors: {} };
     expect(mergeProfileDocs([a, b]).profiles.map((p) => p.id)).toEqual(["phone"]);
-    const edited = { profiles: [profile("x", 7), profile("phone", 1)], deleted: {} };
+    const edited = { profiles: [profile("x", 7), profile("phone", 1)], deleted: {}, projectColors: {} };
     expect(mergeProfileDocs([edited, b]).profiles.map((p) => p.id)).toEqual(["x", "phone"]);
   });
   it("is idempotent, and a fresh host's built-ins lose to edited ones", () => {
-    const edited = { profiles: [profile("phone", 9, "Mine")], deleted: { desktop: 4 } };
+    const edited = { profiles: [profile("phone", 9, "Mine")], deleted: { desktop: 4 }, projectColors: {} };
     const fresh = normalizeDocument(undefined);
     const once = mergeProfileDocs([fresh, edited]);
     expect(once.profiles.map((p) => p.name)).toEqual(["Mine"]);

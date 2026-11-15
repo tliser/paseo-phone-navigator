@@ -77,7 +77,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
     <SettingsSwitch key={key ?? label} label={label} hint={hint} value={value} onValueChange={set} disabled={!snapshot.profilesReady} />
   );
 
-  const preview = <SettingsPreview theme={theme} profile={edit} snapshot={snapshot} maxRows={layout.compact ? 4 : 8} />;
+  const preview = <SettingsPreview theme={theme} profile={edit} maxRows={layout.compact ? 5 : 10} />;
   return (
     <View style={{ flex: 1, backgroundColor: c.surface0 }}>
     {/* Phones: the preview stays above the scrolling settings so each change shows at once. */}
@@ -100,7 +100,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
       </SettingsSection>
 
       {layout.compact ? null : (
-        <SettingsSection title="Preview" info="How the navigator looks with this profile: its density, default filter, order and the fields rows show.">
+        <SettingsSection title="Preview" info="Sample workspaces drawn with this profile: its density, default filter and the fields rows show.">
           {preview}
         </SettingsSection>
       )}

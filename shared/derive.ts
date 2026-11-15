@@ -92,15 +92,20 @@ function agentInput(agent: AgentLike, index: number): AgentInput {
         ? "failed"
         : agent.requiresAttention && agent.attentionReason === "finished"
           ? "finished"
-          : "idle";
-  return { id: agent.id, title: agent.title?.trim() || `Agent ${index + 1}`, model: agent.model, status, activityAt: agentActivity(agent) };
+          : agent.status === "closed"
+            ? "closed"
+            : "idle";
+  return { id: agent.id, title: agent.title?.trim() || `Agent ${index + 1}`, model: agent.model, status, activityAt: agentActivity(agent), sub: isSubAgent(agent) };
 }
 
-/** Main agents per workspace, most recently active first. */
+/**
+ * Every agent (chat tab) of a workspace, sub-agents and closed ones included, as Paseo lists them;
+ * internal and archived agents are left out. Open ones first, then the most recently active.
+ */
 export function agentsByWorkspace(agents: readonly AgentLike[]): Map<string, AgentInput[]> {
   const grouped = new Map<string, AgentLike[]>();
   for (const agent of agents) {
-    if (!agent.workspaceId || !isListedAgent(agent) || agent.status === "closed") continue;
+    if (!agent.workspaceId || agent.archivedAt || agent.internal) continue;
     grouped.set(agent.workspaceId, [...(grouped.get(agent.workspaceId) ?? []), agent]);
   }
   const result = new Map<string, AgentInput[]>();
@@ -108,7 +113,8 @@ export function agentsByWorkspace(agents: readonly AgentLike[]): Map<string, Age
     // Numbered by age so an untitled agent keeps its name; listed newest first.
     const byAge = [...list].sort((a, b) => epoch(a.createdAt ?? a.updatedAt) - epoch(b.createdAt ?? b.updatedAt));
     const inputs = list.map((agent) => agentInput(agent, byAge.indexOf(agent)));
-    result.set(workspaceId, inputs.sort((a, b) => b.activityAt - a.activityAt || a.id.localeCompare(b.id)));
+    const closed = (agent: AgentInput) => Number(agent.status === "closed");
+    result.set(workspaceId, inputs.sort((a, b) => closed(a) - closed(b) || b.activityAt - a.activityAt || a.id.localeCompare(b.id)));
   }
   return result;
 }

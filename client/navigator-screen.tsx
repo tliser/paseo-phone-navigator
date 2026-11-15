@@ -580,21 +580,25 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
             ? { icon: "CircleX", color: c.statusDanger, label: "failed" }
             : agent.status === "finished"
               ? { icon: "CircleDot", color: UNREAD_BLUE, label: "finished" }
-              : { icon: "Bot", color: c.foregroundMuted, label: "idle" };
+              : agent.status === "closed"
+                ? { icon: "CircleSlash", color: c.foregroundMuted, label: "closed" }
+                : { icon: "Bot", color: c.foregroundMuted, label: "idle" };
     const ago = timeAgo(agent.activityAt, now);
     const meta = [row.modelShort, ago].filter(Boolean).join(" · ");
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Agent ${agent.title}, ${look.label}${meta ? `, ${meta}` : ""}`}
+        accessibilityLabel={`${agent.sub ? "Sub-agent" : "Agent"} ${agent.title}, ${look.label}${meta ? `, ${meta}` : ""}`}
         disabled={!canOpen}
         onPress={() => onOpenAgent?.(row)}
         style={({ pressed }) => ({ height: agentHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 29, paddingRight: 12, backgroundColor: pressed ? c.surface1 : c.surface0 })}
       >
         {/* Thread line from the workspace's icon down to its agents. */}
         <View style={{ width: 1, alignSelf: "stretch", backgroundColor: c.border, marginRight: 6 }} />
+        {/* Sub-agents are marked with a branch arrow. */}
+        {agent.sub ? <Icon name="CornerDownRight" size={12} color={c.foregroundMuted} /> : null}
         <Icon name={look.icon} size={14} color={look.color} />
-        <Text numberOfLines={1} style={{ flex: 1, color: agent.status === "idle" ? c.foregroundMuted : c.foreground, fontSize: fs(comfortable ? 14 : 13), fontWeight: agent.status === "asking" || agent.status === "finished" || agent.status === "failed" ? "600" : "400" }}>{agent.title}</Text>
+        <Text numberOfLines={1} style={{ flex: 1, opacity: agent.status === "closed" ? 0.6 : 1, color: agent.status === "idle" || agent.status === "closed" ? c.foregroundMuted : c.foreground, fontSize: fs(comfortable ? 14 : 13), fontWeight: agent.status === "asking" || agent.status === "finished" || agent.status === "failed" ? "600" : "400" }}>{agent.title}</Text>
         {meta ? <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: "45%", color: c.foregroundMuted, fontSize: fs(12) }}>{meta}</Text> : null}
       </Pressable>
     );

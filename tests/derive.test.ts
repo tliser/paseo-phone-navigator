@@ -73,7 +73,7 @@ describe("asking vs unread", () => {
 });
 
 describe("agents of a workspace", () => {
-  it("lists main agents newest first with their status; untitled ones are numbered by age", () => {
+  it("lists agents (sub-agents marked) newest first with their status; untitled ones are numbered by age", () => {
     const [w] = deriveWorkspaces(
       [workspace("x", { status: "running" })],
       [
@@ -82,6 +82,18 @@ describe("agents of a workspace", () => {
         agent("sub", "x", "2026-01-04T00:00:00Z", { labels: { "paseo.parent-agent-id": "new" } }),
       ],
     );
-    expect(w!.agents!.map((a) => `${a.title}:${a.status}`)).toEqual(["Review:asking", "Agent 1:finished"]);
+    expect(w!.agents!.map((a) => `${a.title}:${a.status}:${a.sub}`)).toEqual(["Agent 3:idle:true", "Review:asking:false", "Agent 1:finished:false"]);
+  });
+  it("closed agents are listed after open ones; archived and internal ones are left out", () => {
+    const [w] = deriveWorkspaces(
+      [workspace("x", { status: "done" })],
+      [
+        { ...agent("c", "x", "2026-01-05T00:00:00Z"), status: "closed", title: "Old chat" },
+        { ...agent("o", "x", "2026-01-01T00:00:00Z"), title: "Open chat" },
+        { ...agent("a", "x", "2026-01-06T00:00:00Z"), archivedAt: "2026-01-07T00:00:00Z" },
+        { ...agent("i", "x", "2026-01-06T00:00:00Z"), internal: true },
+      ],
+    );
+    expect(w!.agents!.map((a) => `${a.title}:${a.status}`)).toEqual(["Open chat:idle", "Old chat:closed"]);
   });
 });

@@ -21,8 +21,10 @@ export interface AgentInput {
   id: string;
   title: string;
   model: string | null;
-  /** asking: waits for you; running; finished/failed: news since its last turn (Paseo's flag); idle. */
-  status: "asking" | "running" | "finished" | "failed" | "idle";
+  /** asking: waits for you; running; finished/failed: news since its last turn (Paseo's flag); idle; closed: stopped, tab still open. */
+  status: "asking" | "running" | "finished" | "failed" | "idle" | "closed";
+  /** Started by another agent (Paseo label paseo.parent-agent-id). */
+  sub: boolean;
   /** Last activity, epoch ms. */
   activityAt: number;
 }
@@ -48,7 +50,7 @@ export interface WorkspaceInput {
   activityAt: number;
   /** Model of the most recently active agent, as the daemon reports it. */
   model: string | null;
-  /** Main agents (no sub-agents, internal or archived ones), most recently active first. */
+  /** Agents of the workspace (internal and archived ones left out): open before closed, then most recently active first. */
   agents?: readonly AgentInput[];
 }
 

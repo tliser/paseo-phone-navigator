@@ -219,8 +219,8 @@ describe("pins", () => {
 
 describe("agent rows", () => {
   const agents = [
-    { id: "a1", title: "Plan", model: "anthropic/claude-opus-4-1", status: "asking" as const, activityAt: 2 },
-    { id: "a2", title: "Fix", model: null, status: "idle" as const, activityAt: 1 },
+    { id: "a1", title: "Plan", model: "anthropic/claude-opus-4-1", status: "asking" as const, activityAt: 2, sub: false },
+    { id: "a2", title: "Fix", model: null, status: "idle" as const, activityAt: 1, sub: false },
   ];
   const hosts = () => [host("h", [ws("a", "p", "running", 1, { agents }), ws("b", "p", "done", 5, { agents: [agents[0]!] })])];
   it("are folded by default; a workspace with two or more agents offers them", () => {

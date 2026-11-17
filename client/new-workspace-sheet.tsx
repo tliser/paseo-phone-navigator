@@ -1,7 +1,7 @@
 // A draft for a new workspace, like Paseo's own "New workspace" screen: pick what to launch, then
 // create. Nothing exists on the host until Create is tapped, so closing the sheet discards the draft.
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/ui";
+import { Icon, Modal, ScrollView, TextInput } from "@getpaseo/plugin/client/ui";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Switch, Text, View } from "react-native";
 import type { ProjectRow } from "../shared/tree";
@@ -136,7 +136,10 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
 
   return (
     <Modal title={`New workspace · ${project.name}`} open onOpenChange={(open) => !open && !busy && onClose()}>
-      <Modal.Content>
+      {/* Own scroll area (the host's sheet-aware ScrollView) so long forms scroll on phones; the buttons stay pinned below. */}
+      <Modal.Content scrollable={false} contentContainerStyle={{ padding: 0, gap: 0 }}>
+        <View style={{ flex: 1, minHeight: 0 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
         {isGit ? (
           <View>
             <Text style={label}>Where</Text>
@@ -237,8 +240,9 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
         ) : null}
 
         {error ? <Text style={{ color: c.statusDanger }}>{`Could not create the workspace: ${error}`}</Text> : null}
+        </ScrollView>
 
-        <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
+        <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 24, paddingVertical: 12, borderTopWidth: 1, borderTopColor: c.border }}>
           <Pressable accessibilityRole="button" disabled={busy} onPress={onClose} style={{ flex: 1, minHeight: 44, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: c.surface2, opacity: busy ? 0.5 : 1 }}>
             <Text style={{ color: c.foreground, fontWeight: "500" }}>Cancel</Text>
           </Pressable>
@@ -251,6 +255,7 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
           >
             <Text style={{ color: c.accentForeground, fontWeight: "600" }}>{busy ? "Creating…" : "Create"}</Text>
           </Pressable>
+        </View>
         </View>
       </Modal.Content>
     </Modal>

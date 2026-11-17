@@ -66,6 +66,16 @@ describe("asking vs unread", () => {
     const [b] = deriveWorkspaces([workspace("y", { status: "needs_input" })], []);
     expect(b?.needsYou).toBe(true);
   });
+  it("an agent that stopped with an error flags the workspace and the agent; an archived one does not", () => {
+    const [w] = deriveWorkspaces(
+      [workspace("x", { status: "done" })],
+      [agent("m", "x", "2026-01-01T00:00:00Z", { status: "error" }), agent("old", "x", "2026-01-01T00:00:00Z", { status: "error", archivedAt: "2026-01-02T00:00:00Z" })],
+    );
+    expect(w?.agentError).toBe(true);
+    expect(w?.agents?.map((a) => a.status)).toEqual(["error"]);
+    const [quiet] = deriveWorkspaces([workspace("y")], [agent("a", "y", "2026-01-01T00:00:00Z", { status: "error", archivedAt: "2026-01-02T00:00:00Z" })]);
+    expect(quiet?.agentError).toBe(false);
+  });
   it("a failed workspace is unread", () => {
     const [w] = deriveWorkspaces([workspace("f", { status: "failed", statusEnteredAt: "2026-01-02T00:00:00Z" })], []);
     expect(w).toMatchObject({ needsYou: false, unreadAt: Date.parse("2026-01-02T00:00:00Z") });

@@ -4,9 +4,9 @@ import { FlatList, Icon, TextInput } from "@getpaseo/plugin/client/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Animated, Easing, Platform, Pressable, Text, View, type GestureResponderHandlers } from "react-native";
 import { timeAgo } from "../shared/format";
-import { expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
+import { expandForAttention, expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
 import { blockEnd, dragId, dragShift, heightsFor, rowOffsets, type DropTarget } from "../shared/drag";
-import { buildTree, type AgentRow, type ProjectRow, type TreeRow, type WorkspaceRow } from "../shared/tree";
+import { buildTree, workspaceState, type AgentRow, type ProjectRow, type TreeRow, type WorkspaceRow } from "../shared/tree";
 import { FILTERS, type Filter } from "../shared/types";
 import { GLIDE_MS, useDragController } from "./drag-controller";
 import { MONO_FONT, useFontScale } from "./font-scale";
@@ -14,7 +14,7 @@ import { NamesCard, type Peek } from "./names-card";
 import { NewWorkspaceSheet } from "./new-workspace-sheet";
 import { ProfileSheet } from "./profile-sheet";
 import { useActiveProfile, useNavigatorStore } from "./runtime";
-import { RUNNING_VIOLET, StateIcon, TallyBadge, UNREAD_BLUE } from "./visual";
+import { AGENT_ERROR_ICON, RUNNING_VIOLET, StateIcon, TallyBadge, UNREAD_BLUE } from "./visual";
 import { WorkspaceMenu } from "./workspace-menu";
 import { ColorPicker } from "./color-picker";
 import { projectColorHex, projectColorKey } from "../shared/colors";
@@ -24,8 +24,8 @@ const FILTER_LABEL: Record<Filter, string> = { all: "All", recent: "Recent", act
 /** Filter picked in this session per profile; starts at the profile's default. */
 const sessionFilters = new Map<string, Filter>();
 
-export function NavigatorScreen(props: PluginScreenProps & { openSettings(): void }) {
-  const { theme, layout, navigation, openSettings } = props;
+export function NavigatorScreen(props: PluginScreenProps & { openSettings(): void; activeWorkspace?: { serverId: string; workspaceId: string } | null }) {
+  const { theme, layout, navigation, openSettings, activeWorkspace } = props;
   const { store, snapshot } = useNavigatorStore();
   const profile = useActiveProfile(snapshot, layout.platform, layout.compact);
   const settings = profile.settings;
@@ -68,6 +68,27 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
   }, [refreshing, loading]);
 
   const toggle = useCallback((key: string) => store.setCollapse(profile.id, toggleCollapsed(collapse, key, settings)), [store, profile.id, collapse, settings]);
+
+  // A workspace that starts asking you (or whose agent errors) opens its folded host and project.
+  // The first pass only records what already needs you, so opening the screen keeps your folding.
+  const needingYou = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const now = new Map<string, { serverId: string; projectId: string }>();
+    for (const host of snapshot.hosts) {
+      if (host.status !== "online") continue;
+      for (const workspace of host.workspaces) {
+        const state = workspaceState(workspace, host.serverId, snapshot.reads);
+        if (state === "needs_you" || state === "error") now.set(`${host.serverId}:${workspace.id}`, { serverId: host.serverId, projectId: workspace.projectId });
+      }
+    }
+    const seen = needingYou.current;
+    needingYou.current = new Set(now.keys());
+    if (!seen) return;
+    const fresh = [...now].filter(([key]) => !seen.has(key)).map(([, where]) => where);
+    if (!fresh.length) return;
+    const next = expandForAttention(collapse, fresh, settings);
+    if (next !== collapse) store.setCollapse(profile.id, next);
+  }, [snapshot.hosts, snapshot.reads, collapse, settings, store, profile.id]);
   const open = useCallback(
     (row: WorkspaceRow) => {
       if (!navigation) return;
@@ -186,6 +207,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
           onPickColor={setColorFor}
           canOpen={!!navigation}
           dragHandle={canArrange && dragId(item) ? drag.handleFor(index) : undefined}
+          active={!!activeWorkspace && item.type === "workspace" && item.serverId === activeWorkspace.serverId && item.workspace.id === activeWorkspace.workspaceId}
           lifted={dragging?.index === index ? dragging.dy : null}
           onPeek={canPeek ? (show) => peekAt(item, index, show, touch ? 0 : 600) : undefined}
         />
@@ -203,6 +225,11 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
       action={{ label: "Show all", onPress: () => { setFilter("all"); closeSearch(); } }}
     />
   ) : null;
+
+  // Phones: the new-workspace form replaces the list as a full page (scrolls like the list does).
+  if (draftFor && layout.compact) {
+    return <NewWorkspaceSheet theme={theme} project={draftFor} compact onClose={() => setDraftFor(null)} onCreated={(id) => created(draftFor.serverId, id)} />;
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface0 }}>
@@ -332,7 +359,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
           onClose={() => setColorFor(null)}
         />
       ) : null}
-      {draftFor ? <NewWorkspaceSheet theme={theme} project={draftFor} onClose={() => setDraftFor(null)} onCreated={(id) => created(draftFor.serverId, id)} /> : null}
+      {draftFor && !layout.compact ? <NewWorkspaceSheet theme={theme} project={draftFor} compact={false} onClose={() => setDraftFor(null)} onCreated={(id) => created(draftFor.serverId, id)} /> : null}
       {menuFor ? <WorkspaceMenu theme={theme} row={menuFor} profileId={profile.id} onClose={() => setMenuFor(null)} /> : null}
       {sheet ? <ProfileSheet theme={theme} platform={layout.platform} active={profile} onClose={() => setSheet(false)} onEdit={() => { setSheet(false); openSettings(); }} /> : null}
     </View>
@@ -431,6 +458,8 @@ interface RowProps {
   dragHandle?: GestureResponderHandlers;
   /** Show (true) or hide the full-names card for this row: hover on desktop, long-press on phones. */
   onPeek?: (show: boolean) => void;
+  /** The workspace open in the app (sidebar view): drawn highlighted. */
+  active?: boolean;
 }
 
 function Grip({ theme, handlers, height, label, wide }: { theme: PluginTheme; handlers: GestureResponderHandlers; height: number; label: string; wide: boolean }) {
@@ -452,7 +481,7 @@ function hoverProps(onPeek: ((show: boolean) => void) | undefined, touch: boolea
   return { onHoverIn: () => onPeek(true), onHoverOut: () => onPeek(false) };
 }
 
-export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenAgent, onMenu, onCreate, projectColors, onPickColor, lifted, dragHandle, onPeek }: RowProps) {
+export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenAgent, onMenu, onCreate, projectColors, onPickColor, lifted, dragHandle, onPeek, active = false }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null
@@ -576,8 +605,8 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         ? { icon: "MessageCircleQuestion", color: c.statusWarning, label: "asking you" }
         : agent.status === "running"
           ? { icon: "LoaderCircle", color: RUNNING_VIOLET, label: "running" }
-          : agent.status === "failed"
-            ? { icon: "CircleX", color: c.statusDanger, label: "failed" }
+          : agent.status === "error"
+            ? { icon: AGENT_ERROR_ICON, color: c.statusDanger, label: "error" }
             : agent.status === "finished"
               ? { icon: "CircleDot", color: UNREAD_BLUE, label: "finished" }
               : agent.status === "closed"
@@ -598,7 +627,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         {/* Sub-agents are marked with a branch arrow. */}
         {agent.sub ? <Icon name="CornerDownRight" size={12} color={c.foregroundMuted} /> : null}
         <Icon name={look.icon} size={14} color={look.color} />
-        <Text numberOfLines={1} style={{ flex: 1, opacity: agent.status === "closed" ? 0.6 : 1, color: agent.status === "idle" || agent.status === "closed" ? c.foregroundMuted : c.foreground, fontSize: fs(comfortable ? 14 : 13), fontWeight: agent.status === "asking" || agent.status === "finished" || agent.status === "failed" ? "600" : "400" }}>{agent.title}</Text>
+        <Text numberOfLines={1} style={{ flex: 1, opacity: agent.status === "closed" ? 0.6 : 1, color: agent.status === "idle" || agent.status === "closed" ? c.foregroundMuted : c.foreground, fontSize: fs(comfortable ? 14 : 13), fontWeight: agent.status === "asking" || agent.status === "finished" || agent.status === "error" ? "600" : "400" }}>{agent.title}</Text>
         {meta ? <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: "45%", color: c.foregroundMuted, fontSize: fs(12) }}>{meta}</Text> : null}
       </Pressable>
     );
@@ -627,10 +656,11 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
   }
   const hasDiff = show.diff && (workspace.additions > 0 || workspace.deletions > 0);
   return (
-    <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", backgroundColor: c.surface0, ...liftStyle }}>
+    <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", backgroundColor: active ? c.surface2 : c.surface0, ...liftStyle }}>
+      {active ? <View style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, backgroundColor: c.accent }} /> : null}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${row.pinned ? "Pinned, " : ""}${workspace.title}, ${row.state === "needs_you" ? "asking you" : row.state === "unread" ? "unread" : row.state}, ${[branch, ...parts].filter(Boolean).join(", ")}`}
+        accessibilityLabel={`${row.pinned ? "Pinned, " : ""}${workspace.title}, ${row.state === "needs_you" ? "asking you" : row.state === "error" ? "agent error" : row.state === "unread" ? "unread" : row.state}, ${[branch, ...parts].filter(Boolean).join(", ")}`}
         accessibilityHint={onPeek && touch ? "Long press to see full names" : undefined}
         disabled={!canOpen && !onPeek}
         onPress={() => canOpen && onOpen(row)}
@@ -647,7 +677,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
           ) : null}
         </View>
         <View style={{ flex: 1, minWidth: 0, gap: comfortable ? 4 : 2 }}>
-          <Text numberOfLines={1} style={{ color: c.foreground, fontSize, fontWeight: row.state === "unread" || row.state === "needs_you" ? "700" : "400" }}>{workspace.title}</Text>
+          <Text numberOfLines={1} style={{ color: c.foreground, fontSize, fontWeight: row.state === "unread" || row.state === "needs_you" || row.state === "error" ? "700" : "400" }}>{workspace.title}</Text>
           {parts.length || branch || hasDiff ? (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               {/* Meta truncates first; the diff keeps its width at the right end. */}

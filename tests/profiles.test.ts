@@ -3,6 +3,7 @@ import {
   bindPlatform,
   builtinProfiles,
   defaultSettings,
+  expandForAttention,
   expandOrCollapseAll,
   isCollapsed,
   normalizeDocument,
@@ -75,5 +76,17 @@ describe("profile edits", () => {
     const doc = normalizeDocument({ profiles: [{ id: "a", name: "A" }, { id: "a", name: "dup" }] });
     expect(doc.profiles).toHaveLength(1);
     expect(doc.profiles[0]?.settings.density).toBe("compact");
+  });
+});
+
+describe("expandForAttention", () => {
+  const settings = defaultSettings(); // hosts expanded, projects collapsed
+  it("opens the folded host and project of a workspace that newly needs you, and only those", () => {
+    const map = { "host:a": true, "host:b": true };
+    expect(expandForAttention(map, [{ serverId: "a", projectId: "p" }], settings)).toEqual({ "host:b": true, "proj:a:p": false });
+  });
+  it("returns the same map when everything is already open", () => {
+    const map = { "proj:a:p": false };
+    expect(expandForAttention(map, [{ serverId: "a", projectId: "p" }], settings)).toBe(map);
   });
 });

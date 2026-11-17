@@ -214,3 +214,22 @@ export function bindPlatform(
     return profile;
   });
 }
+
+/**
+ * Opens the host and project of every workspace in `newlyNeedsYou` ("serverId:projectId" pairs), so
+ * something that starts asking you is never hidden in a folded group. Returns the same map when
+ * nothing changes. Folding a group again later sticks until the next new request.
+ */
+export function expandForAttention(
+  map: CollapseMap,
+  newlyNeedsYou: readonly { serverId: string; projectId: string }[],
+  settings: ProfileSettings,
+): CollapseMap {
+  let next: CollapseMap = map;
+  for (const { serverId, projectId } of newlyNeedsYou) {
+    for (const key of [hostKey(serverId), projectKey(serverId, projectId)]) {
+      if (isCollapsed(next, key, settings)) next = setCollapsed(next, key, false, settings);
+    }
+  }
+  return next;
+}

@@ -13,7 +13,7 @@ export interface Peek {
   rowTop: number;
 }
 
-const STATE_LABEL = { needs_you: "Asking you", unread: "Unread", running: "Running", read: "Read" } as const;
+const STATE_LABEL = { needs_you: "Asking you", error: "Agent error", unread: "Unread", running: "Running", read: "Read" } as const;
 const CARD_HEIGHT_GUESS = 150;
 
 export function NamesCard({ theme, peek, scale, now, areaHeight }: { theme: PluginTheme; peek: Peek; scale: number; now: number; areaHeight: number }) {

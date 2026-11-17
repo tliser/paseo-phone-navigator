@@ -233,3 +233,15 @@ describe("agent rows", () => {
     expect(wsIds(tree.rows)).toEqual(["a", "b"]);
   });
 });
+
+describe("agent errors", () => {
+  it("an errored agent needs you: own state, counts as asking, shows in Inbox and Active", () => {
+    const w = ws("e", "p", "done", 1, { agentError: true });
+    expect(workspaceState(w, "h", {})).toBe("error");
+    expect(passesFilter(item(w), "inbox", settings, NOW)).toBe(true);
+    expect(passesFilter(item(w), "active", settings, NOW)).toBe(true);
+    expect(tallyHosts([host("h", [w])], {})).toEqual({ needsYou: 1, unread: 0 });
+    // A real question still wins over the error.
+    expect(workspaceState(ws("q", "p", "needs_input", 1, { agentError: true }), "h", {})).toBe("needs_you");
+  });
+});

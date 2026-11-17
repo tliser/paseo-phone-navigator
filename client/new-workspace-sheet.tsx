@@ -1,9 +1,9 @@
 // A draft for a new workspace, like Paseo's own "New workspace" screen: pick what to launch, then
 // create. Nothing exists on the host until Create is tapped, so closing the sheet discards the draft.
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, Modal, ScrollView, TextInput } from "@getpaseo/plugin/client/ui";
+import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/ui";
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, Switch, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import type { ProjectRow } from "../shared/tree";
 import { useNavigatorStore } from "./runtime";
 import type { ProviderChoice, ProviderListState, ProviderToggle } from "./store";
@@ -14,7 +14,7 @@ const lastChoice = new Map<
   { provider: string; model: string; modeId: string | null; launch: "agent" | "terminal"; isolation: "worktree" | "local"; toggles: Record<string, boolean> }
 >();
 
-export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { theme: PluginTheme; project: ProjectRow; onClose(): void; onCreated(workspaceId: string): void }) {
+export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated }: { theme: PluginTheme; project: ProjectRow; compact: boolean; onClose(): void; onCreated(workspaceId: string): void }) {
   const { store } = useNavigatorStore();
   const c = theme.colors;
   const remembered = lastChoice.get(project.serverId);
@@ -134,12 +134,26 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
     </View>
   );
 
-  return (
-    <Modal title={`New workspace · ${project.name}`} open onOpenChange={(open) => !open && !busy && onClose()}>
-      {/* Own scroll area (the host's sheet-aware ScrollView) so long forms scroll on phones; the buttons stay pinned below. */}
-      <Modal.Content scrollable={false} contentContainerStyle={{ padding: 0, gap: 0 }}>
-        <View style={{ flex: 1, minHeight: 0 }}>
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
+  const actions = (
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={onClose} style={{ flex: 1, minHeight: 44, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: c.surface2, opacity: busy ? 0.5 : 1 }}>
+            <Text style={{ color: c.foreground, fontWeight: "500" }}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canCreate, busy }}
+            disabled={!canCreate}
+            onPress={create}
+            style={{ flex: 1, minHeight: 44, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: c.accent, opacity: canCreate ? 1 : 0.5 }}
+          >
+            <Text style={{ color: c.accentForeground, fontWeight: "600" }}>{busy ? "Creating…" : "Create"}</Text>
+          </Pressable>
+        </View>
+  );
+
+  const title = `New workspace · ${project.name}`;
+  const form = (
+    <>
         {isGit ? (
           <View>
             <Text style={label}>Where</Text>
@@ -240,24 +254,34 @@ export function NewWorkspaceSheet({ theme, project, onClose, onCreated }: { them
         ) : null}
 
         {error ? <Text style={{ color: c.statusDanger }}>{`Could not create the workspace: ${error}`}</Text> : null}
-        </ScrollView>
+    </>
+  );
 
-        <View style={{ flexDirection: "row", gap: 8, paddingHorizontal: 24, paddingVertical: 12, borderTopWidth: 1, borderTopColor: c.border }}>
-          <Pressable accessibilityRole="button" disabled={busy} onPress={onClose} style={{ flex: 1, minHeight: 44, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: c.surface2, opacity: busy ? 0.5 : 1 }}>
-            <Text style={{ color: c.foreground, fontWeight: "500" }}>Cancel</Text>
+  // Phones: a full page inside the navigator screen (a bottom sheet swallowed the scroll gestures there).
+  // Desktop: a dialog that sizes to its content and scrolls by itself.
+  if (compact) {
+    return (
+      <View style={{ flex: 1, backgroundColor: c.surface0 }}>
+        <View style={{ height: 44, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: c.border }}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" disabled={busy} onPress={onClose} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+            <Icon name="ChevronLeft" size={20} color={c.foreground} />
           </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !canCreate, busy }}
-            disabled={!canCreate}
-            onPress={create}
-            style={{ flex: 1, minHeight: 44, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: c.accent, opacity: canCreate ? 1 : 0.5 }}
-          >
-            <Text style={{ color: c.accentForeground, fontWeight: "600" }}>{busy ? "Creating…" : "Create"}</Text>
-          </Pressable>
+          <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize: 16, fontWeight: "600" }}>{title}</Text>
         </View>
-        </View>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
+          {form}
+        </ScrollView>
+        <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: c.border }}>{actions}</View>
+      </View>
+    );
+  }
+  return (
+    <Modal title={title} open onOpenChange={(open) => !open && !busy && onClose()}>
+      <Modal.Content>
+        {form}
+        <View style={{ marginTop: 4 }}>{actions}</View>
       </Modal.Content>
     </Modal>
   );
 }
+

@@ -119,17 +119,18 @@ export interface TreeOptions {
   pins?: ReadonlySet<string>;
 }
 
-/** The state a row shows: a real prompt beats running beats unread news. */
+/** The state a row shows: a real prompt, then an agent error, beat running beats unread news. */
 export function workspaceState(workspace: WorkspaceInput, serverId: string, reads: ReadMap): WorkspaceState {
   if (workspace.needsYou) return "needs_you";
+  if (workspace.agentError) return "error";
   if (workspace.status === "running") return "running";
   if (isUnread(reads, serverId, workspace.id, workspace.unreadAt)) return "unread";
   return "read";
 }
 
-/** needs you, then unread, then running, then the rest. */
+/** needs you (asking or errored), then unread, then running, then the rest. */
 function stateRank(state: WorkspaceState): number {
-  return state === "needs_you" ? 0 : state === "unread" ? 1 : state === "running" ? 2 : 3;
+  return state === "needs_you" || state === "error" ? 0 : state === "unread" ? 1 : state === "running" ? 2 : 3;
 }
 
 interface Ranked {
@@ -155,7 +156,7 @@ export function passesFilter(item: Ranked, filter: Filter, settings: ProfileSett
   }
   if (filter === "recent") return state !== "read" || (!!workspace.activityAt && now - workspace.activityAt <= settings.recentDays * DAY_MS);
   if (filter === "active") return state !== "read";
-  if (filter === "inbox") return state === "needs_you" || state === "unread";
+  if (filter === "inbox") return state === "needs_you" || state === "error" || state === "unread";
   return true;
 }
 
@@ -187,7 +188,7 @@ function orderHosts(hosts: readonly HostInput[], order: readonly string[] | unde
 }
 
 function addTally(tally: Tally, state: WorkspaceState): void {
-  if (state === "needs_you") tally.needsYou++;
+  if (state === "needs_you" || state === "error") tally.needsYou++;
   else if (state === "unread") tally.unread++;
 }
 

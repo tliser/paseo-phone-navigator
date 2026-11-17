@@ -57,6 +57,12 @@ function isListedWorkspace(workspace: WorkspaceLike): boolean {
   return !workspace.background && !workspace.internal && !workspace.archivingAt;
 }
 
+/** The agent stopped with an error (Paseo: status "error", or attention reason "error"). Archived ones don't count. */
+function agentErrored(agent: AgentLike): boolean {
+  if (agent.archivedAt) return false;
+  return agent.status === "error" || (agent.requiresAttention === true && agent.attentionReason === "error");
+}
+
 /** A real prompt: a permission request is waiting. Sub-agents count, since they block their parent. */
 function agentNeedsYou(agent: AgentLike): boolean {
   if (agent.archivedAt || agent.status === "closed") return false;
@@ -88,8 +94,8 @@ function agentInput(agent: AgentLike, index: number): AgentInput {
     ? "asking"
     : agent.status === "running" || agent.status === "initializing"
       ? "running"
-      : agent.status === "error" || (agent.requiresAttention && agent.attentionReason === "error")
-        ? "failed"
+      : agentErrored(agent)
+        ? "error"
         : agent.requiresAttention && agent.attentionReason === "finished"
           ? "finished"
           : agent.status === "closed"
@@ -123,11 +129,13 @@ export function deriveWorkspaces(workspaces: readonly WorkspaceLike[], agents: r
   const latest = latestAgentByWorkspace(agents);
   const agentLists = agentsByWorkspace(agents);
   const asking = new Set<string>();
+  const errored = new Set<string>();
   /** Latest finished/error flag of a main agent per workspace. */
   const finishedAt = new Map<string, number>();
   for (const agent of agents) {
     if (!agent.workspaceId) continue;
     if (agentNeedsYou(agent)) asking.add(agent.workspaceId);
+    if (agentErrored(agent)) errored.add(agent.workspaceId);
     if (isListedAgent(agent) && agent.requiresAttention && (agent.attentionReason === "finished" || agent.attentionReason === "error")) {
       const at = epoch(agent.attentionTimestamp) || epoch(agent.updatedAt);
       finishedAt.set(agent.workspaceId, Math.max(finishedAt.get(agent.workspaceId) ?? 0, at));
@@ -156,6 +164,7 @@ export function deriveWorkspaces(workspaces: readonly WorkspaceLike[], agents: r
       title: workspace.title?.trim() || workspace.name,
       status: workspace.status,
       needsYou,
+      agentError: errored.has(workspace.id),
       unreadAt,
       branch: workspace.gitRuntime?.currentBranch ?? null,
       additions: workspace.diffStat?.additions ?? 0,

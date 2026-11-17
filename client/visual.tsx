@@ -5,6 +5,8 @@ import type { Tally } from "../shared/tree";
 import type { WorkspaceState, WorkspaceStatus } from "../shared/types";
 
 export const UNREAD_BLUE = "#60A5FA";
+/** An agent stopped with a model or provider error. */
+export const AGENT_ERROR_ICON = "ServerCrash";
 /** Distinct from unread blue so running and unread never read as the same state. */
 export const RUNNING_VIOLET = "#A78BFA";
 /** Dark text on amber/blue badge fills; white fails WCAG contrast there. */
@@ -13,6 +15,8 @@ const BADGE_TEXT = "#0B1220";
 /** Icon per row state. Only "needs you" uses the warning colour. */
 export function stateLook(theme: PluginTheme, state: WorkspaceState, status: WorkspaceStatus): { icon: string; color: string; label: string } {
   if (state === "needs_you") return { icon: "MessageCircleQuestion", color: theme.colors.statusWarning, label: "Asking you" };
+  // Its own icon: the agent itself broke (model or provider error), not just a failed turn.
+  if (state === "error") return { icon: AGENT_ERROR_ICON, color: theme.colors.statusDanger, label: "Agent error" };
   if (state === "running") return { icon: "LoaderCircle", color: RUNNING_VIOLET, label: "Running" };
   if (state === "unread") {
     return status === "failed"

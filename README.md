@@ -10,16 +10,18 @@ A Host → Project → Workspace tree for [Paseo](https://paseo.sh), built for t
 
 ## Features
 
-- **One tree for all hosts.** Hosts, projects and workspaces can each be collapsed, and the tree remembers what you collapsed. Offline hosts are shown dimmed.
-- **Rich workspace rows.** Each row shows the status, title, diff size, branch, the model of the most recently active agent and when it was last active.
-- **Asking you vs. unread.** Workspaces that wait for input, failed or are flagged count as *asking you*. Finished work you haven't looked at yet counts as *unread*. Read state is synced across devices.
-- **Filters and search.** All, Recent (active in the last 2 days by default, plus anything running, new or asking; the number of days is a profile setting), Active and Inbox (asking you plus unread), and a search box. Tap the counter badge to jump to the Inbox.
-- **New workspace.** The **+** on a project row opens a draft, like Paseo's own New workspace screen: choose a new worktree (optional branch name) or the project folder, then an agent with model, mode, the agent's on/off options such as *Auto Accept*, and a first message, or a terminal. While the host is still finding its agents, the draft shows a spinner and lists the ones already ready. Nothing is created until you tap *Create*; closing the draft discards it.
-- **Row actions.** The **⋯** on a workspace row renames it, pins it, marks it read or unread, or archives it. Archiving asks first and warns when an agent is still working or waiting for you.
-- **Pins.** A pinned workspace stays at the top of its project in every view and is never hidden by a filter. Pins are part of the profile, so every device using it shows them.
-- **Manual order.** Set a profile's *Order* to *Manual*, then long-press a row and drag it. Projects reorder within their host and workspaces within their project. Each profile keeps its own order, and new items appear first.
-- **Profiles.** Phone and Desktop come built in, and you can add your own. A profile holds the density, default filter, what Recent means, order, pins, hidden hosts, the "hide finished/read workspaces" setting and the collapse state. Profiles are stored on the host serving the plugin, so all your devices share them. The settings screen shows a live preview of the rows as you change a profile.
-- **Entry points.** A "Workspaces" row in the sidebar (with a badge for things that need you), a header button on every workspace, and a Command Center entry.
+- **One tree for all hosts.** Hosts, projects and workspaces can each be collapsed, and the tree remembers what you collapsed. Offline hosts are shown dimmed. Folded groups count what asks you, failed or is unread.
+- **Inbox.** The title bar shows how many chats wait for you, how many ask you and how many failed. Tapping it opens the Inbox: one entry per chat that asks you, failed or is unread, on every host (hidden hosts too), questions and errors first. An entry opens that chat; "Mark N unread as read" can be undone.
+- **Read state per chat.** Opening a chat does not mark it read. Press **Done** in the chat header to mark it read, or **Put back in Inbox** to make it unread again. Questions and errors stay until you answer or fix them. Read state is synced across devices.
+- **Workspace rows.** Each row shows a status glyph (a shape per status, not only a colour), the title and one line: why it needs you ("Asks you · Payment states"), or the branch, model and changes in the order you choose. On the right: last activity and one mark per tab. Tap the marks to list the tabs (chats and terminals); a chat with sub-agents folds them under it.
+- **Views and search.** All, Recent, Active and Pinned, each with a count. Search covers titles, branches, projects, hosts, models and tab titles; a row found through a tab says which.
+- **Actions.** Hold a row (or use ⋯ / right-click on desktop) for pin, mark read, rename, move and archive; holding a tab adds "Mark … read" for it. Holding a project's name opens its sheet (new workspace, move, folder colour). Archiving keeps the row dimmed until the host has archived it.
+- **New workspace.** The **+** on a project row opens a draft, like Paseo's own New workspace screen: choose a new worktree (optional branch name) or the project folder, then an agent with model, mode, the agent's on/off options such as *Auto Accept*, and a first message, or a terminal. Nothing is created until you tap *Create*.
+- **Manual order.** Set a profile's *Order* to *Manual*, then drag rows by their grip. On phones, Options → *Arrange order…* shows the grips. Projects reorder within their host and workspaces within their project.
+- **Profiles.** Phone and Desktop come built in, and you can add your own. A profile holds the density, the view it opens on, what Recent means, the row layout, order, pins, hidden hosts and the collapse state. The settings screen shows a live preview of sample rows as you change a profile.
+- **Entry points.** A "Workspaces" row in the sidebar, a sidebar view (Paseo 0.16), header buttons on every workspace (Done and Workspaces), and a Command Center entry.
+
+The screenshots below show the previous version.
 
 | Desktop | Settings | Profiles | Search |
 | --- | --- | --- | --- |

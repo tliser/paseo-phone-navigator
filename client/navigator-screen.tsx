@@ -168,11 +168,22 @@ export function NavigatorScreen(
     if (layout.compact && surface === "screen") reopenInbox = true;
     navigation.openAgent({ agentId: entry.agentId, serverId: entry.serverId });
   };
-  const switchToManual = () => {
-    const now = Date.now();
-    const set = (sort: "auto" | "manual") => store.editProfiles((profiles) => profiles.map((entry) => (entry.id === profile.id ? { ...entry, settings: { ...entry.settings, sort }, updatedAt: now } : entry)));
+  /** Desktop: manual order. Phones: arrange mode, switching to manual order first when needed. */
+  const startArranging = () => {
+    if (layout.compact) setArrangeMode(true);
+    if (settings.sort === "manual") return;
+    const set = (sort: "auto" | "manual") => {
+      const now = Date.now();
+      store.editProfiles((profiles) => profiles.map((entry) => (entry.id === profile.id ? { ...entry, settings: { ...entry.settings, sort }, updatedAt: now } : entry)));
+    };
     set("manual");
-    showToast({ text: "Order is now manual", undo: () => set("auto") });
+    showToast({
+      text: "Order is now manual",
+      undo: () => {
+        set("auto");
+        setArrangeMode(false);
+      },
+    });
   };
   const closeSearch = () => setQuery("");
   /** Moves an item one place up or down in its manual order group. */
@@ -192,8 +203,11 @@ export function NavigatorScreen(
   const scale = useFontScale();
   const c = theme.colors;
   const searching = query.trim().length > 0;
-  // Dragging only in manual mode and outside search (search reshapes the tree temporarily).
-  const canArrange = settings.sort === "manual" && !searching;
+  // Dragging only in manual mode and outside search (search reshapes the tree temporarily). Phones show
+  // grips only in arrange mode, so they never steal a swipe; there a grip lifts at once.
+  const [arrangeMode, setArrangeMode] = useState(false);
+  const arranging = layout.compact && arrangeMode;
+  const canArrange = settings.sort === "manual" && !searching && (!layout.compact || arranging);
   const heights = useMemo(() => heightsFor(comfortable, scale), [comfortable, scale]);
 
   const drop = useCallback(
@@ -206,10 +220,10 @@ export function NavigatorScreen(
     [store, profile.id, tree.groups],
   );
   const offsets = useMemo(() => rowOffsets(tree.rows, heights), [tree.rows, heights]);
-  // Rows are dragged by their grip: at once with a mouse, after a short hold on touch screens, so a
-  // swipe that starts on the grip still scrolls.
+  // Rows are dragged by their grip: at once with a mouse or in arrange mode; otherwise after a short hold
+  // on touch screens, so a swipe that starts on the grip still scrolls.
   const touch = layout.platform !== "web";
-  const drag = useDragController({ rows: tree.rows, heights, hold: touch, onDrop: drop });
+  const drag = useDragController({ rows: tree.rows, heights, hold: touch && !arranging, onDrop: drop });
   const dragging = drag.state;
   const shift = useMemo(() => (dragging ? dragShift(tree.rows, offsets, dragging.index, dragging.drop) : null), [dragging, tree.rows, offsets]);
   // After a drop the new order is drawn at once; the moved block glides from where it was let go.
@@ -271,7 +285,7 @@ export function NavigatorScreen(
           onToggle={toggle}
           onOpen={open}
           onOpenTab={openTab}
-          arranging={false}
+          arranging={arranging}
           onMenu={(row, anchor) => setMenuFor({ row, anchor })}
           onTabMenu={(tab, anchor) => {
             const row = rowOfTab(tab);
@@ -324,6 +338,14 @@ export function NavigatorScreen(
         {layout.compact ? null : <SearchField theme={theme} query={query} onChange={setQuery} />}
         <ViewsControl theme={theme} value={filter} counts={tree.counts} compact={layout.compact} onChange={setFilter} />
       </View>
+      {arranging ? (
+        <View accessibilityRole="summary" style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 14, paddingRight: 4, minHeight: 48, backgroundColor: c.surface1, borderBottomWidth: 1, borderBottomColor: c.border }}>
+          <Text style={{ flex: 1, color: c.foreground, fontSize: 13 }}>Drag the grips to reorder.</Text>
+          <Pressable accessibilityRole="button" onPress={() => setArrangeMode(false)} style={{ minWidth: 64, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 10 }}>
+            <Text style={{ color: c.accent, fontSize: 15, fontWeight: "700" }}>Done</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {snapshot.errors.length || snapshot.savingError ? (
         <Text style={{ fontSize: 12, paddingHorizontal: 12, paddingVertical: 6, color: c.statusDanger }} numberOfLines={3}>
@@ -436,7 +458,7 @@ export function NavigatorScreen(
           unread={inboxCounts.unread}
           onFoldAll={() => store.setCollapse(profile.id, expandOrCollapseAll(collapse, tree.groupKeys, settings))}
           onMarkUnreadRead={markInboxUnreadRead}
-          onManualOrder={switchToManual}
+          onArrange={startArranging}
           onSettings={openSettings}
           onClose={() => setOverlay(null)}
         />
@@ -535,8 +557,7 @@ function Grip({ theme, handlers, height, label, wide }: { theme: PluginTheme; ha
     <View
       {...handlers}
       accessibilityLabel={`Drag to reorder ${label}`}
-      accessibilityHint={wide ? "Hold, then drag" : undefined}
-      style={{ width: wide ? 36 : 24, height, alignItems: "center", justifyContent: "center", cursor: "grab", userSelect: "none", touchAction: "none" } as never}
+      style={{ width: wide ? 44 : 24, height, alignItems: "center", justifyContent: "center", cursor: "grab", userSelect: "none", touchAction: "none" } as never}
     >
       <Icon name="GripVertical" size={wide ? 16 : 14} color={theme.colors.foregroundMuted} />
     </View>
@@ -657,7 +678,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         {row.collapsed ? <TallyMarks theme={theme} tally={row.tally} /> : null}
         <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} />
       </Pressable>
-        {row.rootPath ? (
+        {row.rootPath && !arranging ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`New workspace in ${row.name}`}

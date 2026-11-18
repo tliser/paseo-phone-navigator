@@ -18,7 +18,7 @@ export function OptionsMenu({
   unread,
   onFoldAll,
   onMarkUnreadRead,
-  onManualOrder,
+  onArrange,
   onSettings,
   onClose,
 }: {
@@ -31,7 +31,8 @@ export function OptionsMenu({
   unread: number;
   onFoldAll(): void;
   onMarkUnreadRead(): void;
-  onManualOrder(): void;
+  /** Phones: arrange mode. Desktop: switch to manual order. */
+  onArrange(): void;
   onSettings(): void;
   onClose(): void;
 }) {
@@ -48,7 +49,11 @@ export function OptionsMenu({
       <SheetNote theme={theme}>{`${profile.name} profile · ${manual ? "manual order" : "automatic order"}`}</SheetNote>
       <SheetItem theme={theme} compact={compact} icon={anyCollapsed ? "ChevronsUpDown" : "ChevronsDownUp"} label={anyCollapsed ? "Expand all" : "Collapse to hosts"} onPress={then(onFoldAll)} />
       <SheetItem theme={theme} compact={compact} icon="CheckCheck" label={unread ? `Mark ${unread} unread as read` : "No unread chats"} disabled={!unread} onPress={then(onMarkUnreadRead)} />
-      {manual ? null : <SheetItem theme={theme} compact={compact} icon="GripVertical" label="Switch to manual order" onPress={then(onManualOrder)} />}
+      {compact ? (
+        <SheetItem theme={theme} compact={compact} icon="GripVertical" label="Arrange order…" onPress={then(onArrange)} />
+      ) : manual ? null : (
+        <SheetItem theme={theme} compact={compact} icon="GripVertical" label="Switch to manual order" onPress={then(onArrange)} />
+      )}
       <SheetDivider theme={theme} />
       {snapshot.profiles.map((entry) => (
         <SheetItem

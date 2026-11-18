@@ -79,8 +79,8 @@ export interface Store {
   markRead(serverId: string, workspaceIds: readonly string[]): void;
   /** Shows a workspace without chats as unread again until it is marked read. */
   markUnread(serverId: string, workspaceId: string): void;
-  /** Marks these chats read now (Done). */
-  markChatsRead(serverId: string, agentIds: readonly string[]): void;
+  /** Marks these chats read now (Done). Returns the time stamped, so an Undo can tell whether it changed since. */
+  markChatsRead(serverId: string, agentIds: readonly string[]): number;
   /** Puts a chat back in the Inbox until it is marked read again. */
   markChatUnread(serverId: string, agentId: string): void;
   /**
@@ -389,11 +389,12 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     emitNow();
   }
 
-  function markKeysRead(keys: readonly string[]) {
-    if (!keys.length) return;
+  function markKeysRead(keys: readonly string[]): number {
     const now = Date.now();
+    if (!keys.length) return now;
     for (const key of keys) unsavedReads[key] = now;
     scheduleReads();
+    return now;
   }
 
   function markKeyUnread(key: string) {
@@ -547,7 +548,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     },
     editProfiles,
     move,
-    markRead: (serverId, workspaceIds) => markKeysRead(workspaceIds.map((id) => readKey(serverId, id))),
+    markRead: (serverId, workspaceIds) => void markKeysRead(workspaceIds.map((id) => readKey(serverId, id))),
     markUnread: (serverId, workspaceId) => markKeyUnread(readKey(serverId, workspaceId)),
     markChatsRead: (serverId, agentIds) => markKeysRead(agentIds.map((id) => readAgentKey(serverId, id))),
     markChatUnread: (serverId, agentId) => markKeyUnread(readAgentKey(serverId, agentId)),

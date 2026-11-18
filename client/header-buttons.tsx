@@ -5,20 +5,21 @@ import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientConte
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { View } from "react-native";
 import { createHostObserver } from "./host-observer";
-import { SCREEN_ID, useTally } from "./runtime";
+import { SCREEN_ID, useInboxTally } from "./runtime";
 import { UNREAD_BLUE } from "./visual";
 
 function WorkspacesIcon({ theme, size, color }: PluginButtonIconProps) {
-  const tally = useTally();
+  const inbox = useInboxTally();
+  const urgent = inbox.asking + inbox.error;
   // Paseo draws plugin button icons in a box exactly `size` wide that clips overflow (header and the
   // "More actions" menu alike), so the indicator must stay inside it: a dot in the top-right corner,
-  // amber when something asks you, blue for unread news.
+  // amber when a chat asks you or failed, blue for unread news.
   const dot = Math.max(6, Math.round(size * 0.45));
-  const signal = tally.needsYou ? theme.colors.statusWarning : tally.unread ? UNREAD_BLUE : null;
+  const signal = urgent ? theme.colors.statusWarning : inbox.unread ? UNREAD_BLUE : null;
   return (
     <View
       style={{ width: size, height: size }}
-      accessibilityLabel={tally.needsYou ? `${tally.needsYou} asking you` : tally.unread ? `${tally.unread} unread` : undefined}
+      accessibilityLabel={urgent ? `${urgent} ask you or failed` : inbox.unread ? `${inbox.unread} unread` : undefined}
     >
       <Icon name="Layers" size={size} color={color} />
       {signal ? (

@@ -88,8 +88,8 @@ export interface TreeResult {
   rows: TreeRow[];
   /** Workspaces matching filter and search on online hosts. */
   matched: number;
-  /** Totals on online, visible hosts (ignores filter and search). */
-  tally: Tally;
+  /** Running workspaces on online, visible hosts (ignores filter and search). */
+  running: number;
   counts: Record<Filter, number>;
   /** Group keys shown (for expand/collapse all). */
   groupKeys: string[];
@@ -273,7 +273,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   const rows: TreeRow[] = [];
   const groupKeys: string[] = [];
   const counts: Record<Filter, number> = { all: 0, recent: 0, active: 0, pinned: 0 };
-  const total: Tally = { needsYou: 0, unread: 0 };
+  let running = 0;
   let matched = 0;
   let totalOnline = 0;
 
@@ -309,14 +309,13 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       project.activity = Math.max(project.activity, workspace.activityAt);
       addTally(project.tally, item.state);
       addTally(hostTally, item.state);
+      if (item.state === "running") running++;
       if (matchesSearch(workspace, host.label, query)) {
         for (const key of FILTERS) {
           if (passesFilter(item, key, settings, now)) counts[key]++;
         }
       }
     }
-    total.needsYou += hostTally.needsYou;
-    total.unread += hostTally.unread;
 
     const byActivity = (a: { activity: number; name: string; id: string }, b: { activity: number; name: string; id: string }) =>
       b.activity - a.activity || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
@@ -369,20 +368,10 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   return {
     rows,
     matched,
-    tally: total,
+    running,
     counts,
     groupKeys,
     emptyBecauseFiltered: matched === 0 && totalOnline > 0 && (searching || filter !== "all"),
     groups,
   };
-}
-
-/** Totals for the badges: real prompts and unread news on online hosts, ignoring filters. */
-export function tallyHosts(hosts: readonly HostInput[], reads: ReadMap): Tally {
-  const tally: Tally = { needsYou: 0, unread: 0 };
-  for (const host of hosts) {
-    if (host.status !== "online") continue;
-    for (const workspace of host.workspaces) addTally(tally, workspaceState(workspace, host.serverId, reads));
-  }
-  return tally;
 }

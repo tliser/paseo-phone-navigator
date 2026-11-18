@@ -2,7 +2,7 @@
 import { useHosts } from "@getpaseo/plugin/client";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { resolveProfile, type Profile } from "../shared/profiles";
-import { tallyHosts, type Tally } from "../shared/tree";
+import { buildInbox, inboxTally, type Inbox, type InboxTally } from "../shared/inbox";
 import type { Platform } from "../shared/types";
 import type { Store, StoreSnapshot } from "./store";
 
@@ -27,10 +27,16 @@ export function useNavigatorStore(): { store: Store; snapshot: StoreSnapshot } {
   return { store, snapshot };
 }
 
-/** Real prompts and unread news on every online host, for the badges. */
-export function useTally(): Tally {
+/** The Inbox over every online host. */
+export function useInbox(snapshot: StoreSnapshot): Inbox {
+  return useMemo(() => buildInbox(snapshot.hosts, snapshot.reads), [snapshot.hosts, snapshot.reads]);
+}
+
+/** Chats that ask you, failed or are unread, for the badges. */
+export function useInboxTally(): InboxTally {
   const { snapshot } = useNavigatorStore();
-  return useMemo(() => tallyHosts(snapshot.hosts, snapshot.reads), [snapshot.hosts, snapshot.reads]);
+  const inbox = useInbox(snapshot);
+  return useMemo(() => inboxTally(inbox.entries), [inbox]);
 }
 
 export function useActiveProfile(snapshot: StoreSnapshot, platform: Platform, compact: boolean): Profile {

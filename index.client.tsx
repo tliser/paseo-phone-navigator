@@ -19,10 +19,11 @@ export default function contribute(client: PluginClientContext) {
     ),
   );
   const openSettings = () => client.openSettings(SETTINGS_ID);
-  const Screen = (props: PluginScreenProps) => <NavigatorScreen {...props} openSettings={openSettings} />;
+  const Screen = (props: PluginScreenProps) => <NavigatorScreen {...props} surface="screen" openSettings={openSettings} />;
   // Paseo 0.16+: the navigator can replace the app's sidebar. Its navigation opens by entity ref.
   const SidebarView = ({ theme, layout, navigation, active }: PluginSidebarViewProps) => (
     <NavigatorScreen
+      surface="sidebar"
       theme={theme}
       layout={layout}
       host={{ id: active.workspace?.hostId ?? "", label: "" }}

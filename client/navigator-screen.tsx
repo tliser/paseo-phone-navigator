@@ -1,32 +1,43 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
-import { FlatList, Icon, TextInput } from "@getpaseo/plugin/client/ui";
+import { FlatList, Icon } from "@getpaseo/plugin/client/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Animated, Easing, Platform, Pressable, Text, View, type GestureResponderHandlers } from "react-native";
 import { timeAgo } from "../shared/format";
 import { expandForAttention, expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
 import { blockEnd, dragId, dragShift, heightsFor, rowOffsets, type DropTarget } from "../shared/drag";
-import { buildInbox, inboxTally } from "../shared/inbox";
+import { inboxTally, type InboxEntry } from "../shared/inbox";
+import { readAgentKey } from "../shared/reads";
 import { buildTree, workspaceState, type AgentRow, type ProjectRow, type TreeRow, type WorkspaceRow } from "../shared/tree";
-import { FILTERS, type Filter } from "../shared/types";
+import type { Filter } from "../shared/types";
 import { GLIDE_MS, useDragController } from "./drag-controller";
 import { MONO_FONT, useFontScale } from "./font-scale";
 import { NamesCard, type Peek } from "./names-card";
 import { NewWorkspaceSheet } from "./new-workspace-sheet";
-import { ProfileSheet } from "./profile-sheet";
-import { useActiveProfile, useNavigatorStore } from "./runtime";
+import { InboxSheet } from "./inbox-sheet";
+import { OptionsMenu } from "./options-menu";
+import { useActiveProfile, useInbox, useNavigatorStore } from "./runtime";
+import type { Anchor } from "./sheet";
+import { SearchField, TitleBar, ViewsControl } from "./title-bar";
+import { Toast, useToastState } from "./toast";
 import { AGENT_ERROR_ICON, RUNNING_VIOLET, StateIcon, TallyBadge, UNREAD_BLUE } from "./visual";
 import { WorkspaceMenu } from "./workspace-menu";
 import { ColorPicker } from "./color-picker";
 import { projectColorHex, projectColorKey } from "../shared/colors";
 
-const FILTER_LABEL: Record<Filter, string> = { all: "All", recent: "Recent", active: "Active", pinned: "Pinned" };
-
 /** Filter picked in this session per profile; starts at the profile's default. */
 const sessionFilters = new Map<string, Filter>();
 
-export function NavigatorScreen(props: PluginScreenProps & { openSettings(): void; activeWorkspace?: { serverId: string; workspaceId: string } | null }) {
-  const { theme, layout, navigation, openSettings, activeWorkspace } = props;
+/**
+ * A chat was opened from the Inbox on the phone screen: coming back to the screen reopens the Inbox.
+ * The sidebar view leaves the plugin when it opens a chat, so it never sets this.
+ */
+let reopenInbox = false;
+
+export function NavigatorScreen(
+  props: PluginScreenProps & { openSettings(): void; activeWorkspace?: { serverId: string; workspaceId: string } | null; surface: "screen" | "sidebar" },
+) {
+  const { theme, layout, navigation, openSettings, activeWorkspace, surface } = props;
   const { store, snapshot } = useNavigatorStore();
   const profile = useActiveProfile(snapshot, layout.platform, layout.compact);
   const settings = profile.settings;
@@ -42,10 +53,14 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
     setFilterState(next);
   };
 
-  const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [menu, setMenu] = useState(false);
-  const [sheet, setSheet] = useState(false);
+  /** Open overlay of the title bar and where its button is (desktop popovers hang under it). */
+  const [overlay, setOverlay] = useState<{ kind: "inbox" | "options"; anchor: Anchor | null } | null>(() => {
+    if (!reopenInbox || !layout.compact || surface !== "screen") return null;
+    reopenInbox = false;
+    return { kind: "inbox", anchor: null };
+  });
+  const { toast, show: showToast, hide: hideToast } = useToastState();
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   /** Project whose new-workspace draft is open, and workspace whose menu is open. */
@@ -111,19 +126,40 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
     },
     [navigation],
   );
-  const inbox = useMemo(() => buildInbox(snapshot.hosts, snapshot.reads), [snapshot.hosts, snapshot.reads]);
-  const inboxCounts = inboxTally(inbox.entries);
-  const closeSearch = () => {
-    setSearchOpen(false);
-    setQuery("");
+  const inbox = useInbox(snapshot);
+  const inboxCounts = useMemo(() => inboxTally(inbox.entries), [inbox]);
+  /** Marks exactly the unread chats the Inbox lists; Undo puts back only those still marked by this. */
+  const markInboxUnreadRead = () => {
+    const byHost = new Map<string, string[]>();
+    for (const entry of inbox.entries) if (entry.state === "unread") byHost.set(entry.serverId, [...(byHost.get(entry.serverId) ?? []), entry.agentId]);
+    const marked = [...byHost].map(([serverId, ids]) => ({ serverId, ids, at: store.markChatsRead(serverId, ids) }));
+    const count = marked.reduce((sum, entry) => sum + entry.ids.length, 0);
+    showToast({
+      text: `Marked ${count} unread ${count === 1 ? "chat" : "chats"} read`,
+      undo: () => {
+        const reads = store.getSnapshot().reads;
+        for (const { serverId, ids, at } of marked) for (const id of ids) if (reads[readAgentKey(serverId, id)] === at) store.markChatUnread(serverId, id);
+      },
+    });
   };
+  const openFromInbox = (entry: InboxEntry) => {
+    setOverlay(null);
+    if (!navigation) return;
+    if (layout.compact && surface === "screen") reopenInbox = true;
+    navigation.openAgent({ agentId: entry.agentId, serverId: entry.serverId });
+  };
+  const switchToManual = () => {
+    const now = Date.now();
+    const set = (sort: "auto" | "manual") => store.editProfiles((profiles) => profiles.map((entry) => (entry.id === profile.id ? { ...entry, settings: { ...entry.settings, sort }, updatedAt: now } : entry)));
+    set("manual");
+    showToast({ text: "Order is now manual", undo: () => set("auto") });
+  };
+  const closeSearch = () => setQuery("");
   const anyCollapsed = tree.groupKeys.some((key) => isCollapsed(collapse, key, settings));
 
   const comfortable = settings.density === "comfortable";
   const scale = useFontScale();
-  const fs = (size: number) => Math.round(size * scale * 2) / 2;
   const c = theme.colors;
-  const muted = { color: c.foregroundMuted };
   const searching = query.trim().length > 0;
   // Dragging only in manual mode and outside search (search reshapes the tree temporarily).
   const canArrange = settings.sort === "manual" && !searching;
@@ -230,87 +266,24 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface0 }}>
-      {/* Sticky header: one 44pt line, or the search field plus filter chips while searching. */}
-      <View style={{ borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface0 }}>
-        {searchOpen ? (
-          <>
-            <View style={{ height: 44, flexDirection: "row", alignItems: "center", paddingHorizontal: 4, gap: 4 }}>
-              <View style={{ flex: 1, height: 36, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, borderRadius: 10, backgroundColor: c.surface1, borderWidth: 1, borderColor: c.border }}>
-                <Icon name="Search" size={14} color={c.foregroundMuted} />
-                <TextInput
-                  autoFocus
-                  value={query}
-                  onChangeText={setQuery}
-                  placeholder="Title, branch, project, host, model"
-                  placeholderTextColor={c.foregroundMuted}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="search"
-                  style={{ flex: 1, color: c.foreground, fontSize: 15, paddingVertical: 0 }}
-                />
-              </View>
-              <HeaderButton theme={theme} icon="X" label="Clear search" onPress={closeSearch} />
-            </View>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 12, paddingBottom: 8 }}>
-              {FILTERS.map((key) => (
-                <Chip key={key} theme={theme} active={filter === key} onPress={() => setFilter(key)} label={`${FILTER_LABEL[key]} ${tree.counts[key]}`} />
-              ))}
-            </View>
-          </>
-        ) : (
-          <View style={{ height: 44, flexDirection: "row", alignItems: "center", paddingHorizontal: 4, gap: 2 }}>
-            <HeaderButton theme={theme} icon="Search" label="Search" onPress={() => setSearchOpen(true)} />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Inbox, ${inboxCounts.total} chats, ${inboxCounts.asking} ask you, ${inboxCounts.error} failed. Show active workspaces.`}
-              onPress={() => setFilter("active")}
-              style={{ height: 44, justifyContent: "center" }}
-            >
-              <View style={{ height: 32, paddingHorizontal: 9, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderColor: c.border }}>
-                <Icon name="Inbox" size={14} color={c.foreground} />
-                {inboxCounts.total ? <TallyBadge theme={theme} tally={{ needsYou: inboxCounts.asking + inboxCounts.error, unread: inboxCounts.unread }} small /> : <Text style={{ fontSize: fs(13), color: c.foregroundMuted }}>0</Text>}
-              </View>
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel={`Filter: ${FILTER_LABEL[filter]}`} onPress={() => setMenu((value) => !value)} style={{ height: 44, justifyContent: "center", marginLeft: 4 }}>
-              <View style={{ height: 32, paddingHorizontal: 10, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: c.surface1, borderWidth: 1, borderColor: c.border }}>
-                <Text style={{ fontSize: fs(13), color: c.foreground }}>{FILTER_LABEL[filter]}</Text>
-                <Icon name="ChevronDown" size={14} color={c.foregroundMuted} />
-              </View>
-            </Pressable>
-            <View style={{ flex: 1 }} />
-            {inboxCounts.unread ? (
-              <HeaderButton theme={theme} icon="CheckCheck" label={`Mark ${inboxCounts.unread} unread as read`} onPress={() => {
-                const byHost = new Map<string, string[]>();
-                for (const entry of inbox.entries) if (entry.state === "unread") byHost.set(entry.serverId, [...(byHost.get(entry.serverId) ?? []), entry.agentId]);
-                for (const [serverId, ids] of byHost) store.markChatsRead(serverId, ids);
-              }} />
-            ) : null}
-            <HeaderButton
-              theme={theme}
-              icon={anyCollapsed ? "ChevronsUpDown" : "ChevronsDownUp"}
-              label={anyCollapsed ? "Expand all" : "Collapse to hosts"}
-              onPress={() => store.setCollapse(profile.id, expandOrCollapseAll(collapse, tree.groupKeys, settings))}
-            />
-            <Pressable accessibilityRole="button" accessibilityLabel={`Profile: ${profile.name}`} onPress={() => setSheet(true)} style={{ height: 44, justifyContent: "center", paddingRight: 4 }}>
-              <View style={{ height: 32, paddingHorizontal: 10, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: c.surface1, borderWidth: 1, borderColor: c.border, maxWidth: 140 }}>
-                <Icon name="UserRound" size={14} color={c.foregroundMuted} />
-                <Text numberOfLines={1} style={{ fontSize: fs(13), color: c.foreground, flexShrink: 1 }}>{profile.name}</Text>
-                <Icon name="ChevronDown" size={14} color={c.foregroundMuted} />
-              </View>
-            </Pressable>
-          </View>
-        )}
-        {menu && !searchOpen ? (
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 12, paddingBottom: 8 }}>
-            {FILTERS.map((key) => (
-              <Chip key={key} theme={theme} active={filter === key} onPress={() => { setFilter(key); setMenu(false); }} label={`${FILTER_LABEL[key]} ${tree.counts[key]}`} />
-            ))}
-          </View>
-        ) : null}
+      <View style={{ gap: 8, paddingTop: 4, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface0 }}>
+        <TitleBar
+          theme={theme}
+          compact={layout.compact}
+          inbox={inboxCounts}
+          running={tree.running}
+          scale={scale}
+          onInbox={(anchor) => setOverlay({ kind: "inbox", anchor })}
+          onRunning={() => setFilter("active")}
+          onOptions={(anchor) => setOverlay({ kind: "options", anchor })}
+        />
+        {/* Search sits at the top on desktop and docks at the bottom on phones (thumb reach). */}
+        {layout.compact ? null : <SearchField theme={theme} query={query} onChange={setQuery} />}
+        <ViewsControl theme={theme} value={filter} counts={tree.counts} compact={layout.compact} onChange={setFilter} />
       </View>
 
       {snapshot.errors.length || snapshot.savingError ? (
-        <Text style={{ ...muted, fontSize: 12, paddingHorizontal: 12, paddingVertical: 6, color: c.statusDanger }} numberOfLines={3}>
+        <Text style={{ fontSize: 12, paddingHorizontal: 12, paddingVertical: 6, color: c.statusDanger }} numberOfLines={3}>
           {[...snapshot.errors, ...(snapshot.savingError ? [snapshot.savingError] : [])].join("\n")}
         </Text>
       ) : null}
@@ -344,7 +317,13 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
           }}
         />
         {peek && canPeek ? <NamesCard theme={theme} peek={peek} scale={scale} now={now} areaHeight={areaHeight} /> : null}
+        <Toast theme={theme} toast={toast} onHide={hideToast} />
       </View>
+      {layout.compact ? (
+        <View style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface0 }}>
+          <SearchField theme={theme} query={query} onChange={setQuery} />
+        </View>
+      ) : null}
 
       {colorFor ? (
         <ColorPicker
@@ -357,25 +336,38 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
       ) : null}
       {draftFor && !layout.compact ? <NewWorkspaceSheet theme={theme} project={draftFor} compact={false} onClose={() => setDraftFor(null)} onCreated={(id) => created(draftFor.serverId, id)} /> : null}
       {menuFor ? <WorkspaceMenu theme={theme} row={menuFor} profileId={profile.id} onClose={() => setMenuFor(null)} /> : null}
-      {sheet ? <ProfileSheet theme={theme} platform={layout.platform} active={profile} onClose={() => setSheet(false)} onEdit={() => { setSheet(false); openSettings(); }} /> : null}
+      {overlay?.kind === "inbox" ? (
+        <InboxSheet
+          theme={theme}
+          compact={layout.compact}
+          anchor={overlay.anchor}
+          inbox={inbox}
+          now={now}
+          onOpen={openFromInbox}
+          onMarkUnreadRead={() => {
+            setOverlay(null);
+            markInboxUnreadRead();
+          }}
+          onClose={() => setOverlay(null)}
+        />
+      ) : null}
+      {overlay?.kind === "options" ? (
+        <OptionsMenu
+          theme={theme}
+          compact={layout.compact}
+          anchor={overlay.anchor}
+          platform={layout.platform}
+          profile={profile}
+          anyCollapsed={anyCollapsed}
+          unread={inboxCounts.unread}
+          onFoldAll={() => store.setCollapse(profile.id, expandOrCollapseAll(collapse, tree.groupKeys, settings))}
+          onMarkUnreadRead={markInboxUnreadRead}
+          onManualOrder={switchToManual}
+          onSettings={openSettings}
+          onClose={() => setOverlay(null)}
+        />
+      ) : null}
     </View>
-  );
-}
-
-function HeaderButton({ theme, icon, label, onPress }: { theme: PluginTheme; icon: string; label: string; onPress(): void }) {
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-      <Icon name={icon} size={18} color={theme.colors.foreground} />
-    </Pressable>
-  );
-}
-
-function Chip({ theme, label, active, onPress }: { theme: PluginTheme; label: string; active: boolean; onPress(): void }) {
-  const c = theme.colors;
-  return (
-    <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} hitSlop={{ top: 6, bottom: 6 }} style={{ minHeight: 32, paddingHorizontal: 12, borderRadius: 16, justifyContent: "center", borderWidth: 1, borderColor: active ? c.foreground : c.border, backgroundColor: active ? c.foreground : c.surface1 }}>
-      <Text style={{ fontSize: 13, color: active ? c.surface0 : c.foreground }}>{label}</Text>
-    </Pressable>
   );
 }
 

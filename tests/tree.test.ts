@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultSettings } from "../shared/profiles";
 import { readAgentKey, readKey } from "../shared/reads";
-import { buildTree, matchesSearch, passesFilter, tallyHosts, workspaceState, type TreeOptions } from "../shared/tree";
+import { buildTree, matchesSearch, passesFilter, workspaceState, type TreeOptions } from "../shared/tree";
 import type { AgentInput, HostInput, WorkspaceInput } from "../shared/types";
 import { dragId } from "../shared/drag";
 
@@ -129,13 +129,12 @@ describe("tree shape", () => {
     expect(types(tree.rows)).toEqual(["host", "project"]);
     expect(types(buildTree([host("h", [ws("1", "p", "running", 1)])], opts({ collapse: { "host:h": true } })).rows)).toEqual(["host"]);
   });
-  it("tallies asking and unread per project, host and overall", () => {
+  it("tallies asking and unread per project and host", () => {
     const tree = buildTree([host("h", [ws("1", "p", "needs_input", 1), ws("2", "p", "attention", 1, { news: 1 }), ws("3", "q", "failed", 1, { news: 1 })])], opts({ collapse: { "proj:h:p": true } }));
     const proj = tree.rows.find((r) => r.type === "project" && r.projectId === "p");
     expect(proj?.type === "project" && proj.tally).toEqual({ needsYou: 1, unread: 1 });
     const h = tree.rows[0];
     expect(h?.type === "host" && h.tally).toEqual({ needsYou: 1, unread: 2 });
-    expect(tree.tally).toEqual({ needsYou: 1, unread: 2 });
   });
   it("renders loading skeletons per host and offline hosts dimmed", () => {
     const tree = buildTree([host("l", [], { loading: true }), host("o", [], { status: "offline" })], opts());
@@ -143,11 +142,6 @@ describe("tree shape", () => {
   });
   it("hides hosts listed in hiddenHosts", () => {
     expect(buildTree([host("h", [ws("1", "p", "done", 1)])], opts({ settings: { ...settings, hiddenHosts: ["h"] } })).rows).toHaveLength(0);
-  });
-  it("badge tally covers online hosts only and respects reads", () => {
-    const hosts = [host("a", [ws("1", "p", "failed", 1, { news: 1 }), ws("2", "p", "needs_input", 1), ws("3", "p", "running", 1)]), host("b", [ws("4", "p", "attention", 1, { news: 1 })], { status: "offline" })];
-    expect(tallyHosts(hosts, {})).toEqual({ needsYou: 1, unread: 1 });
-    expect(tallyHosts(hosts, { [readKey("a", "1")]: NOW })).toEqual({ needsYou: 1, unread: 0 });
   });
 });
 
@@ -217,11 +211,10 @@ describe("agent rows", () => {
 });
 
 describe("agent errors", () => {
-  it("an errored agent needs you: own state, counts as asking, shows in Inbox and Active", () => {
+  it("an errored agent needs you: own state, shows in Active", () => {
     const w = ws("e", "p", "done", 1, { agentError: true });
     expect(workspaceState(w, "h", {})).toBe("error");
     expect(passesFilter(item(w), "active", settings, NOW)).toBe(true);
-    expect(tallyHosts([host("h", [w])], {})).toEqual({ needsYou: 1, unread: 0 });
     // A real question still wins over the error.
     expect(workspaceState(ws("q", "p", "needs_input", 1, { agentError: true }), "h", {})).toBe("needs_you");
   });

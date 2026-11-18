@@ -20,7 +20,7 @@ import {
   type ProfileSettings,
 } from "../shared/profiles";
 import type { Platform } from "../shared/types";
-import { PLATFORM_LABEL } from "./profile-sheet";
+import { PLATFORM_LABEL } from "./options-menu";
 import { useActiveProfile, useNavigatorStore } from "./runtime";
 import { SettingsPreview } from "./settings-preview";
 import { UpdatesSection } from "./updates-section";

@@ -71,18 +71,18 @@ export function WorkspaceMenu({
       return;
     }
     const ids = row.unreadChats;
-    store.markChatsRead(row.serverId, ids);
-    onToast({ text: `Marked ${ids.length} ${ids.length === 1 ? "chat" : "chats"} in "${workspace.title}" read`, undo: () => ids.forEach((id) => store.markChatUnread(row.serverId, id)) });
+    const changes = store.markChatsRead(row.serverId, ids);
+    onToast({ text: `Marked ${ids.length} ${ids.length === 1 ? "chat" : "chats"} in "${workspace.title}" read`, undo: () => store.undoReads(changes) });
   };
   const tabAction = tab && tab.kind === "chat" && (tab.mark === "unread" || tab.mark === "read") ? tab : null;
   const toggleTab = () => {
     if (!tabAction) return;
     if (tabAction.mark === "unread") {
-      store.markChatsRead(row.serverId, [tabAction.id]);
-      onToast({ text: `Marked "${tabAction.title}" read`, undo: () => store.markChatUnread(row.serverId, tabAction.id) });
+      const changes = store.markChatsRead(row.serverId, [tabAction.id]);
+      onToast({ text: `Marked "${tabAction.title}" read`, undo: () => store.undoReads(changes) });
     } else {
-      store.markChatUnread(row.serverId, tabAction.id);
-      onToast({ text: `"${tabAction.title}" is back in your Inbox`, undo: () => store.markChatsRead(row.serverId, [tabAction.id]) });
+      const changes = store.markChatUnread(row.serverId, tabAction.id);
+      onToast({ text: `"${tabAction.title}" is back in your Inbox`, undo: () => store.undoReads(changes) });
     }
   };
 

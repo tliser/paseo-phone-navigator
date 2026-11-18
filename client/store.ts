@@ -11,7 +11,7 @@ import {
   type ProfilesDocument,
 } from "../shared/profiles";
 import { moveRelative, type Place } from "../shared/order";
-import { markSeen, normalizeReads, readAgentKey, readKey, type ReadMap, type ReadsDocument } from "../shared/reads";
+import { markSeen, normalizeReads, readAgentKey, readKey, undoReads, type ReadChange, type ReadMap, type ReadsDocument } from "../shared/reads";
 import { profilesSettings, readsSettings } from "../shared/settings";
 import { mergeProfileDocs, mergeReadDocs, mergeUpdateDocs, sameDoc } from "../shared/sync";
 import { checkForUpdateRpc, installedVersionRpc, updatesDocumentSchema, updatesSettings, type InstalledVersion, type UpdatesDocument } from "../shared/updates";
@@ -81,10 +81,12 @@ export interface Store {
   markRead(serverId: string, workspaceIds: readonly string[]): void;
   /** Shows a workspace without chats as unread again until it is marked read. */
   markUnread(serverId: string, workspaceId: string): void;
-  /** Marks these chats read now (Done). Returns the time stamped, so an Undo can tell whether it changed since. */
-  markChatsRead(serverId: string, agentIds: readonly string[]): number;
-  /** Puts a chat back in the Inbox until it is marked read again. */
-  markChatUnread(serverId: string, agentId: string): void;
+  /** Marks these chats read now (Done). Returns what changed, for `undoReads`. */
+  markChatsRead(serverId: string, agentIds: readonly string[]): ReadChange[];
+  /** Puts a chat back in the Inbox until it is marked read again. Returns what changed, for `undoReads`. */
+  markChatUnread(serverId: string, agentId: string): ReadChange[];
+  /** Undoes earlier changes, for keys nothing has changed since. */
+  undoReads(changes: readonly ReadChange[]): void;
   /**
    * Agents and models the host can launch in this folder. Paseo discovers providers lazily, so the
    * first answer may still have some loading: `onChange` gets every newer list until none is
@@ -417,19 +419,21 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     emitNow();
   }
 
-  function markKeysRead(keys: readonly string[]): number {
-    const now = Date.now();
-    if (!keys.length) return now;
-    for (const key of keys) unsavedReads[key] = now;
+  function writeReads(values: Readonly<Record<string, number>>): ReadChange[] {
+    const changes = Object.entries(values).map(([key, after]) => ({ key, after }));
+    if (!changes.length) return changes;
+    Object.assign(unsavedReads, values);
     scheduleReads();
-    return now;
+    return changes;
   }
 
-  function markKeyUnread(key: string) {
-    // Kept as an explicit mark: news Paseo has already cleared would otherwise read as read again.
-    unsavedReads[key] = -Date.now();
-    scheduleReads();
+  function markKeysRead(keys: readonly string[]): ReadChange[] {
+    const now = Date.now();
+    return writeReads(Object.fromEntries(keys.map((key) => [key, now])));
   }
+
+  /** Kept as an explicit mark: news Paseo has already cleared would otherwise read as read again. */
+  const markKeyUnread = (key: string) => writeReads({ [key]: -Date.now() });
 
   function flushCollapse() {
     if (timers.collapse !== undefined) clearTimeout(timers.collapse);
@@ -580,6 +584,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     markUnread: (serverId, workspaceId) => markKeyUnread(readKey(serverId, workspaceId)),
     markChatsRead: (serverId, agentIds) => markKeysRead(agentIds.map((id) => readAgentKey(serverId, id))),
     markChatUnread: (serverId, agentId) => markKeyUnread(readAgentKey(serverId, agentId)),
+    undoReads: (changes) => void writeReads(undoReads(currentReads(), changes, Date.now())),
     watchProviders(serverId, cwd, onChange) {
       const api = apiFor(serverId);
       let live = true;

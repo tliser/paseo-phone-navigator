@@ -1,7 +1,7 @@
 // The navigator's top: Inbox and Running indicators, Options, the views control, and the search field.
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
-import { useRef, useState } from "react";
+import { useRef, useState, type RefObject } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { InboxTally } from "../shared/inbox";
 import { FILTERS, type Filter } from "../shared/types";
@@ -30,8 +30,11 @@ export function TitleBar({
   onInbox,
   onRunning,
   onOptions,
+  inboxRef,
 }: {
   theme: PluginTheme;
+  /** The Inbox button, so focus can return to it when the Inbox closes. */
+  inboxRef: RefObject<View | null>;
   compact: boolean;
   inbox: InboxTally;
   running: number;
@@ -44,7 +47,6 @@ export function TitleBar({
   const fs = (size: number) => Math.round(size * scale * 2) / 2;
   const [width, setWidth] = useState(0);
   const narrow = width > 0 && width < NARROW_WIDTH;
-  const inboxRef = useRef<View>(null);
   const optionsRef = useRef<View>(null);
   const size = compact ? 44 : 40;
   const label = [`Inbox, ${plural(inbox.total, "chat", "chats")}`, inbox.asking ? `${inbox.asking} ask${inbox.asking === 1 ? "s" : ""} you` : "", inbox.error ? `${inbox.error} failed` : ""]
@@ -145,7 +147,7 @@ export function SearchField({ theme, query, onChange }: { theme: PluginTheme; qu
         style={{ flex: 1, color: c.foreground, fontSize: 15, paddingVertical: 0 }}
       />
       {query ? (
-        <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => onChange("")} style={{ width: 38, height: 38, alignItems: "center", justifyContent: "center" }}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => onChange("")} hitSlop={3} style={{ width: 38, height: 38, alignItems: "center", justifyContent: "center" }}>
           <Icon name="X" size={16} color={c.foregroundMuted} />
         </Pressable>
       ) : null}

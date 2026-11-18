@@ -41,6 +41,23 @@ export function isAgentUnread(reads: ReadMap, serverId: string, workspaceId: str
   return unreadFrom(own ?? reads[readKey(serverId, workspaceId)] ?? 0, agent.unreadAt);
 }
 
+/** A key and the value a mark wrote, so it can be undone. */
+export interface ReadChange {
+  key: string;
+  after: number;
+}
+
+/**
+ * Undo of `changes` at `now`, as fresh marks: hosts merge reads by the latest event, so an older value
+ * written back would lose to the change. A read mark becomes unread again, an unread mark read. Keys
+ * changed since (another device, a later Done) are left alone.
+ */
+export function undoReads(current: ReadMap, changes: readonly ReadChange[], now: number): Record<string, number> {
+  const marks: Record<string, number> = {};
+  for (const { key, after } of changes) if (current[key] === after) marks[key] = after < 0 ? now : -now;
+  return marks;
+}
+
 const KEEP_DAYS = 60;
 const MAX_ENTRIES = 1000;
 

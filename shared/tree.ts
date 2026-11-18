@@ -67,9 +67,9 @@ export interface WorkspaceRow {
 }
 
 /** Status of a tab: a chat's state, or a terminal. */
-export type TabMark = ChatState | "terminal";
+type TabMark = ChatState | "terminal";
 
-export interface TabSummary {
+interface TabSummary {
   /** Collapse key of the tab list. */
   key: string;
   open: boolean;
@@ -107,13 +107,13 @@ interface NoteRow {
   key: string;
   text: string;
 }
-export interface MatchedTab {
+interface MatchedTab {
   title: string;
   kind: "chat" | "sub-agent" | "terminal";
 }
 export type TreeRow = HostRow | ProjectRow | WorkspaceRow | TabRow | SkeletonRow | NoteRow;
 
-export interface TreeResult {
+interface TreeResult {
   rows: TreeRow[];
   /** Workspaces matching filter and search on online hosts. */
   matched: number;
@@ -223,7 +223,7 @@ export function matchesSearch(workspace: WorkspaceInput, hostLabel: string, quer
 }
 
 /** The tab a search hit came through, when the workspace's own fields do not match every term. */
-export function matchReason(workspace: WorkspaceInput, hostLabel: string, query: string): MatchedTab | null {
+function matchReason(workspace: WorkspaceInput, hostLabel: string, query: string): MatchedTab | null {
   const own = ownFields(workspace, hostLabel);
   const missing = searchTerms(query).filter((term) => !own.some((field) => field.includes(term)));
   if (!missing.length) return null;

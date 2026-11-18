@@ -1,7 +1,7 @@
 import type { PluginClientContext, PluginScreenProps, PluginSidebarViewProps } from "@getpaseo/plugin/client";
 import { registerHeaderButtons } from "./client/header-buttons";
 import { NavigatorScreen } from "./client/navigator-screen";
-import { agentRef, terminalRef, workspaceRef } from "./client/refs";
+import { agentRef, workspaceRef } from "./client/refs";
 import { getStore, SCREEN_ID, SETTINGS_ID, setStore } from "./client/runtime";
 import { watchSettings } from "./client/settings-watch";
 import { SettingsScreen } from "./client/settings-screen";
@@ -33,7 +33,7 @@ export default function contribute(client: PluginClientContext) {
       navigation={{
         openWorkspace: ({ workspaceId, serverId }) => navigation.openWorkspace(workspaceRef(serverId ?? "", workspaceId)),
         openAgent: ({ agentId, serverId }) => navigation.openAgent(agentRef(serverId ?? "", agentId)),
-        openTerminal: ({ terminalId, serverId }) => navigation.openTerminal(terminalRef(serverId, terminalId)),
+        openTerminal: (ref) => navigation.openTerminal(ref),
       }}
     />
   );

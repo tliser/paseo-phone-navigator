@@ -10,9 +10,9 @@ export interface RowHeights {
 }
 
 /** Row heights for the density, grown with the interface font size (`scale`, 1 = Paseo's default). */
-export function heightsFor(comfortable: boolean, scale = 1): RowHeights {
+export function heightsFor(comfortable: boolean, scale = 1, touch = false): RowHeights {
   const grow = (px: number) => Math.round(px * Math.max(1, scale));
-  return { group: grow(comfortable ? 52 : 44), workspace: grow(comfortable ? 68 : 56), note: grow(44), tab: grow(comfortable ? 44 : 40) };
+  return { group: grow(comfortable ? 52 : 44), workspace: grow(comfortable ? 68 : 56), note: grow(44), tab: grow(comfortable || touch ? 44 : 40) };
 }
 
 function rowHeight(row: TreeRow, heights: RowHeights): number {

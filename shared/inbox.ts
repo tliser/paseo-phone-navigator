@@ -3,7 +3,7 @@ import type { ReadMap } from "./reads";
 import { chatState } from "./tree";
 import type { HostInput } from "./types";
 
-export type InboxState = "asking" | "error" | "unread";
+type InboxState = "asking" | "error" | "unread";
 
 export interface InboxEntry {
   serverId: string;

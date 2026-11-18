@@ -1,13 +1,12 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PluginScreenProps } from "@getpaseo/plugin/client";
+import type { PluginScreenProps, TerminalRef } from "@getpaseo/plugin/client";
 import { FlatList, Icon } from "@getpaseo/plugin/client/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Animated, Easing, Platform, Pressable, Text, View, type GestureResponderHandlers } from "react-native";
+import { AccessibilityInfo, Animated, Easing, findNodeHandle, Platform, Pressable, Text, View, type GestureResponderHandlers } from "react-native";
 import { timeAgo } from "../shared/format";
 import { expandForAttention, expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
 import { blockEnd, dragId, dragShift, heightsFor, rowOffsets, type DropTarget } from "../shared/drag";
 import { inboxTally, type InboxEntry } from "../shared/inbox";
-import { readAgentKey } from "../shared/reads";
 import { buildTree, workspaceState, type ProjectRow, type TabRow, type Tally, type TreeRow, type WorkspaceRow } from "../shared/tree";
 import type { Filter, WorkspaceState } from "../shared/types";
 import { GLIDE_MS, useDragController } from "./drag-controller";
@@ -36,11 +35,12 @@ const sessionFilters = new Map<string, Filter>();
  * A chat was opened from the Inbox on the phone screen: coming back to the screen reopens the Inbox.
  * The sidebar view leaves the plugin when it opens a chat, so it never sets this.
  */
-let reopenInbox = false;
+let reopenInboxUntil = 0;
+const REOPEN_WINDOW_MS = 10 * 60_000;
 
 type Navigation = NonNullable<PluginScreenProps["navigation"]> & {
   /** Sidebar view only. */
-  openTerminal?(input: { terminalId: string; workspaceId: string; serverId: string }): void;
+  openTerminal?(ref: TerminalRef): void;
 };
 
 export function NavigatorScreen(
@@ -70,11 +70,18 @@ export function NavigatorScreen(
   const [query, setQuery] = useState("");
   /** Open overlay of the title bar and where its button is (desktop popovers hang under it). */
   const [overlay, setOverlay] = useState<{ kind: "inbox" | "options"; anchor: Anchor | null } | null>(() => {
-    if (!reopenInbox || !layout.compact || surface !== "screen") return null;
-    reopenInbox = false;
-    return { kind: "inbox", anchor: null };
+    const reopen = Date.now() < reopenInboxUntil && layout.compact && surface === "screen";
+    reopenInboxUntil = 0;
+    return reopen ? { kind: "inbox", anchor: null } : null;
   });
   const { toast, show: showToast, hide: hideToast } = useToastState();
+  const inboxButton = useRef<View>(null);
+  /** Closing the Inbox returns focus to its button. */
+  const closeInbox = () => {
+    setOverlay(null);
+    const node = findNodeHandle(inboxButton.current);
+    if (node) setTimeout(() => AccessibilityInfo.setAccessibilityFocus(node), 50);
+  };
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   /** Project whose new-workspace draft is open, and workspace whose menu is open. */
@@ -90,7 +97,7 @@ export function NavigatorScreen(
   }, []);
 
   const terminals = useTerminalTabs();
-  const hosts = useMemo(() => withTerminals(snapshot.hosts, terminals), [snapshot.hosts, terminals]);
+  const hosts = useMemo(() => withTerminals(snapshot.hosts, terminals.byWorkspace), [snapshot.hosts, terminals]);
   const tree = useMemo(
     () => buildTree(hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder, pins, archiving: snapshot.archiving }),
     [hosts, snapshot.hostOrder, snapshot.reads, snapshot.archiving, profile.order, filter, query, settings, collapse, now, pins],
@@ -134,10 +141,10 @@ export function NavigatorScreen(
       if (!navigation) return;
       if (row.kind === "chat") navigation.openAgent({ agentId: row.id, serverId: row.serverId });
       // Only the sidebar view can open a terminal; elsewhere its workspace opens.
-      else if (navigation.openTerminal) navigation.openTerminal({ terminalId: row.id, workspaceId: row.workspaceId, serverId: row.serverId });
+      else if (navigation.openTerminal && terminals.refs.has(`${row.serverId}:${row.id}`)) navigation.openTerminal(terminals.refs.get(`${row.serverId}:${row.id}`)!);
       else navigation.openWorkspace({ workspaceId: row.workspaceId, serverId: row.serverId });
     },
-    [navigation],
+    [navigation, terminals],
   );
   const created = useCallback(
     (serverId: string, workspaceId: string) => {
@@ -152,20 +159,13 @@ export function NavigatorScreen(
   const markInboxUnreadRead = () => {
     const byHost = new Map<string, string[]>();
     for (const entry of inbox.entries) if (entry.state === "unread") byHost.set(entry.serverId, [...(byHost.get(entry.serverId) ?? []), entry.agentId]);
-    const marked = [...byHost].map(([serverId, ids]) => ({ serverId, ids, at: store.markChatsRead(serverId, ids) }));
-    const count = marked.reduce((sum, entry) => sum + entry.ids.length, 0);
-    showToast({
-      text: `Marked ${count} unread ${count === 1 ? "chat" : "chats"} read`,
-      undo: () => {
-        const reads = store.getSnapshot().reads;
-        for (const { serverId, ids, at } of marked) for (const id of ids) if (reads[readAgentKey(serverId, id)] === at) store.markChatUnread(serverId, id);
-      },
-    });
+    const changes = [...byHost].flatMap(([serverId, ids]) => store.markChatsRead(serverId, ids));
+    showToast({ text: `Marked ${changes.length} unread ${changes.length === 1 ? "chat" : "chats"} read`, undo: () => store.undoReads(changes) });
   };
   const openFromInbox = (entry: InboxEntry) => {
     setOverlay(null);
     if (!navigation) return;
-    if (layout.compact && surface === "screen") reopenInbox = true;
+    if (layout.compact && surface === "screen") reopenInboxUntil = Date.now() + REOPEN_WINDOW_MS;
     navigation.openAgent({ agentId: entry.agentId, serverId: entry.serverId });
   };
   /** Desktop: manual order. Phones: arrange mode, switching to manual order first when needed. */
@@ -208,7 +208,8 @@ export function NavigatorScreen(
   const [arrangeMode, setArrangeMode] = useState(false);
   const arranging = layout.compact && arrangeMode;
   const canArrange = settings.sort === "manual" && !searching && (!layout.compact || arranging);
-  const heights = useMemo(() => heightsFor(comfortable, scale), [comfortable, scale]);
+  const touch = layout.platform !== "web";
+  const heights = useMemo(() => heightsFor(comfortable, scale, touch), [comfortable, scale, touch]);
 
   const drop = useCallback(
     (row: TreeRow, target: DropTarget) => {
@@ -222,7 +223,6 @@ export function NavigatorScreen(
   const offsets = useMemo(() => rowOffsets(tree.rows, heights), [tree.rows, heights]);
   // Rows are dragged by their grip: at once with a mouse or in arrange mode; otherwise after a short hold
   // on touch screens, so a swipe that starts on the grip still scrolls.
-  const touch = layout.platform !== "web";
   const drag = useDragController({ rows: tree.rows, heights, hold: touch && !arranging, onDrop: drop });
   const dragging = drag.state;
   const shift = useMemo(() => (dragging ? dragShift(tree.rows, offsets, dragging.index, dragging.drop) : null), [dragging, tree.rows, offsets]);
@@ -325,6 +325,7 @@ export function NavigatorScreen(
     <View style={{ flex: 1, backgroundColor: c.surface0 }}>
       <View style={{ gap: 8, paddingTop: 4, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: c.border, backgroundColor: c.surface0 }}>
         <TitleBar
+          inboxRef={inboxButton}
           theme={theme}
           compact={layout.compact}
           inbox={inboxCounts}
@@ -357,7 +358,7 @@ export function NavigatorScreen(
       <View style={{ flex: 1, ...(dragging ? { userSelect: "none" } : null) } as never} {...drag.handlers} onLayout={(event) => setAreaHeight(event.nativeEvent.layout.height)}>
         <FlatList
           data={tree.rows}
-          extraData={[dragging, landing, canPeek, scale, canArrange, profile]}
+          extraData={[dragging, landing, canPeek, scale, canArrange, arranging, profile, activeWorkspace, snapshot.projectColors, searching]}
           keyExtractor={(row) => row.key}
           renderItem={renderItem}
           ListFooterComponent={empty}
@@ -444,7 +445,7 @@ export function NavigatorScreen(
             setOverlay(null);
             markInboxUnreadRead();
           }}
-          onClose={() => setOverlay(null)}
+          onClose={closeInbox}
         />
       ) : null}
       {overlay?.kind === "options" ? (
@@ -595,7 +596,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
     lifted !== null
       ? { opacity: 0.95, backgroundColor: c.surface2, borderRadius: 8, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }
       : null;
-  const { group: groupHeight, workspace: workspaceHeight, note: noteHeight, tab: tabHeight } = heightsFor(comfortable, scale);
+  const { group: groupHeight, workspace: workspaceHeight, note: noteHeight, tab: tabHeight } = heightsFor(comfortable, scale, touch);
   const [metaWidth, setMetaWidth] = useState(0);
   const anchorRef = useRef<View>(null);
   const menuRef = useRef<View>(null);
@@ -641,16 +642,29 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         accessibilityRole="button"
         accessibilityLabel={`Project ${row.name}, ${row.count} workspaces${row.collapsed ? tallyWords(row.tally) : ""}`}
         accessibilityState={{ expanded: !row.collapsed }}
+        accessibilityActions={[
+          { name: "activate", label: row.collapsed ? "Expand" : "Collapse" },
+          { name: "actions", label: "Project actions" },
+          ...(onPickColor ? [{ name: "colour", label: "Folder colour" }] : []),
+        ]}
+        onAccessibilityAction={(event) => {
+          const action = event.nativeEvent.actionName;
+          if (action === "actions") openProjectMenu();
+          else if (action === "colour") onPickColor?.(row);
+          else onToggle(row.key);
+        }}
         onPress={() => onToggle(row.key)}
         style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 9 }}
       >
         {/* Long-press the folder to choose its colour; a tap still folds the project. */}
         <Pressable
           accessibilityLabel={`Folder colour of ${row.name}`}
+          accessibilityRole="button"
           onPress={() => onToggle(row.key)}
           onLongPress={onPickColor ? () => onPickColor(row) : undefined}
+          {...contextMenu(() => onPickColor?.(row))}
           delayLongPress={400}
-          hitSlop={8}
+          hitSlop={13}
           style={{ width: 18, alignItems: "center" }}
         >
           <Icon name={row.collapsed ? "Folder" : "FolderOpen"} size={16} color={folder} />
@@ -660,8 +674,6 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
           accessibilityRole="button"
           accessibilityLabel={`Project ${row.name}`}
           accessibilityHint={touch ? "Hold for project actions" : "Right-click for project actions"}
-          accessibilityActions={[{ name: "longpress", label: "Project actions" }]}
-          onAccessibilityAction={() => openProjectMenu()}
           onPress={() => onToggle(row.key)}
           onLongPress={openProjectMenu}
           delayLongPress={400}
@@ -868,7 +880,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
           accessibilityLabel={`Actions for ${workspace.title}`}
           ref={menuRef}
           onPress={() => measureAnchor(menuRef.current, (anchor) => onMenu(row, anchor))}
-          style={{ width: 28, height: workspaceHeight, alignItems: "center", justifyContent: "center" }}
+          style={{ width: 32, height: workspaceHeight, alignItems: "center", justifyContent: "center" }}
         >
           <Icon name="Ellipsis" size={16} color={c.foregroundMuted} />
         </Pressable>

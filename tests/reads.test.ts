@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAgentUnread, isUnread, markSeen, normalizeReads, readAgentKey, readKey } from "../shared/reads";
+import { isAgentUnread, isUnread, markSeen, normalizeReads, readAgentKey, readKey, undoReads } from "../shared/reads";
 
 const DAY = 86_400_000;
 const NOW = 100 * DAY;
@@ -24,6 +24,10 @@ describe("read state", () => {
   it("a chat without its own entry falls back to the workspace's entry from before per-chat reads", () => {
     expect(isAgentUnread({ [readKey("h", "w")]: 20 }, "h", "w", { id: "a", unreadAt: 10 })).toBe(false);
     expect(isAgentUnread({ [readKey("h", "w")]: 20, [readAgentKey("h", "a")]: -NOW }, "h", "w", { id: "a", unreadAt: 10 })).toBe(true);
+  });
+  it("undo writes a fresh opposite mark, only for keys nothing changed since", () => {
+    const changes = [{ key: "a", after: 10 }, { key: "b", after: -10 }, { key: "c", after: 10 }];
+    expect(undoReads({ a: 10, b: -10, c: 20 }, changes, 30)).toEqual({ a: -30, b: 30 });
   });
   it("marks seen, keeps the later time, and prunes views and unread marks older than 60 days", () => {
     const reads = { a: NOW - 70 * DAY, b: NOW - DAY, c: NOW, m: -(NOW - 70 * DAY) };

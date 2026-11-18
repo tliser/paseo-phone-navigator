@@ -20,10 +20,12 @@ function WorkspacesIcon({ theme, size, color }: PluginButtonIconProps) {
   const signal = urgent ? theme.colors.statusWarning : inbox.unread ? UNREAD_BLUE : null;
   return (
     <View
+      accessible
       style={{ width: size, height: size }}
       accessibilityLabel={urgent ? `${urgent} ask you or failed` : inbox.unread ? `${inbox.unread} unread` : undefined}
     >
       <Icon name="Layers" size={size} color={color} />
+      {/* Urgent: a solid amber dot; unread only: a blue ring. Shape tells them apart, not colour alone. */}
       {signal ? (
         <View
           style={{
@@ -33,7 +35,7 @@ function WorkspacesIcon({ theme, size, color }: PluginButtonIconProps) {
             width: dot,
             height: dot,
             borderRadius: dot / 2,
-            backgroundColor: signal,
+            ...(urgent ? { backgroundColor: signal } : { borderWidth: 2, borderColor: signal }),
           }}
         />
       ) : null}

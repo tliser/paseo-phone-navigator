@@ -33,23 +33,28 @@ const ICON: Record<Exclude<MarkKind, "unread" | "read">, string> = {
   terminal: "SquareTerminal",
 };
 
+/** Shared by every spinner: one system subscription while any spinner is mounted. */
 let reduceMotion = false;
 const motionListeners = new Set<(value: boolean) => void>();
-let motionWatched = false;
+let motionSubscription: { remove(): void } | null = null;
 function useReduceMotion(): boolean {
   const [value, setValue] = useState(reduceMotion);
   useEffect(() => {
-    if (!motionWatched) {
-      motionWatched = true;
+    if (!motionSubscription) {
       const publish = (next: boolean) => {
         reduceMotion = next;
         for (const listener of motionListeners) listener(next);
       };
       AccessibilityInfo.isReduceMotionEnabled().then(publish, () => undefined);
-      AccessibilityInfo.addEventListener("reduceMotionChanged", publish);
+      motionSubscription = AccessibilityInfo.addEventListener("reduceMotionChanged", publish);
     }
     motionListeners.add(setValue);
-    return () => void motionListeners.delete(setValue);
+    return () => {
+      motionListeners.delete(setValue);
+      if (motionListeners.size || !motionSubscription) return;
+      motionSubscription.remove();
+      motionSubscription = null;
+    };
   }, []);
   return value;
 }

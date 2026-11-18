@@ -40,14 +40,16 @@ export function Sheet({
   const window = useWindowDimensions();
   const popover = !compact && anchor;
   const panelWidth = Math.min(width, window.width - 16);
+  // Under the button, or above it when there is little room below.
+  const below = popover ? window.height - (anchor.y + anchor.height + 4) - 8 : 0;
+  const above = popover ? anchor.y - 12 : 0;
   const placement = popover
     ? {
         position: "absolute" as const,
         left: Math.max(8, Math.min(anchor.x, window.width - panelWidth - 8)),
-        top: Math.min(anchor.y + anchor.height + 4, window.height - 120),
         width: panelWidth,
-        maxHeight: window.height - (anchor.y + anchor.height + 4) - 8,
         borderRadius: 12,
+        ...(below >= 240 || below >= above ? { top: anchor.y + anchor.height + 4, maxHeight: below } : { bottom: window.height - anchor.y + 4, maxHeight: above }),
       }
     : { position: "absolute" as const, left: 8, right: 8, bottom: 8, maxHeight: window.height * 0.85, borderRadius: 16 };
   return (

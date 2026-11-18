@@ -1,5 +1,5 @@
 // Module-level handles shared by the surfaces of one plugin installation.
-import { useHosts, useTerminals } from "@getpaseo/plugin/client";
+import { useHosts, useTerminals, type TerminalRef } from "@getpaseo/plugin/client";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { resolveProfile, type Profile } from "../shared/profiles";
 import { buildInbox, inboxTally, type Inbox, type InboxTally } from "../shared/inbox";
@@ -55,22 +55,26 @@ export function useActiveProfile(snapshot: StoreSnapshot, platform: Platform, co
 export const SCREEN_ID = "navigator";
 export const SETTINGS_ID = "settings";
 
-/** Terminal tabs per "serverId:workspaceId", from the app's live terminal list. */
-export function useTerminalTabs(): ReadonlyMap<string, TerminalInput[]> {
-  // One group per terminal, so each group's key carries its host, workspace and title.
+/** Terminal tabs per "serverId:workspaceId", from the app's live terminal list, with their real refs. */
+export function useTerminalTabs(): { byWorkspace: ReadonlyMap<string, TerminalInput[]>; refs: ReadonlyMap<string, TerminalRef> } {
+  // `useTerminals` hands out refs only; one group per terminal carries its workspace and title in the group key.
   const groups = useTerminals({
     where: (terminal) => !terminal.isScript,
     orderBy: (a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""),
-    groupBy: (terminal) => JSON.stringify([terminal.hostId, terminal.workspace.id, terminal.ref.id, terminal.title]),
+    groupBy: (terminal) => ({ key: `${terminal.ref.key}\n${terminal.workspace.id}`, title: terminal.title }),
   });
   return useMemo(() => {
     const byWorkspace = new Map<string, TerminalInput[]>();
+    const refs = new Map<string, TerminalRef>();
     for (const group of groups) {
-      const [hostId, workspaceId, id, title] = JSON.parse(group.key) as [string, string, string, string];
-      const key = `${hostId}:${workspaceId}`;
-      byWorkspace.set(key, [...(byWorkspace.get(key) ?? []), { id, title }]);
+      const ref = group.items[0];
+      const workspaceId = group.key.slice(group.key.lastIndexOf("\n") + 1);
+      if (!ref || !workspaceId) continue;
+      const key = `${ref.hostId}:${workspaceId}`;
+      byWorkspace.set(key, [...(byWorkspace.get(key) ?? []), { id: ref.id, title: group.title ?? "Terminal" }]);
+      refs.set(`${ref.hostId}:${ref.id}`, ref);
     }
-    return byWorkspace;
+    return { byWorkspace, refs };
   }, [groups]);
 }
 

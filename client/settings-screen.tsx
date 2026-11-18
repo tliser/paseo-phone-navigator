@@ -144,7 +144,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
               { value: "all", label: "All" },
               { value: "recent", label: "Recent (active lately, or new)" },
               { value: "active", label: "Active (running, new or asking)" },
-              { value: "inbox", label: "Inbox (new or asking)" },
+              { value: "pinned", label: "Pinned" },
             ]}
             onValueChange={(defaultFilter) => updateSettings({ defaultFilter })}
             disabled={!snapshot.profilesReady}

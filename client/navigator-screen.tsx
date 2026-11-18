@@ -6,6 +6,7 @@ import { Animated, Easing, Platform, Pressable, Text, View, type GestureResponde
 import { timeAgo } from "../shared/format";
 import { expandForAttention, expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
 import { blockEnd, dragId, dragShift, heightsFor, rowOffsets, type DropTarget } from "../shared/drag";
+import { buildInbox, inboxTally } from "../shared/inbox";
 import { buildTree, workspaceState, type AgentRow, type ProjectRow, type TreeRow, type WorkspaceRow } from "../shared/tree";
 import { FILTERS, type Filter } from "../shared/types";
 import { GLIDE_MS, useDragController } from "./drag-controller";
@@ -19,7 +20,7 @@ import { WorkspaceMenu } from "./workspace-menu";
 import { ColorPicker } from "./color-picker";
 import { projectColorHex, projectColorKey } from "../shared/colors";
 
-const FILTER_LABEL: Record<Filter, string> = { all: "All", recent: "Recent", active: "Active", inbox: "Inbox" };
+const FILTER_LABEL: Record<Filter, string> = { all: "All", recent: "Recent", active: "Active", pinned: "Pinned" };
 
 /** Filter picked in this session per profile; starts at the profile's default. */
 const sessionFilters = new Map<string, Filter>();
@@ -93,29 +94,25 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
     (row: WorkspaceRow) => {
       if (!navigation) return;
       navigation.openWorkspace({ workspaceId: row.workspace.id, serverId: row.serverId });
-      // Viewing it is reading it. A prompt that is still waiting keeps the row amber regardless.
-      store.markRead(row.serverId, [row.workspace.id]);
     },
-    [navigation, store],
+    [navigation],
   );
   const openAgent = useCallback(
     (row: AgentRow) => {
       if (!navigation) return;
       navigation.openAgent({ agentId: row.agent.id, serverId: row.serverId });
-      store.markRead(row.serverId, [row.workspaceId]);
     },
-    [navigation, store],
+    [navigation],
   );
   const created = useCallback(
     (serverId: string, workspaceId: string) => {
       setDraftFor(null);
-      store.markRead(serverId, [workspaceId]);
       navigation?.openWorkspace({ workspaceId, serverId });
     },
-    [store, navigation],
+    [navigation],
   );
-  const unreadIds = (serverId: string | null) =>
-    tree.rows.flatMap((row) => (row.type === "workspace" && row.state === "unread" && (!serverId || row.serverId === serverId) ? [row] : []));
+  const inbox = useMemo(() => buildInbox(snapshot.hosts, snapshot.reads), [snapshot.hosts, snapshot.reads]);
+  const inboxCounts = inboxTally(inbox.entries);
   const closeSearch = () => {
     setSearchOpen(false);
     setQuery("");
@@ -221,7 +218,7 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
     <EmptyState
       theme={theme}
       icon="Search"
-      title={query.trim() ? `No workspaces match "${query.trim()}"` : filter === "inbox" ? "Inbox zero: nothing new, nothing asking" : filter === "recent" ? `Nothing active in the last ${settings.recentDays === 1 ? "day" : `${settings.recentDays} days`}` : "Nothing running, new or asking"}
+      title={query.trim() ? `No workspaces match "${query.trim()}"` : filter === "pinned" ? "Nothing pinned" : filter === "recent" ? `Nothing active in the last ${settings.recentDays === 1 ? "day" : `${settings.recentDays} days`}` : "Nothing running, new or asking"}
       action={{ label: "Show all", onPress: () => { setFilter("all"); closeSearch(); } }}
     />
   ) : null;
@@ -265,13 +262,13 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
             <HeaderButton theme={theme} icon="Search" label="Search" onPress={() => setSearchOpen(true)} />
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`${tree.tally.needsYou} asking you, ${tree.tally.unread} unread. Toggle the inbox filter.`}
-              onPress={() => setFilter(filter === "inbox" ? (settings.defaultFilter === "inbox" ? "all" : settings.defaultFilter) : "inbox")}
+              accessibilityLabel={`Inbox, ${inboxCounts.total} chats, ${inboxCounts.asking} ask you, ${inboxCounts.error} failed. Show active workspaces.`}
+              onPress={() => setFilter("active")}
               style={{ height: 44, justifyContent: "center" }}
             >
-              <View style={{ height: 32, paddingHorizontal: 9, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderColor: filter === "inbox" ? c.foreground : c.border, backgroundColor: filter === "inbox" ? c.surface2 : "transparent" }}>
+              <View style={{ height: 32, paddingHorizontal: 9, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderColor: c.border }}>
                 <Icon name="Inbox" size={14} color={c.foreground} />
-                {tree.tally.needsYou || tree.tally.unread ? <TallyBadge theme={theme} tally={tree.tally} small /> : <Text style={{ fontSize: fs(13), color: c.foregroundMuted }}>0</Text>}
+                {inboxCounts.total ? <TallyBadge theme={theme} tally={{ needsYou: inboxCounts.asking + inboxCounts.error, unread: inboxCounts.unread }} small /> : <Text style={{ fontSize: fs(13), color: c.foregroundMuted }}>0</Text>}
               </View>
             </Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel={`Filter: ${FILTER_LABEL[filter]}`} onPress={() => setMenu((value) => !value)} style={{ height: 44, justifyContent: "center", marginLeft: 4 }}>
@@ -281,12 +278,11 @@ export function NavigatorScreen(props: PluginScreenProps & { openSettings(): voi
               </View>
             </Pressable>
             <View style={{ flex: 1 }} />
-            {tree.tally.unread ? (
-              <HeaderButton theme={theme} icon="CheckCheck" label={`Mark ${tree.tally.unread} unread as read`} onPress={() => {
-                const rows = unreadIds(null);
+            {inboxCounts.unread ? (
+              <HeaderButton theme={theme} icon="CheckCheck" label={`Mark ${inboxCounts.unread} unread as read`} onPress={() => {
                 const byHost = new Map<string, string[]>();
-                for (const row of rows) byHost.set(row.serverId, [...(byHost.get(row.serverId) ?? []), row.workspace.id]);
-                for (const [serverId, ids] of byHost) store.markRead(serverId, ids);
+                for (const entry of inbox.entries) if (entry.state === "unread") byHost.set(entry.serverId, [...(byHost.get(entry.serverId) ?? []), entry.agentId]);
+                for (const [serverId, ids] of byHost) store.markChatsRead(serverId, ids);
               }} />
             ) : null}
             <HeaderButton
@@ -493,25 +489,6 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
   const separator = { borderBottomWidth: 1, borderBottomColor: c.border };
   /** Trailing buttons: wider on touch screens. */
   const buttonWidth = touch ? 44 : 40;
-  if (row.type === "pinned") {
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Pinned, ${row.count} workspaces`}
-        accessibilityState={{ expanded: !row.collapsed }}
-        onPress={() => onToggle(row.key)}
-        style={{ height: groupHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: 12, backgroundColor: c.surface1, ...separator }}
-      >
-        <View style={{ width: 18, alignItems: "center" }}>
-          <Icon name="Pin" size={14} color={c.foregroundMuted} />
-        </View>
-        <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>Pinned</Text>
-        <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.count}</Text>
-        <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} />
-      </Pressable>
-    );
-  }
-
   if (row.type === "host") {
     const online = row.state === "online";
     // Offline: name and "offline" stay readable; only the dot and chevron are dimmed.
@@ -617,7 +594,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${agent.sub ? "Sub-agent" : "Agent"} ${agent.title}, ${look.label}${meta ? `, ${meta}` : ""}`}
+        accessibilityLabel={`${agent.parentId ? "Sub-agent" : "Agent"} ${agent.title}, ${look.label}${meta ? `, ${meta}` : ""}`}
         disabled={!canOpen}
         onPress={() => onOpenAgent?.(row)}
         style={({ pressed }) => ({ height: agentHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 29, paddingRight: 12, backgroundColor: pressed ? c.surface1 : c.surface0 })}
@@ -625,7 +602,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         {/* Thread line from the workspace's icon down to its agents. */}
         <View style={{ width: 1, alignSelf: "stretch", backgroundColor: c.border, marginRight: 6 }} />
         {/* Sub-agents are marked with a branch arrow. */}
-        {agent.sub ? <Icon name="CornerDownRight" size={12} color={c.foregroundMuted} /> : null}
+        {agent.parentId ? <Icon name="CornerDownRight" size={12} color={c.foregroundMuted} /> : null}
         <Icon name={look.icon} size={14} color={look.color} />
         <Text numberOfLines={1} style={{ flex: 1, opacity: agent.status === "closed" ? 0.6 : 1, color: agent.status === "idle" || agent.status === "closed" ? c.foregroundMuted : c.foreground, fontSize: fs(comfortable ? 14 : 13), fontWeight: agent.status === "asking" || agent.status === "finished" || agent.status === "error" ? "600" : "400" }}>{agent.title}</Text>
         {meta ? <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: "45%", color: c.foregroundMuted, fontSize: fs(12) }}>{meta}</Text> : null}
@@ -644,9 +621,8 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
   const { workspace } = row;
   const show = profile.settings.show;
   const parts: string[] = [];
-  // In the Pinned section a row names where it lives; in search it names its host.
-  if (row.inPinned) parts.push(`${workspace.projectName} · ${row.hostLabel}`);
-  else if (searching) parts.push(row.hostLabel);
+  // In search a row names its host.
+  if (searching) parts.push(row.hostLabel);
   // The branch is drawn in monospace before the other details.
   const branch = show.branch && workspace.branch ? workspace.branch : null;
   if (show.model && row.modelShort) parts.push(row.modelShort);

@@ -2,8 +2,8 @@
 import { shortenModel } from "./format";
 import { applyOrder, type OrderMap } from "./order";
 import { agentsKey, hostKey, isCollapsed, projectKey, type CollapseMap, type ProfileSettings } from "./profiles";
-import { isUnread, type ReadMap } from "./reads";
-import { FILTERS, type AgentInput, type Filter, type HostInput, type ProjectKind, type WorkspaceInput, type WorkspaceState } from "./types";
+import { isAgentUnread, isUnread, type ReadMap } from "./reads";
+import { FILTERS, type AgentInput, type ChatState, type Filter, type HostInput, type ProjectKind, type WorkspaceInput, type WorkspaceState } from "./types";
 
 const DAY_MS = 86_400_000;
 
@@ -40,15 +40,6 @@ export interface ProjectRow {
   /** The order list this row belongs to ("host:<serverId>"). */
   group: string;
 }
-/** Heading of the Pinned section at the very top, above every host. */
-export interface PinnedHeadingRow {
-  type: "pinned";
-  key: typeof PINNED_KEY;
-  collapsed: boolean;
-  count: number;
-}
-export const PINNED_KEY = "pinned";
-
 export interface WorkspaceRow {
   type: "workspace";
   key: string;
@@ -57,10 +48,10 @@ export interface WorkspaceRow {
   workspace: WorkspaceInput;
   state: WorkspaceState;
   modelShort: string;
-  /** Pinned: shown in the Pinned section at the top, in every view. */
+  /** Pinned: passes every view and makes up the Pinned view. */
   pinned: boolean;
-  /** This row is the copy in the Pinned section (it names its project and host). */
-  inPinned?: boolean;
+  /** Search found it only through this tab, so the row says so. */
+  matchedTab?: MatchedTab;
   /** The order list this row belongs to ("proj:<serverId>:<projectId>"). */
   group: string;
   /** Collapse key of its agent rows; set when it has two or more agents. */
@@ -87,7 +78,11 @@ interface NoteRow {
   key: string;
   text: string;
 }
-export type TreeRow = PinnedHeadingRow | HostRow | ProjectRow | WorkspaceRow | AgentRow | SkeletonRow | NoteRow;
+export interface MatchedTab {
+  title: string;
+  kind: "chat" | "sub-agent" | "terminal";
+}
+export type TreeRow = HostRow | ProjectRow | WorkspaceRow | AgentRow | SkeletonRow | NoteRow;
 
 export interface TreeResult {
   rows: TreeRow[];
@@ -115,17 +110,31 @@ export interface TreeOptions {
   now: number;
   /** Host order as configured in the app. */
   hostOrder?: readonly string[];
-  /** Pinned workspaces ("serverId:workspaceId"); shown in the Pinned section at the top, in every view. */
+  /** Pinned workspaces ("serverId:workspaceId"); they pass every view and make up the Pinned view. */
   pins?: ReadonlySet<string>;
 }
 
-/** The state a row shows: a real prompt, then an agent error, beat running beats unread news. */
-export function workspaceState(workspace: WorkspaceInput, serverId: string, reads: ReadMap): WorkspaceState {
-  if (workspace.needsYou) return "needs_you";
-  if (workspace.agentError) return "error";
-  if (workspace.status === "running") return "running";
-  if (isUnread(reads, serverId, workspace.id, workspace.unreadAt)) return "unread";
+/** A chat's state: asking, then error, then unread news, then running; anything else is read. */
+export function chatState(agent: AgentInput, serverId: string, workspaceId: string, reads: ReadMap): ChatState {
+  if (agent.status === "asking") return "asking";
+  if (agent.status === "error") return "error";
+  if (isAgentUnread(reads, serverId, workspaceId, agent)) return "unread";
+  if (agent.status === "running") return "running";
   return "read";
+}
+
+/**
+ * The state a row shows, from its chats: one asking (sub-agents included), then one errored, then the
+ * workspace running, then a top-level chat with unread news. Without chats the workspace's own news counts.
+ */
+export function workspaceState(workspace: WorkspaceInput, serverId: string, reads: ReadMap): WorkspaceState {
+  const agents = workspace.agents ?? [];
+  const states = agents.map((agent) => chatState(agent, serverId, workspace.id, reads));
+  if (workspace.needsYou || states.includes("asking")) return "needs_you";
+  if (workspace.agentError || states.includes("error")) return "error";
+  if (workspace.status === "running") return "running";
+  if (agents.length) return agents.some((agent, index) => !agent.parentId && states[index] === "unread") ? "unread" : "read";
+  return isUnread(reads, serverId, workspace.id, workspace.unreadAt) ? "unread" : "read";
 }
 
 /** needs you (asking or errored), then unread, then running, then the rest. */
@@ -136,6 +145,7 @@ function stateRank(state: WorkspaceState): number {
 interface Ranked {
   workspace: WorkspaceInput;
   state: WorkspaceState;
+  pinned?: boolean;
 }
 
 function compareRanked(a: Ranked, b: Ranked): number {
@@ -149,6 +159,7 @@ function compareRanked(a: Ranked, b: Ranked): number {
 
 export function passesFilter(item: Ranked, filter: Filter, settings: ProfileSettings, now: number): boolean {
   const { workspace, state } = item;
+  if (filter === "pinned") return !!item.pinned;
   // Hide old finished workspaces, but never one that is new to you or asks for you.
   if (state === "read" && workspace.status !== "running" && settings.hideDone !== "off") {
     const limit = (settings.hideDone === "1d" ? 1 : 7) * DAY_MS;
@@ -156,19 +167,33 @@ export function passesFilter(item: Ranked, filter: Filter, settings: ProfileSett
   }
   if (filter === "recent") return state !== "read" || (!!workspace.activityAt && now - workspace.activityAt <= settings.recentDays * DAY_MS);
   if (filter === "active") return state !== "read";
-  if (filter === "inbox") return state === "needs_you" || state === "error" || state === "unread";
   return true;
 }
 
-/** Case-insensitive; every whitespace-separated term must match one of title, branch, project, host or model. */
+const searchTerms = (query: string) => query.toLowerCase().split(/\s+/).filter(Boolean);
+
+function ownFields(workspace: WorkspaceInput, hostLabel: string): string[] {
+  return [workspace.title, workspace.branch ?? "", workspace.projectName, hostLabel, shortenModel(workspace.model)].map((field) => field.toLowerCase());
+}
+
+function tabsOf(workspace: WorkspaceInput): MatchedTab[] {
+  return (workspace.agents ?? []).map((agent) => ({ title: agent.title, kind: agent.parentId ? "sub-agent" : "chat" }));
+}
+
+/** Case-insensitive; every whitespace-separated term must match one of title, branch, project, host, model or a tab title. */
 export function matchesSearch(workspace: WorkspaceInput, hostLabel: string, query: string): boolean {
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const terms = searchTerms(query);
   if (!terms.length) return true;
-  const agentTitles = (workspace.agents ?? []).map((agent) => agent.title);
-  const fields = [workspace.title, workspace.branch ?? "", workspace.projectName, hostLabel, shortenModel(workspace.model), ...agentTitles].map(
-    (field) => field.toLowerCase(),
-  );
+  const fields = [...ownFields(workspace, hostLabel), ...tabsOf(workspace).map((tab) => tab.title.toLowerCase())];
   return terms.every((term) => fields.some((field) => field.includes(term)));
+}
+
+/** The tab a search hit came through, when the workspace's own fields do not match every term. */
+export function matchReason(workspace: WorkspaceInput, hostLabel: string, query: string): MatchedTab | null {
+  const own = ownFields(workspace, hostLabel);
+  const missing = searchTerms(query).filter((term) => !own.some((field) => field.includes(term)));
+  if (!missing.length) return null;
+  return tabsOf(workspace).find((tab) => missing.some((term) => tab.title.toLowerCase().includes(term))) ?? null;
 }
 
 function orderHosts(hosts: readonly HostInput[], order: readonly string[] | undefined): HostInput[] {
@@ -193,8 +218,8 @@ function addTally(tally: Tally, state: WorkspaceState): void {
 }
 
 /** A workspace row, followed by its agent rows when it has several agents and they are unfolded. */
-function workspaceRows(host: HostInput, item: Ranked, group: string, inPinned: boolean, pinned: boolean, collapse: CollapseMap, settings: ProfileSettings): TreeRow[] {
-  const row = workspaceRow(host, item, group, inPinned, pinned);
+function workspaceRows(host: HostInput, item: Ranked, group: string, query: string, collapse: CollapseMap, settings: ProfileSettings): TreeRow[] {
+  const row = workspaceRow(host, item, group, query);
   const agents = item.workspace.agents ?? [];
   if (agents.length < 2) return [row];
   const key = agentsKey(host.serverId, item.workspace.id);
@@ -218,27 +243,26 @@ function workspaceRows(host: HostInput, item: Ranked, group: string, inPinned: b
   ];
 }
 
-function workspaceRow(host: HostInput, item: Ranked, group: string, inPinned: boolean, pinned: boolean): WorkspaceRow {
+function workspaceRow(host: HostInput, item: Ranked, group: string, query: string): WorkspaceRow {
+  const matchedTab = query ? matchReason(item.workspace, host.label, query) : null;
   return {
     type: "workspace",
-    key: `${inPinned ? "pin" : "ws"}:${host.serverId}:${item.workspace.id}`,
+    key: `ws:${host.serverId}:${item.workspace.id}`,
     serverId: host.serverId,
     hostLabel: host.label,
     workspace: item.workspace,
     state: item.state,
     modelShort: shortenModel(item.workspace.model),
-    pinned,
-    ...(inPinned ? { inPinned: true } : {}),
+    pinned: !!item.pinned,
+    ...(matchedTab ? { matchedTab } : {}),
     group,
   };
 }
 
 export function buildTree(hosts: readonly HostInput[], options: TreeOptions): TreeResult {
   const { filter, settings, collapse, reads, now } = options;
-  // Pinned workspaces are listed in the Pinned section at the very top and in their project; filters never hide them.
+  // Pinned workspaces pass every view (search still applies), so pinning never hides a project.
   const pins = options.pins ?? new Set<string>();
-  /** Each pinned workspace with its agent rows. */
-  const pinnedRows: { row: WorkspaceRow; rows: TreeRow[] }[] = [];
   const isPinned = (serverId: string, workspaceId: string) => pins.has(`${serverId}:${workspaceId}`);
   const manual = settings.sort === "manual";
   const order = options.order ?? {};
@@ -248,7 +272,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   const hidden = new Set(settings.hiddenHosts);
   const rows: TreeRow[] = [];
   const groupKeys: string[] = [];
-  const counts: Record<Filter, number> = { all: 0, recent: 0, active: 0, inbox: 0 };
+  const counts: Record<Filter, number> = { all: 0, recent: 0, active: 0, pinned: 0 };
   const total: Tally = { needsYou: 0, unread: 0 };
   let matched = 0;
   let totalOnline = 0;
@@ -275,7 +299,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
     // Group by project, keeping each project's activity from all its workspaces (filtering must not change rank).
     const projects = new Map<string, { id: string; name: string; kind: ProjectKind; rootPath: string; activity: number; all: Ranked[]; tally: Tally }>();
     for (const workspace of host.workspaces) {
-      const item: Ranked = { workspace, state: workspaceState(workspace, host.serverId, reads) };
+      const item: Ranked = { workspace, state: workspaceState(workspace, host.serverId, reads), pinned: isPinned(host.serverId, workspace.id) };
       let project = projects.get(workspace.projectId);
       if (!project) {
         project = { id: workspace.projectId, name: workspace.projectName, kind: workspace.projectKind, rootPath: workspace.projectRootPath, activity: 0, all: [], tally: { needsYou: 0, unread: 0 } };
@@ -305,23 +329,16 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
         const pKey = projectKey(host.serverId, project.id);
         const all = manual ? applyOrder(project.all, (entry) => entry.workspace.id, order[pKey], compareRanked) : [...project.all].sort(compareRanked);
         groups[pKey] = all.map((entry) => entry.workspace.id);
-        // Pinned workspaces are shown in the Pinned section and also keep their place in their project.
-        // They pass every filter (search still applies), so pinning never hides a project.
-        for (const entry of all) {
-          if (!isPinned(host.serverId, entry.workspace.id) || !matchesSearch(entry.workspace, host.label, query)) continue;
-          const block = workspaceRows(host, entry, pKey, true, true, collapse, settings);
-          pinnedRows.push({ row: block[0] as WorkspaceRow, rows: block });
-        }
-        const visible = all.filter(
-          (entry) => (isPinned(host.serverId, entry.workspace.id) || passesFilter(entry, filter, settings, now)) && matchesSearch(entry.workspace, host.label, query),
-        );
-        return { ...project, visible };
+        const visible = all.filter((entry) => (entry.pinned || passesFilter(entry, filter, settings, now)) && matchesSearch(entry.workspace, host.label, query));
+        // A search hit on the project name lists the project even when none of its workspaces match.
+        const nameHit = searching && searchTerms(query).every((term) => project.name.toLowerCase().includes(term));
+        return { ...project, visible, nameHit };
       })
-      .filter((project) => project.visible.length > 0);
+      .filter((project) => project.visible.length > 0 || project.nameHit);
 
     const count = visibleProjects.reduce((sum, project) => sum + project.visible.length, 0);
     matched += count;
-    if (searching && count === 0) continue;
+    if (searching && !visibleProjects.length) continue;
 
     groupKeys.push(hKey);
     for (const project of visibleProjects) groupKeys.push(projectKey(host.serverId, project.id));
@@ -336,7 +353,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       continue;
     }
     if (visibleProjects.length === 0) {
-      rows.push({ type: "note", key: `${hKey}#filtered`, text: filter === "inbox" ? "Nothing new" : filter === "active" ? "Nothing active or new" : filter === "recent" ? "Nothing recent" : "Nothing matches" });
+      rows.push({ type: "note", key: `${hKey}#filtered`, text: filter === "pinned" ? "Nothing pinned" : filter === "active" ? "Nothing active or new" : filter === "recent" ? "Nothing recent" : "Nothing matches" });
       continue;
     }
     for (const project of visibleProjects) {
@@ -344,17 +361,9 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       const projectCollapsed = searching ? false : isCollapsed(collapse, pKey, settings);
       rows.push({ type: "project", key: pKey, serverId: host.serverId, projectId: project.id, name: project.name, kind: project.kind, rootPath: project.rootPath, collapsed: projectCollapsed, count: project.visible.length, tally: project.tally, group: hKey });
       if (projectCollapsed) continue;
-      for (const item of project.visible) rows.push(...workspaceRows(host, item, pKey, false, isPinned(host.serverId, item.workspace.id), collapse, settings));
+      if (!project.visible.length) rows.push({ type: "note", key: `${pKey}#nomatch`, text: "No matching workspaces" });
+      for (const item of project.visible) rows.push(...workspaceRows(host, item, pKey, query, collapse, settings));
     }
-  }
-
-  if (pinnedRows.length) {
-    // Pinned section first, in pin order is not tracked: most urgent first like any project.
-    pinnedRows.sort((x, y) => compareRanked({ workspace: x.row.workspace, state: x.row.state }, { workspace: y.row.workspace, state: y.row.state }));
-    const collapsed = searching ? false : isCollapsed(collapse, PINNED_KEY, settings);
-    const heading: PinnedHeadingRow = { type: "pinned", key: PINNED_KEY, collapsed, count: pinnedRows.length };
-    rows.unshift(heading, ...(collapsed ? [] : pinnedRows.flatMap((entry) => entry.rows)));
-    groupKeys.unshift(PINNED_KEY);
   }
 
   return {

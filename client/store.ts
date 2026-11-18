@@ -11,7 +11,7 @@ import {
   type ProfilesDocument,
 } from "../shared/profiles";
 import { moveRelative, type Place } from "../shared/order";
-import { markSeen, normalizeReads, readKey, type ReadMap, type ReadsDocument } from "../shared/reads";
+import { markSeen, normalizeReads, readAgentKey, readKey, type ReadMap, type ReadsDocument } from "../shared/reads";
 import { profilesSettings, readsSettings } from "../shared/settings";
 import { mergeProfileDocs, mergeReadDocs, mergeUpdateDocs, sameDoc } from "../shared/sync";
 import { checkForUpdateRpc, installedVersionRpc, updatesDocumentSchema, updatesSettings, type InstalledVersion, type UpdatesDocument } from "../shared/updates";
@@ -50,7 +50,7 @@ export interface StoreSnapshot {
   pinsFor(profileId: string): ReadonlySet<string>;
   /** Folder colour id per project ("serverId:projectId"), shared by every profile and device. */
   projectColors: Readonly<Record<string, string>>;
-  /** When you last viewed each workspace ("serverId:workspaceId"). */
+  /** When you marked each chat ("serverId:agent:agentId") or chat-less workspace ("serverId:workspaceId") read. */
   reads: ReadMap;
   savingError: string | null;
   /** Hosts that report an error. */
@@ -75,10 +75,14 @@ export interface Store {
   editProfiles(change: (profiles: Profile[]) => Profile[]): void;
   /** Moves one item within its group of the profile's manual order. `ids` is the group's full current order. */
   move(profileId: string, group: string, ids: readonly string[], id: string, targetId: string, place: Place): void;
-  /** You viewed these workspaces now: they stop being unread. */
+  /** Marks workspaces without chats read now. */
   markRead(serverId: string, workspaceIds: readonly string[]): void;
-  /** Show the workspace as unread again until you next view it. */
+  /** Shows a workspace without chats as unread again until it is marked read. */
   markUnread(serverId: string, workspaceId: string): void;
+  /** Marks these chats read now (Done). */
+  markChatsRead(serverId: string, agentIds: readonly string[]): void;
+  /** Puts a chat back in the Inbox until it is marked read again. */
+  markChatUnread(serverId: string, agentId: string): void;
   /**
    * Agents and models the host can launch in this folder. Paseo discovers providers lazily, so the
    * first answer may still have some loading: `onChange` gets every newer list until none is
@@ -385,16 +389,16 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     emitNow();
   }
 
-  function markRead(serverId: string, workspaceIds: readonly string[]) {
-    if (!workspaceIds.length) return;
+  function markKeysRead(keys: readonly string[]) {
+    if (!keys.length) return;
     const now = Date.now();
-    for (const id of workspaceIds) unsavedReads[readKey(serverId, id)] = now;
+    for (const key of keys) unsavedReads[key] = now;
     scheduleReads();
   }
 
-  function markUnread(serverId: string, workspaceId: string) {
-    // Kept as an explicit mark: a workspace whose news Paseo has already cleared would otherwise read as read again.
-    unsavedReads[readKey(serverId, workspaceId)] = -Date.now();
+  function markKeyUnread(key: string) {
+    // Kept as an explicit mark: news Paseo has already cleared would otherwise read as read again.
+    unsavedReads[key] = -Date.now();
     scheduleReads();
   }
 
@@ -543,8 +547,10 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     },
     editProfiles,
     move,
-    markRead,
-    markUnread,
+    markRead: (serverId, workspaceIds) => markKeysRead(workspaceIds.map((id) => readKey(serverId, id))),
+    markUnread: (serverId, workspaceId) => markKeyUnread(readKey(serverId, workspaceId)),
+    markChatsRead: (serverId, agentIds) => markKeysRead(agentIds.map((id) => readAgentKey(serverId, id))),
+    markChatUnread: (serverId, agentId) => markKeyUnread(readAgentKey(serverId, agentId)),
     watchProviders(serverId, cwd, onChange) {
       const api = apiFor(serverId);
       let live = true;

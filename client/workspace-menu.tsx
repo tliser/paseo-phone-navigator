@@ -122,7 +122,12 @@ export function WorkspaceMenu({ theme, row, profileId, onClose }: { theme: Plugi
               <Pressable
                 accessibilityRole="button"
                 onPress={() => {
-                  if (row.state === "unread") store.markRead(row.serverId, [workspace.id]);
+                  // Reads are per chat; a workspace without chats keeps its own mark.
+                  const chats = (workspace.agents ?? []).filter((agent) => !agent.parentId);
+                  if (row.state === "unread") {
+                    if (chats.length) store.markChatsRead(row.serverId, chats.map((agent) => agent.id));
+                    else store.markRead(row.serverId, [workspace.id]);
+                  } else if (chats[0]) store.markChatUnread(row.serverId, chats[0].id);
                   else store.markUnread(row.serverId, workspace.id);
                   onClose();
                 }}

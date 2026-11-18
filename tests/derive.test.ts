@@ -92,7 +92,7 @@ describe("agents of a workspace", () => {
         agent("sub", "x", "2026-01-04T00:00:00Z", { labels: { "paseo.parent-agent-id": "new" } }),
       ],
     );
-    expect(w!.agents!.map((a) => `${a.title}:${a.status}:${a.sub}`)).toEqual(["Agent 3:idle:true", "Review:asking:false", "Agent 1:finished:false"]);
+    expect(w!.agents!.map((a) => `${a.title}:${a.status}:${a.parentId}`)).toEqual(["Agent 3:idle:new", "Review:asking:null", "Agent 1:finished:null"]);
   });
   it("closed agents are listed after open ones; archived and internal ones are left out", () => {
     const [w] = deriveWorkspaces(

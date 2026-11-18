@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { defaultSettings } from "../shared/profiles";
-import { readKey } from "../shared/reads";
+import { readAgentKey, readKey } from "../shared/reads";
 import { buildTree, matchesSearch, passesFilter, tallyHosts, workspaceState, type TreeOptions } from "../shared/tree";
-import type { HostInput, WorkspaceInput } from "../shared/types";
+import type { AgentInput, HostInput, WorkspaceInput } from "../shared/types";
 import { dragId } from "../shared/drag";
 
 const NOW = 1_000_000_000_000;
@@ -25,6 +25,9 @@ const settings = { ...defaultSettings(), newGroupsExpanded: { hosts: true, proje
 const opts = (o: Partial<TreeOptions> = {}): TreeOptions => ({ filter: "all", query: "", settings, collapse: {}, reads: {}, now: NOW, ...o });
 const types = (rows: { type: string }[]) => rows.map((r) => r.type);
 const wsIds = (rows: ReturnType<typeof buildTree>["rows"]) => rows.flatMap((r) => (r.type === "workspace" ? [r.workspace.id] : []));
+function chat(id: string, status: AgentInput["status"], extra: Partial<AgentInput> = {}): AgentInput {
+  return { id, title: `chat ${id}`, model: null, status, parentId: null, activityAt: 1, unreadAt: 0, ...extra };
+}
 const item = (w: WorkspaceInput, reads = {}) => ({ workspace: w, state: workspaceState(w, "h", reads) });
 
 describe("workspace state (asking vs unread vs read)", () => {
@@ -70,12 +73,10 @@ describe("sorting", () => {
 });
 
 describe("filters and search", () => {
-  it("active = running, new or asking; inbox = new or asking", () => {
+  it("active = running, new or asking", () => {
     expect(passesFilter(item(ws("1", "p", "done", 1)), "active", settings, NOW)).toBe(false);
     expect(passesFilter(item(ws("1", "p", "running", 1)), "active", settings, NOW)).toBe(true);
-    expect(passesFilter(item(ws("1", "p", "running", 1)), "inbox", settings, NOW)).toBe(false);
-    expect(passesFilter(item(ws("1", "p", "attention", 1, { news: 1 })), "inbox", settings, NOW)).toBe(true);
-    expect(passesFilter(item(ws("1", "p", "attention", 1, { news: 5 }), { [readKey("h", "1")]: NOW }), "inbox", settings, NOW)).toBe(false);
+    expect(passesFilter(item(ws("1", "p", "attention", 1, { news: 5 }), { [readKey("h", "1")]: NOW }), "active", settings, NOW)).toBe(false);
   });
   it("recent = active within the configured days, plus anything running, new or asking", () => {
     const day = 60 * 24;
@@ -113,10 +114,10 @@ describe("filters and search", () => {
   });
   it("counts per filter honor the search", () => {
     const tree = buildTree([host("h", [ws("1", "p", "done", 1, { title: "x" }), ws("2", "p", "failed", 1, { title: "x", news: 1 }), ws("3", "p", "running", 1, { title: "y" })])], opts({ query: "x" }));
-    expect(tree.counts).toEqual({ all: 2, recent: 2, active: 1, inbox: 1 });
+    expect(tree.counts).toEqual({ all: 2, recent: 2, active: 1, pinned: 0 });
   });
   it("reports empty because filtered", () => {
-    const tree = buildTree([host("h", [ws("1", "p", "done", 1)])], opts({ filter: "inbox" }));
+    const tree = buildTree([host("h", [ws("1", "p", "done", 1)])], opts({ filter: "active" }));
     expect(tree.emptyBecauseFiltered).toBe(true);
     expect(types(tree.rows)).toEqual(["host", "note"]);
   });
@@ -168,7 +169,7 @@ describe("manual order", () => {
     expect(wsIds(t.rows)).toEqual(["b", "a"]);
   });
   it("exposes complete groups even when a filter hides items", () => {
-    const t = tree({ "proj:h:p": ["a", "b"] }, { filter: "inbox" });
+    const t = tree({ "proj:h:p": ["a", "b"] }, { filter: "pinned", pins: new Set(["h:b"]) });
     expect(wsIds(t.rows)).toEqual(["b"]);
     expect(t.groups["proj:h:p"]).toEqual(["a", "b"]);
     expect(t.groups["host:h"]).toEqual(["p", "q"]);
@@ -179,40 +180,21 @@ describe("manual order", () => {
 
 describe("pins", () => {
   const hosts = () => [host("h", [ws("a", "p", "done", 1), ws("b", "p", "running", 5), ws("old", "p", "done", 60 * 24 * 30)])];
-  it("show in a Pinned section above every host and keep their place in their project, even when old finished ones are hidden", () => {
-    const tree = buildTree(hosts(), opts({ pins: new Set(["h:old"]), settings: { ...settings, hideDone: "7d" } }));
-    expect(types(tree.rows)).toEqual(["pinned", "workspace", "host", "project", "workspace", "workspace", "workspace"]);
-    expect(wsIds(tree.rows)).toEqual(["old", "b", "a", "old"]);
-    const inProject = tree.rows[6];
-    expect(inProject?.type === "workspace" && inProject.pinned && !inProject.inPinned).toBe(true);
-    const pinned = tree.rows[1];
-    expect(pinned?.type === "workspace" && pinned.inPinned && pinned.pinned).toBe(true);
-    expect(tree.groupKeys[0]).toBe("pinned");
+  it("pass every view in their project, even when old finished ones are hidden", () => {
+    const tree = buildTree(hosts(), opts({ pins: new Set(["h:old"]), settings: { ...settings, hideDone: "7d" }, filter: "active" }));
+    expect(wsIds(tree.rows)).toEqual(["b", "old"]);
+    const pinned = tree.rows.find((r) => r.type === "workspace" && r.workspace.id === "old");
+    expect(pinned?.type === "workspace" && pinned.pinned).toBe(true);
   });
-  it("keep their project visible in filtered views; only the copy in the project can be dragged", () => {
-    const tree = buildTree(hosts(), opts({ pins: new Set(["h:a"]), filter: "active" }));
-    expect(types(tree.rows)).toEqual(["pinned", "workspace", "host", "project", "workspace", "workspace"]);
-    expect(wsIds(tree.rows)).toEqual(["a", "b", "a"]);
-    expect(dragId(tree.rows[1]!)).toBeNull();
-    expect(dragId(tree.rows[5]!)).toBe("a");
-  });
-  it("a project whose only shown workspace is pinned does not vanish", () => {
-    const tree = buildTree([host("h", [ws("x", "solo", "done", 60 * 24 * 30)])], opts({ pins: new Set(["h:x"]), filter: "inbox" }));
-    expect(types(tree.rows)).toEqual(["pinned", "workspace", "host", "project", "workspace"]);
-  });
-  it("fold with the section and still match search", () => {
-    const folded = buildTree(hosts(), opts({ pins: new Set(["h:a"]), collapse: { pinned: true } }));
-    expect(types(folded.rows).slice(0, 2)).toEqual(["pinned", "host"]);
-    const searched = buildTree(hosts(), opts({ pins: new Set(["h:a"]), query: "br-b" }));
-    expect(types(searched.rows)[0]).toBe("host");
+  it("the Pinned view shows only pinned workspaces", () => {
+    const tree = buildTree(hosts(), opts({ pins: new Set(["h:a"]), filter: "pinned" }));
+    expect(wsIds(tree.rows)).toEqual(["a"]);
+    expect(tree.counts.pinned).toBe(1);
   });
 });
 
 describe("agent rows", () => {
-  const agents = [
-    { id: "a1", title: "Plan", model: "anthropic/claude-opus-4-1", status: "asking" as const, activityAt: 2, sub: false },
-    { id: "a2", title: "Fix", model: null, status: "idle" as const, activityAt: 1, sub: false },
-  ];
+  const agents = [chat("a1", "asking", { title: "Plan", activityAt: 2 }), chat("a2", "idle", { title: "Fix" })];
   const hosts = () => [host("h", [ws("a", "p", "running", 1, { agents }), ws("b", "p", "done", 5, { agents: [agents[0]!] })])];
   it("are folded by default; a workspace with two or more agents offers them", () => {
     const tree = buildTree(hosts(), opts());
@@ -222,10 +204,10 @@ describe("agent rows", () => {
     const b = tree.rows[3];
     expect(b?.type === "workspace" && b.agentsKey).toBeUndefined();
   });
-  it("unfold under their workspace, also in the Pinned section", () => {
-    const tree = buildTree(hosts(), opts({ collapse: { "agents:h:a": false }, pins: new Set(["h:a"]) }));
-    expect(types(tree.rows)).toEqual(["pinned", "workspace", "agent", "agent", "host", "project", "workspace", "agent", "agent", "workspace"]);
-    const first = tree.rows[2];
+  it("unfold under their workspace", () => {
+    const tree = buildTree(hosts(), opts({ collapse: { "agents:h:a": false } }));
+    expect(types(tree.rows)).toEqual(["host", "project", "workspace", "agent", "agent", "workspace"]);
+    const first = tree.rows[3];
     expect(first?.type === "agent" && first.agent.title).toBe("Plan");
   });
   it("agent titles are searchable", () => {
@@ -238,10 +220,37 @@ describe("agent errors", () => {
   it("an errored agent needs you: own state, counts as asking, shows in Inbox and Active", () => {
     const w = ws("e", "p", "done", 1, { agentError: true });
     expect(workspaceState(w, "h", {})).toBe("error");
-    expect(passesFilter(item(w), "inbox", settings, NOW)).toBe(true);
     expect(passesFilter(item(w), "active", settings, NOW)).toBe(true);
     expect(tallyHosts([host("h", [w])], {})).toEqual({ needsYou: 1, unread: 0 });
     // A real question still wins over the error.
     expect(workspaceState(ws("q", "p", "needs_input", 1, { agentError: true }), "h", {})).toBe("needs_you");
+  });
+});
+
+describe("read state per chat", () => {
+  const chats = [chat("c1", "finished", { unreadAt: min(5) }), chat("c2", "finished", { unreadAt: min(5) })];
+  it("Done on one chat leaves its sibling unread, so the workspace stays unread", () => {
+    const w = ws("w", "p", "attention", 1, { agents: chats });
+    expect(workspaceState(w, "h", { [readAgentKey("h", "c1")]: NOW })).toBe("unread");
+    expect(workspaceState(w, "h", { [readAgentKey("h", "c1")]: NOW, [readAgentKey("h", "c2")]: NOW })).toBe("read");
+  });
+  it("an asking sub-agent makes the workspace ask you", () => {
+    const w = ws("w", "p", "running", 1, { agents: [chat("m", "running"), chat("s", "asking", { parentId: "m" })] });
+    expect(workspaceState(w, "h", {})).toBe("needs_you");
+  });
+});
+
+describe("search reasons", () => {
+  it("a project-name hit lists the project even without matching workspaces", () => {
+    const tree = buildTree([host("h", [ws("1", "atlas", "done", 1)])], opts({ query: "ATLAS", filter: "active" }));
+    expect(types(tree.rows)).toEqual(["host", "project", "note"]);
+  });
+  it("a hit only through a tab says which tab", () => {
+    const w = ws("1", "p", "done", 1, { agents: [chat("m", "idle", { title: "Main" }), chat("s", "idle", { title: "Contrast check", parentId: "m" })] });
+    const tree = buildTree([host("h", [w])], opts({ query: "contrast" }));
+    const row = tree.rows.find((r) => r.type === "workspace");
+    expect(row?.type === "workspace" && row.matchedTab).toEqual({ title: "Contrast check", kind: "sub-agent" });
+    const own = buildTree([host("h", [w])], opts({ query: "title" })).rows.find((r) => r.type === "workspace");
+    expect(own?.type === "workspace" && own.matchedTab).toBeUndefined();
   });
 });

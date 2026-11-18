@@ -3,8 +3,17 @@ import { z } from "zod";
 import type { Platform } from "./types";
 
 const platformSchema = z.enum(["ios", "android", "web"]);
-/** "attention" was the filter's name before read state existed; it maps to the inbox. */
-const filterSchema = z.preprocess((value) => (value === "attention" ? "inbox" : value), z.enum(["all", "recent", "active", "inbox"]));
+/** The Inbox (earlier "attention") was a view; it is a sheet now, so a profile that opened on it opens on Active. */
+const filterSchema = z.preprocess((value) => (value === "attention" || value === "inbox" ? "active" : value), z.enum(["all", "recent", "active", "pinned"]));
+
+const ROW_FIELDS = ["branch", "model", "diff"] as const;
+export type RowField = (typeof ROW_FIELDS)[number];
+
+/** Known values once each, in the given order; missing ones are appended. */
+export function normalizeFieldOrder(raw: unknown): RowField[] {
+  const given = Array.isArray(raw) ? raw.filter((value): value is RowField => (ROW_FIELDS as readonly unknown[]).includes(value)) : [];
+  return [...new Set([...given, ...ROW_FIELDS])];
+}
 
 const profileSettingsSchema = z.object({
   density: z.enum(["compact", "comfortable"]).default("compact"),
@@ -14,8 +23,16 @@ const profileSettingsSchema = z.object({
       branch: z.boolean().default(true),
       diff: z.boolean().default(true),
       time: z.boolean().default(true),
+      /** Tab marks and the tab list of a workspace. */
+      tabs: z.boolean().default(true),
+      /** Sub-agents under their parent tab; has no effect while `tabs` is off. */
+      subagents: z.boolean().default(true),
     })
-    .default({ model: true, branch: true, diff: true, time: true }),
+    .default({ model: true, branch: true, diff: true, time: true, tabs: true, subagents: true }),
+  /** Order of the values on a row's second line. */
+  fieldOrder: z.unknown().optional().transform(normalizeFieldOrder),
+  /** Rows that ask you, failed or are unread say why instead of branch and model. */
+  statusLine: z.boolean().default(true),
   defaultFilter: filterSchema.default("all"),
   hideDone: z.enum(["off", "1d", "7d"]).default("off"),
   /** The Recent filter shows workspaces active within this many days. */
@@ -133,13 +150,13 @@ export function resolveProfile(
 
 export const hostKey = (serverId: string) => `host:${serverId}`;
 export const projectKey = (serverId: string, projectId: string) => `proj:${serverId}:${projectId}`;
-/** A workspace's agent rows; folded unless opened. */
+/** A workspace's tab list; folded unless opened. */
 export const agentsKey = (serverId: string, workspaceId: string) => `agents:${serverId}:${workspaceId}`;
+/** The sub-agents under one tab; folded unless opened. */
+export const subagentsKey = (serverId: string, workspaceId: string, agentId: string) => `subagents:${serverId}:${workspaceId}:${agentId}`;
 
 function defaultCollapsed(key: string, settings: ProfileSettings): boolean {
-  // The Pinned section at the top always starts open.
-  if (key === "pinned") return false;
-  if (key.startsWith("agents:")) return true;
+  if (key.startsWith("agents:") || key.startsWith("subagents:")) return true;
   return key.startsWith("host:") ? !settings.newGroupsExpanded.hosts : !settings.newGroupsExpanded.projects;
 }
 

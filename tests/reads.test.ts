@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isUnread, markSeen, normalizeReads, readKey } from "../shared/reads";
+import { isAgentUnread, isUnread, markSeen, normalizeReads, readAgentKey, readKey } from "../shared/reads";
 
 const DAY = 86_400_000;
 const NOW = 100 * DAY;
@@ -14,6 +14,16 @@ describe("read state", () => {
   it("stays unread when marked so, even with no news from Paseo", () => {
     expect(isUnread({ [readKey("h", "w")]: -NOW }, "h", "w", 0)).toBe(true);
     expect(isUnread({ [readKey("h", "w")]: -NOW }, "h", "w", NOW + 5)).toBe(true);
+  });
+  it("a chat is unread when its news came after Done, or when put back in the Inbox", () => {
+    const agent = { id: "a", unreadAt: 10 };
+    expect(isAgentUnread({ [readAgentKey("h", "a")]: 5 }, "h", "w", agent)).toBe(true);
+    expect(isAgentUnread({ [readAgentKey("h", "a")]: 20 }, "h", "w", agent)).toBe(false);
+    expect(isAgentUnread({ [readAgentKey("h", "a")]: -NOW }, "h", "w", { id: "a", unreadAt: 0 })).toBe(true);
+  });
+  it("a chat without its own entry falls back to the workspace's entry from before per-chat reads", () => {
+    expect(isAgentUnread({ [readKey("h", "w")]: 20 }, "h", "w", { id: "a", unreadAt: 10 })).toBe(false);
+    expect(isAgentUnread({ [readKey("h", "w")]: 20, [readAgentKey("h", "a")]: -NOW }, "h", "w", { id: "a", unreadAt: 10 })).toBe(true);
   });
   it("marks seen, keeps the later time, and prunes views and unread marks older than 60 days", () => {
     const reads = { a: NOW - 70 * DAY, b: NOW - DAY, c: NOW, m: -(NOW - 70 * DAY) };

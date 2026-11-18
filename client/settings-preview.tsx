@@ -24,8 +24,8 @@ function sampleHosts(now: number): HostInput[] {
       ws("checkout", "web-app", "Checkout redesign", "needs_input", 3),
       ws("tokens", "web-app", "Dark mode tokens", "running", 1, {
         agents: [
-          { id: "a1", title: "Build the palette", model: "anthropic/claude-sonnet-4-5", status: "running", activityAt: now - MINUTE, sub: false },
-          { id: "a2", title: "Check contrast", model: "openai/gpt-5.4", status: "finished", activityAt: now - 5 * MINUTE, sub: true },
+          { id: "a1", title: "Build the palette", model: "anthropic/claude-sonnet-4-5", status: "running", activityAt: now - MINUTE, parentId: null, unreadAt: 0 },
+          { id: "a2", title: "Check contrast", model: "openai/gpt-5.4", status: "finished", activityAt: now - 5 * MINUTE, parentId: "a1", unreadAt: now - 5 * MINUTE },
         ],
       }),
       ws("login", "web-app", "Fix flaky login test", "attention", 12, { unreadAt: now - 12 * MINUTE }),

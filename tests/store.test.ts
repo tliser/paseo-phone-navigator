@@ -236,7 +236,10 @@ describe("store workspace actions", () => {
       workspaces: {
         ...base.workspaces,
         create: async (options: unknown) => (calls.push({ kind: "create", value: options }), handle(`w${calls.length}`)),
-        archive: async (id: string) => void calls.push({ kind: "archive", value: id }),
+        archive: async (id: string) => {
+          if (id === "fails") throw new Error("busy");
+          calls.push({ kind: "archive", value: id });
+        },
         ref: (id: string) => ({ setTitle: async (title: string | null) => (calls.push({ kind: "rename", value: [id, title] }), { title }) }),
       },
       providers: {
@@ -332,6 +335,22 @@ describe("store workspace actions", () => {
     store.setPinned("phone", "h", "w1", false);
     expect([...store.getSnapshot().pinsFor("phone")]).toEqual(["h:w2"]);
     expect([...store.getSnapshot().pinsFor("desktop")]).toEqual([]);
+    store.dispose();
+  });
+
+  it("archive keeps the row and its pin until the host drops it, and clears the mark on failure", async () => {
+    const { store } = setup();
+    await flush();
+    store.setPinned("phone", "h", "fails", true);
+    await expect(store.archiveWorkspace("h", "fails")).rejects.toThrow("busy");
+    expect(store.getSnapshot().archiving.size).toBe(0);
+    expect([...store.getSnapshot().pinsFor("phone")]).toEqual(["h:fails"]);
+    // The fake host lists no workspaces, so once the archive succeeds the next update drops it and its pin.
+    store.setPinned("phone", "h", "w1", true);
+    await store.archiveWorkspace("h", "w1");
+    vi.advanceTimersByTime(300);
+    expect(store.getSnapshot().archiving.size).toBe(0);
+    expect([...store.getSnapshot().pinsFor("phone")]).toEqual(["h:fails"]);
     store.dispose();
   });
 });

@@ -53,6 +53,8 @@ export interface StoreSnapshot {
   /** When you marked each chat ("serverId:agent:agentId") or chat-less workspace ("serverId:workspaceId") read. */
   reads: ReadMap;
   savingError: string | null;
+  /** Workspaces ("serverId:workspaceId") being archived: shown dimmed until the host drops them. */
+  archiving: ReadonlySet<string>;
   /** Hosts that report an error. */
   errors: string[];
 }
@@ -93,6 +95,7 @@ export interface Store {
   providerToggles(serverId: string, draft: { provider: string; model: string; modeId?: string; cwd: string }): Promise<ProviderToggle[]>;
   /** Creates a workspace with its first agent or terminal. Nothing exists before this resolves. Returns the workspace id. */
   launchWorkspace(serverId: string, input: LaunchInput): Promise<string>;
+  /** Archives on the host. The row stays (archiving) until the host drops it; then its pins go. Rejects on failure. */
   archiveWorkspace(serverId: string, workspaceId: string): Promise<void>;
   dispose(): void;
 }
@@ -215,6 +218,10 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   const unsavedCollapse = new Map<string, CollapseMap>();
 
   const derivedCache = new Map<string, { source: HostDirectory; workspaces: HostInput["workspaces"] }>();
+  /** Archive requested ("serverId:workspaceId"); shown dimmed. */
+  const archiving = new Set<string>();
+  /** Of those, the ones the host confirmed: dropped (with their pins) once the host no longer lists them. */
+  const archived = new Set<string>();
   let snapshot = build();
 
   function currentProfiles(): Profile[] {
@@ -273,6 +280,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       reads: currentReads(),
       projectColors: Object.fromEntries(Object.entries(profilesDoc.value().projectColors).map(([key, entry]) => [key, entry.color])),
       savingError: profilesDoc.error() ?? readsDoc.error(),
+      archiving: new Set(archiving),
       errors: hostInputs.flatMap((host) => (host.error ? [`${host.label}: ${host.error}`] : [])),
     };
   }
@@ -283,7 +291,27 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     timers.emit = undefined;
     migrateDevicePins();
     snapshot = build();
+    dropArchived();
     for (const listener of [...listeners]) listener();
+  }
+
+  /** Workspaces the host no longer lists after an archive: forget them and drop their pins in every profile. */
+  function dropArchived() {
+    const gone = [...archived].filter((key) => {
+      const host = snapshot.hosts.find((entry) => key.startsWith(`${entry.serverId}:`));
+      if (!host || host.loading) return false;
+      return !host.workspaces.some((workspace) => readKey(host.serverId, workspace.id) === key);
+    });
+    if (!gone.length) return;
+    for (const key of gone) {
+      archiving.delete(key);
+      archived.delete(key);
+    }
+    const now = Date.now();
+    if (currentProfiles().some((profile) => profile.pins.some((pin) => gone.includes(pin)))) {
+      editProfiles((profiles) => profiles.map((profile) => (profile.pins.some((pin) => gone.includes(pin)) ? { ...profile, pins: profile.pins.filter((pin) => !gone.includes(pin)), updatedAt: now } : profile)));
+    }
+    snapshot = build();
   }
 
   function emitSoon() {
@@ -617,7 +645,18 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       return handle.id;
     },
     async archiveWorkspace(serverId, workspaceId) {
-      await apiFor(serverId).workspaces.archive(workspaceId);
+      const key = readKey(serverId, workspaceId);
+      archiving.add(key);
+      emitNow();
+      try {
+        await apiFor(serverId).workspaces.archive(workspaceId);
+      } catch (error) {
+        archiving.delete(key);
+        emitNow();
+        throw error;
+      }
+      archived.add(key);
+      emitNow();
     },
     dispose() {
       if (timers.stop !== undefined) clearTimeout(timers.stop);

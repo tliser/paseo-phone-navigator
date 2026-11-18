@@ -18,11 +18,14 @@ import { InboxSheet } from "./inbox-sheet";
 import { OptionsMenu } from "./options-menu";
 import { useActiveProfile, useInbox, useNavigatorStore, useTerminalTabs, withTerminals } from "./runtime";
 import type { Anchor } from "./sheet";
+import type { Place } from "../shared/order";
 import { SearchField, TitleBar, ViewsControl } from "./title-bar";
 import { Toast, useToastState } from "./toast";
 import { Mark, MARK_LABEL, markColor, TallyMarks, type MarkKind } from "./marks";
 import { UNREAD_BLUE } from "./colors";
-import { WorkspaceMenu } from "./workspace-menu";
+import { WorkspaceMenu, type MenuTarget } from "./workspace-menu";
+import { ProjectMenu } from "./project-menu";
+import { measureAnchor } from "./sheet";
 import { ColorPicker } from "./color-picker";
 import { projectColorHex, projectColorKey } from "../shared/colors";
 
@@ -76,7 +79,8 @@ export function NavigatorScreen(
   const [now, setNow] = useState(() => Date.now());
   /** Project whose new-workspace draft is open, and workspace whose menu is open. */
   const [draftFor, setDraftFor] = useState<ProjectRow | null>(null);
-  const [menuFor, setMenuFor] = useState<WorkspaceRow | null>(null);
+  const [menuFor, setMenuFor] = useState<MenuTarget | null>(null);
+  const [projectFor, setProjectFor] = useState<{ row: ProjectRow; anchor: Anchor | null } | null>(null);
   const [colorFor, setColorFor] = useState<ProjectRow | null>(null);
 
   // Relative times stay fresh without re-rendering on every data tick.
@@ -88,8 +92,8 @@ export function NavigatorScreen(
   const terminals = useTerminalTabs();
   const hosts = useMemo(() => withTerminals(snapshot.hosts, terminals), [snapshot.hosts, terminals]);
   const tree = useMemo(
-    () => buildTree(hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder, pins }),
-    [hosts, snapshot.hostOrder, snapshot.reads, profile.order, filter, query, settings, collapse, now, pins],
+    () => buildTree(hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder, pins, archiving: snapshot.archiving }),
+    [hosts, snapshot.hostOrder, snapshot.reads, snapshot.archiving, profile.order, filter, query, settings, collapse, now, pins],
   );
   const loading = snapshot.hosts.some((host) => host.loading);
   useEffect(() => {
@@ -171,6 +175,17 @@ export function NavigatorScreen(
     showToast({ text: "Order is now manual", undo: () => set("auto") });
   };
   const closeSearch = () => setQuery("");
+  /** Moves an item one place up or down in its manual order group. */
+  const step = (group: string, id: string, direction: -1 | 1) => {
+    const ids = tree.groups[group] ?? [];
+    const target = ids[ids.indexOf(id) + direction];
+    if (target) store.move(profile.id, group, ids, id, target, (direction < 0 ? "before" : "after") as Place);
+  };
+  const archive = (row: WorkspaceRow) => {
+    store.archiveWorkspace(row.serverId, row.workspace.id).catch(() => showToast({ text: `Could not archive ${row.workspace.title}` }));
+  };
+  /** The workspace row a tab row belongs to. */
+  const rowOfTab = (tab: TabRow) => tree.rows.find((entry): entry is WorkspaceRow => entry.type === "workspace" && entry.serverId === tab.serverId && entry.workspace.id === tab.workspaceId);
   const anyCollapsed = tree.groupKeys.some((key) => isCollapsed(collapse, key, settings));
 
   const comfortable = settings.density === "comfortable";
@@ -205,28 +220,34 @@ export function NavigatorScreen(
     return { start: index, end: blockEnd(tree.rows, index), from: drag.landing.top - (offsets[index] ?? 0) };
   }, [drag.landing, tree.rows, offsets]);
 
-  // Full names: on hover (desktop) or while long-pressing (phones).
+  // Info card on hover (desktop): a first delay, then it swaps almost at once while moving between rows.
+  // Phones show the same card at the top of a row's action sheet instead.
   const [peek, setPeek] = useState<Peek | null>(null);
   const [areaHeight, setAreaHeight] = useState(0);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPeekAt = useRef(0);
   const peekAt = useCallback(
-    (row: TreeRow, index: number, show: boolean, delay: number) => {
+    (row: TreeRow, index: number, show: boolean) => {
       if (hoverTimer.current) clearTimeout(hoverTimer.current);
       hoverTimer.current = null;
       if (!show) {
-        setPeek((current) => (current?.row.key === row.key ? null : current));
+        setPeek((current) => {
+          if (current?.row.key !== row.key) return current;
+          lastPeekAt.current = Date.now();
+          return null;
+        });
         return;
       }
+      const scanning = Date.now() - lastPeekAt.current < 400;
       const place = () => setPeek({ row, top: (offsets[index + 1] ?? 0) - drag.scrollY(), rowTop: (offsets[index] ?? 0) - drag.scrollY() });
-      if (delay) hoverTimer.current = setTimeout(place, delay);
-      else place();
+      hoverTimer.current = setTimeout(place, scanning ? 60 : 450);
     },
     [offsets, drag],
   );
   useEffect(() => () => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
   }, []);
-  const canPeek = settings.namesCard && !dragging;
+  const canPeek = settings.namesCard && !dragging && !touch;
 
   const renderItem = ({ item, index }: { item: TreeRow; index: number }) => {
     const carried = !!dragging && !!shift && index >= dragging.index && index < shift.carried;
@@ -251,7 +272,12 @@ export function NavigatorScreen(
           onOpen={open}
           onOpenTab={openTab}
           arranging={false}
-          onMenu={setMenuFor}
+          onMenu={(row, anchor) => setMenuFor({ row, anchor })}
+          onTabMenu={(tab, anchor) => {
+            const row = rowOfTab(tab);
+            if (row) setMenuFor({ row, tab, anchor });
+          }}
+          onProjectMenu={(row, anchor) => setProjectFor({ row, anchor })}
           onCreate={setDraftFor}
           projectColors={snapshot.projectColors}
           onPickColor={setColorFor}
@@ -259,7 +285,7 @@ export function NavigatorScreen(
           dragHandle={canArrange && dragId(item) ? drag.handleFor(index) : undefined}
           active={!!activeWorkspace && item.type === "workspace" && item.serverId === activeWorkspace.serverId && item.workspace.id === activeWorkspace.workspaceId}
           lifted={dragging?.index === index ? dragging.dy : null}
-          onPeek={canPeek ? (show) => peekAt(item, index, show, touch ? 0 : 450) : undefined}
+          onPeek={canPeek ? (show) => peekAt(item, index, show) : undefined}
         />
       </Glide>
     );
@@ -352,7 +378,38 @@ export function NavigatorScreen(
         />
       ) : null}
       {draftFor && !layout.compact ? <NewWorkspaceSheet theme={theme} project={draftFor} compact={false} onClose={() => setDraftFor(null)} onCreated={(id) => created(draftFor.serverId, id)} /> : null}
-      {menuFor ? <WorkspaceMenu theme={theme} row={menuFor} profileId={profile.id} onClose={() => setMenuFor(null)} /> : null}
+      {menuFor ? (
+        <WorkspaceMenu
+          theme={theme}
+          compact={layout.compact}
+          scale={scale}
+          now={now}
+          target={menuFor}
+          profileId={profile.id}
+          manual={settings.sort === "manual"}
+          siblings={tree.groups[menuFor.row.group] ?? []}
+          onMove={(direction) => step(menuFor.row.group, menuFor.row.workspace.id, direction)}
+          onArchive={() => archive(menuFor.row)}
+          onToast={showToast}
+          onClose={() => setMenuFor(null)}
+        />
+      ) : null}
+      {projectFor ? (
+        <ProjectMenu
+          theme={theme}
+          compact={layout.compact}
+          scale={scale}
+          now={now}
+          row={projectFor.row}
+          anchor={projectFor.anchor}
+          manual={settings.sort === "manual"}
+          siblings={tree.groups[projectFor.row.group] ?? []}
+          onCreate={() => setDraftFor(projectFor.row)}
+          onMove={(direction) => step(projectFor.row.group, projectFor.row.projectId, direction)}
+          onPickColor={() => setColorFor(projectFor.row)}
+          onClose={() => setProjectFor(null)}
+        />
+      ) : null}
       {overlay?.kind === "inbox" ? (
         <InboxSheet
           theme={theme}
@@ -453,7 +510,11 @@ interface RowProps {
   onOpenTab?(row: TabRow): void;
   /** Phones in arrange mode: grips only, no tab marks. */
   arranging: boolean;
-  onMenu(row: WorkspaceRow): void;
+  onMenu(row: WorkspaceRow, anchor: Anchor | null): void;
+  /** Hold (phones) or right-click (web) a tab row: its actions. */
+  onTabMenu?(row: TabRow, anchor: Anchor | null): void;
+  /** Hold (phones) or right-click (web) a project's name: its sheet. */
+  onProjectMenu?(row: ProjectRow, anchor: Anchor | null): void;
   onCreate(row: ProjectRow): void;
   /** Folder colour id per project ("serverId:projectId"). */
   projectColors?: Readonly<Record<string, string>>;
@@ -463,7 +524,7 @@ interface RowProps {
   lifted: number | null;
   /** Set in manual mode: responder handlers for the grip at the row's end. */
   dragHandle?: GestureResponderHandlers;
-  /** Show (true) or hide the full-names card for this row (hover, desktop). */
+  /** Show (true) or hide the info card for this row (hover, desktop). */
   onPeek?: (show: boolean) => void;
   /** The workspace open in the app (sidebar view): drawn highlighted. */
   active?: boolean;
@@ -482,7 +543,18 @@ function Grip({ theme, handlers, height, label, wide }: { theme: PluginTheme; ha
   );
 }
 
-/** Hover handlers for the names card on the web; nothing elsewhere. */
+/** Right-click (web) opens a row's actions instead of the browser menu. */
+function contextMenu(open: () => void) {
+  if (Platform.OS !== "web") return {};
+  return {
+    onContextMenu: (event: { preventDefault(): void }) => {
+      event.preventDefault();
+      open();
+    },
+  } as object;
+}
+
+/** Hover handlers for the info card on the web; nothing elsewhere. */
 function hoverProps(onPeek: ((show: boolean) => void) | undefined, touch: boolean) {
   if (!onPeek || touch) return {};
   return { onHoverIn: () => onPeek(true), onHoverOut: () => onPeek(false) };
@@ -496,7 +568,7 @@ const tallyWords = (tally: Tally) =>
 
 const WORKSPACE_MARK: Record<WorkspaceState, MarkKind> = { needs_you: "asking", error: "error", unread: "unread", running: "running", read: "read" };
 
-export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenTab, arranging, onMenu, onCreate, projectColors, onPickColor, lifted, dragHandle, onPeek, active = false }: RowProps) {
+export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenTab, arranging, onMenu, onTabMenu, onProjectMenu, onCreate, projectColors, onPickColor, lifted, dragHandle, onPeek, active = false }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null
@@ -504,6 +576,8 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
       : null;
   const { group: groupHeight, workspace: workspaceHeight, note: noteHeight, tab: tabHeight } = heightsFor(comfortable, scale);
   const [metaWidth, setMetaWidth] = useState(0);
+  const anchorRef = useRef<View>(null);
+  const menuRef = useRef<View>(null);
   const fs = (size: number) => Math.round(size * scale * 2) / 2;
   const fontSize = fs(comfortable ? 15 : 14);
   const separator = { borderBottomWidth: 1, borderBottomColor: c.border };
@@ -536,6 +610,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
   }
 
   if (row.type === "project") {
+    const openProjectMenu = () => measureAnchor(anchorRef.current, (anchor) => onProjectMenu?.(row, anchor));
     const folder = projectColorHex(projectColors?.[projectColorKey(row.serverId, row.projectId)], c.accent);
     // A section heading: tinted band, folder icon, bold name and a coloured bar, so it never reads as a workspace.
     return (
@@ -559,7 +634,22 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         >
           <Icon name={row.collapsed ? "Folder" : "FolderOpen"} size={16} color={folder} />
         </Pressable>
-        <Text numberOfLines={1} style={{ flexShrink: 1, color: c.foreground, fontSize: fs(comfortable ? 15 : 14), fontWeight: "700", letterSpacing: 0.2 }}>{row.name}</Text>
+        <Pressable
+          ref={anchorRef}
+          accessibilityRole="button"
+          accessibilityLabel={`Project ${row.name}`}
+          accessibilityHint={touch ? "Hold for project actions" : "Right-click for project actions"}
+          accessibilityActions={[{ name: "longpress", label: "Project actions" }]}
+          onAccessibilityAction={() => openProjectMenu()}
+          onPress={() => onToggle(row.key)}
+          onLongPress={openProjectMenu}
+          delayLongPress={400}
+          {...contextMenu(openProjectMenu)}
+          {...hoverProps(onPeek, touch)}
+          style={{ flexShrink: 1 }}
+        >
+          <Text numberOfLines={1} style={{ color: c.foreground, fontSize: fs(comfortable ? 15 : 14), fontWeight: "700", letterSpacing: 0.2 }}>{row.name}</Text>
+        </Pressable>
         <View style={{ paddingHorizontal: 6, minWidth: 20, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: c.surface2 }}>
           <Text style={{ color: c.foregroundMuted, fontSize: fs(11), fontWeight: "600" }}>{row.count}</Text>
         </View>
@@ -596,6 +686,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
   }
 
   if (row.type === "tab") {
+    const openTabMenu = () => measureAnchor(anchorRef.current, (anchor) => onTabMenu?.(row, anchor));
     const hot = row.mark === "asking" || row.mark === "error" || row.mark === "unread";
     const kindLabel = row.kind === "terminal" ? "Terminal" : row.depth ? "Sub-agent" : "Chat";
     const subs = row.subagents;
@@ -604,8 +695,15 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${kindLabel} ${row.title}, ${row.kind === "terminal" ? "terminal" : MARK_LABEL[row.mark].toLowerCase()}${row.modelShort ? `, ${row.modelShort}` : ""}`}
-          disabled={!canOpen}
-          onPress={() => onOpenTab?.(row)}
+          ref={anchorRef}
+          disabled={!canOpen && !onTabMenu}
+          onPress={() => canOpen && onOpenTab?.(row)}
+          onLongPress={openTabMenu}
+          delayLongPress={400}
+          accessibilityActions={[{ name: "longpress", label: "Actions" }]}
+          onAccessibilityAction={() => openTabMenu()}
+          {...contextMenu(openTabMenu)}
+          {...hoverProps(onPeek, touch)}
           style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: row.depth ? 62 : 44, paddingRight: subs ? 4 : 12, backgroundColor: pressed ? c.surface1 : "transparent" })}
         >
           <Mark theme={theme} kind={row.mark} size={13} />
@@ -638,6 +736,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
   }
 
   const { workspace } = row;
+  const openMenu = () => measureAnchor(anchorRef.current, (anchor) => onMenu(row, anchor));
   const settings = profile.settings;
   const show = settings.show;
   const glyph = WORKSPACE_MARK[row.state];
@@ -695,12 +794,17 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
     <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", backgroundColor: active ? c.surface2 : c.surface0, opacity: row.archiving ? 0.55 : 1, ...liftStyle }}>
       {active ? <View style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, backgroundColor: c.accent }} /> : null}
       <Pressable
+        ref={anchorRef}
         accessibilityRole="button"
         accessibilityLabel={`${row.pinned ? "Pinned, " : ""}${workspace.title}, ${row.archiving ? "archiving" : MARK_LABEL[glyph].toLowerCase()}${metaText ? `, ${metaText}` : ""}`}
         accessibilityHint={touch ? "Hold for actions" : undefined}
         disabled={row.archiving || (!canOpen && !touch)}
         onPress={() => canOpen && onOpen(row)}
-        {...(touch ? { onLongPress: () => onMenu(row), delayLongPress: 400 } : {})}
+        onLongPress={openMenu}
+        delayLongPress={400}
+        accessibilityActions={[{ name: "longpress", label: "Actions" }]}
+        onAccessibilityAction={() => openMenu()}
+        {...contextMenu(openMenu)}
         {...hoverProps(onPeek, touch)}
         style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 20, paddingRight: 4, backgroundColor: pressed && lifted === null ? c.surface1 : "transparent" })}
       >
@@ -741,7 +845,8 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Actions for ${workspace.title}`}
-          onPress={() => onMenu(row)}
+          ref={menuRef}
+          onPress={() => measureAnchor(menuRef.current, (anchor) => onMenu(row, anchor))}
           style={{ width: 28, height: workspaceHeight, alignItems: "center", justifyContent: "center" }}
         >
           <Icon name="Ellipsis" size={16} color={c.foregroundMuted} />

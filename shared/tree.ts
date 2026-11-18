@@ -58,6 +58,8 @@ export interface WorkspaceRow {
   group: string;
   /** The chat that explains the row's state (asks you, failed or unread), for its status line. */
   reason?: { state: "asking" | "error" | "unread"; title: string };
+  /** Top-level chats with unread news ("Mark workspace read" marks these). */
+  unreadChats: string[];
   /** Archive requested; waiting for the host to drop it. */
   archiving?: boolean;
   /** Its tabs, when the profile shows tabs and it has any. */
@@ -137,6 +139,8 @@ export interface TreeOptions {
   now: number;
   /** Host order as configured in the app. */
   hostOrder?: readonly string[];
+  /** Workspaces ("serverId:workspaceId") being archived. */
+  archiving?: ReadonlySet<string>;
   /** Pinned workspaces ("serverId:workspaceId"); they pass every view and make up the Pinned view. */
   pins?: ReadonlySet<string>;
 }
@@ -262,8 +266,9 @@ function summarize(marks: readonly TabMark[], subagents: number): string {
 }
 
 /** A workspace row, followed by its tab rows when the tab list is unfolded. */
-function workspaceRows(host: HostInput, item: Ranked, group: string, query: string, collapse: CollapseMap, settings: ProfileSettings, reads: ReadMap): TreeRow[] {
-  const row = workspaceRow(host, item, group, query);
+function workspaceRows(host: HostInput, item: Ranked, group: string, query: string, options: TreeOptions): TreeRow[] {
+  const { collapse, settings, reads } = options;
+  const row = workspaceRow(host, item, group, query, options.archiving ?? new Set());
   const { workspace } = item;
   const serverId = host.serverId;
   const agents = workspace.agents ?? [];
@@ -271,6 +276,7 @@ function workspaceRows(host: HostInput, item: Ranked, group: string, query: stri
   const wanted = item.state === "needs_you" ? "asking" : item.state === "error" || item.state === "unread" ? item.state : null;
   const why = wanted ? agents.find((agent) => states.get(agent.id) === wanted && (wanted !== "unread" || !agent.parentId)) : undefined;
   if (wanted && why) row.reason = { state: wanted, title: why.title };
+  row.unreadChats = agents.filter((agent) => !agent.parentId && states.get(agent.id) === "unread").map((agent) => agent.id);
   if (!settings.show.tabs) return [row];
 
   // A sub-agent whose parent is not listed (archived, not loaded) is a top-level tab, so it stays reachable.
@@ -318,7 +324,7 @@ function workspaceRows(host: HostInput, item: Ranked, group: string, query: stri
   return rows;
 }
 
-function workspaceRow(host: HostInput, item: Ranked, group: string, query: string): WorkspaceRow {
+function workspaceRow(host: HostInput, item: Ranked, group: string, query: string, archiving: ReadonlySet<string>): WorkspaceRow {
   const matchedTab = query ? matchReason(item.workspace, host.label, query) : null;
   return {
     type: "workspace",
@@ -329,6 +335,8 @@ function workspaceRow(host: HostInput, item: Ranked, group: string, query: strin
     state: item.state,
     modelShort: shortenModel(item.workspace.model),
     pinned: !!item.pinned,
+    unreadChats: [],
+    ...(archiving.has(`${host.serverId}:${item.workspace.id}`) ? { archiving: true } : {}),
     ...(matchedTab ? { matchedTab } : {}),
     group,
   };
@@ -436,7 +444,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       rows.push({ type: "project", key: pKey, serverId: host.serverId, projectId: project.id, name: project.name, kind: project.kind, rootPath: project.rootPath, collapsed: projectCollapsed, count: project.visible.length, tally: project.tally, group: hKey });
       if (projectCollapsed) continue;
       if (!project.visible.length) rows.push({ type: "note", key: `${pKey}#nomatch`, text: "No matching workspaces" });
-      for (const item of project.visible) rows.push(...workspaceRows(host, item, pKey, query, collapse, settings, reads));
+      for (const item of project.visible) rows.push(...workspaceRows(host, item, pKey, query, options));
     }
   }
 

@@ -1,10 +1,12 @@
-// A "Workspaces" header button on every workspace of the host serving the plugin. Header buttons are
-// registered per workspace, so this follows that host's workspace list and adds or removes buttons.
+// Header buttons on every workspace of the host serving the plugin: "Workspaces" opens the navigator,
+// "Done" marks the open chat read. Header buttons are registered per workspace, so this follows that
+// host's workspace list and adds or removes buttons.
 // Workspaces of other hosts only get it where the plugin is installed on that host as well.
 import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { View } from "react-native";
 import { createHostObserver } from "./host-observer";
+import { ReadStateContent, ReadStateIcon } from "./read-button";
 import { SCREEN_ID, useInboxTally } from "./runtime";
 import { UNREAD_BLUE } from "./visual";
 
@@ -41,7 +43,7 @@ function WorkspacesIcon({ theme, size, color }: PluginButtonIconProps) {
 
 export function registerHeaderButtons(client: PluginClientContext): () => void {
   if (typeof client.addHeaderButton !== "function") return () => undefined;
-  const buttons = new Map<string, PluginButtonRegistration>();
+  const buttons = new Map<string, PluginButtonRegistration[]>();
   const open = () => client.openScreen({ screenId: SCREEN_ID });
 
   const observer = createHostObserver(
@@ -53,18 +55,22 @@ export function registerHeaderButtons(client: PluginClientContext): () => void {
         if (workspace.archivingAt || workspace.background || workspace.internal) continue;
         live.add(workspace.id);
         if (buttons.has(workspace.id)) continue;
-        buttons.set(
-          workspace.id,
+        buttons.set(workspace.id, [
+          client.addHeaderButton({
+            id: "read-state",
+            workspaceId: workspace.id,
+            button: { title: "Done", label: "Done", icon: ReadStateIcon, behavior: { kind: "popover", Content: ReadStateContent } },
+          }),
           client.addHeaderButton({
             id: "workspaces",
             workspaceId: workspace.id,
             button: { title: "Workspaces", icon: WorkspacesIcon, behavior: { kind: "action", onPress: open } },
           }),
-        );
+        ]);
       }
-      for (const [id, button] of buttons) {
+      for (const [id, registrations] of buttons) {
         if (!live.has(id)) {
-          button.remove();
+          for (const registration of registrations) registration.remove();
           buttons.delete(id);
         }
       }
@@ -74,7 +80,7 @@ export function registerHeaderButtons(client: PluginClientContext): () => void {
   observer.start();
   return () => {
     observer.stop();
-    for (const button of buttons.values()) button.remove();
+    for (const registrations of buttons.values()) for (const registration of registrations) registration.remove();
     buttons.clear();
   };
 }

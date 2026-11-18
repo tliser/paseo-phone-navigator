@@ -1,9 +1,9 @@
 // Module-level handles shared by the surfaces of one plugin installation.
-import { useHosts } from "@getpaseo/plugin/client";
+import { useHosts, useTerminals } from "@getpaseo/plugin/client";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { resolveProfile, type Profile } from "../shared/profiles";
 import { buildInbox, inboxTally, type Inbox, type InboxTally } from "../shared/inbox";
-import type { Platform } from "../shared/types";
+import type { HostInput, Platform, TerminalInput } from "../shared/types";
 import type { Store, StoreSnapshot } from "./store";
 
 let current: Store | null = null;
@@ -54,3 +54,34 @@ export function useActiveProfile(snapshot: StoreSnapshot, platform: Platform, co
 
 export const SCREEN_ID = "navigator";
 export const SETTINGS_ID = "settings";
+
+/** Terminal tabs per "serverId:workspaceId", from the app's live terminal list. */
+export function useTerminalTabs(): ReadonlyMap<string, TerminalInput[]> {
+  // One group per terminal, so each group's key carries its host, workspace and title.
+  const groups = useTerminals({
+    where: (terminal) => !terminal.isScript,
+    orderBy: (a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""),
+    groupBy: (terminal) => JSON.stringify([terminal.hostId, terminal.workspace.id, terminal.ref.id, terminal.title]),
+  });
+  return useMemo(() => {
+    const byWorkspace = new Map<string, TerminalInput[]>();
+    for (const group of groups) {
+      const [hostId, workspaceId, id, title] = JSON.parse(group.key) as [string, string, string, string];
+      const key = `${hostId}:${workspaceId}`;
+      byWorkspace.set(key, [...(byWorkspace.get(key) ?? []), { id, title }]);
+    }
+    return byWorkspace;
+  }, [groups]);
+}
+
+/** Hosts with each workspace's terminals filled in. */
+export function withTerminals(hosts: readonly HostInput[], terminals: ReadonlyMap<string, TerminalInput[]>): HostInput[] {
+  if (!terminals.size) return hosts as HostInput[];
+  return hosts.map((host) => ({
+    ...host,
+    workspaces: host.workspaces.map((workspace) => {
+      const list = terminals.get(`${host.serverId}:${workspace.id}`);
+      return list ? { ...workspace, terminals: list } : workspace;
+    }),
+  }));
+}

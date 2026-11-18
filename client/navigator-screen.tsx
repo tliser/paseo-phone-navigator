@@ -8,19 +8,20 @@ import { expandForAttention, expandOrCollapseAll, isCollapsed, toggleCollapsed, 
 import { blockEnd, dragId, dragShift, heightsFor, rowOffsets, type DropTarget } from "../shared/drag";
 import { inboxTally, type InboxEntry } from "../shared/inbox";
 import { readAgentKey } from "../shared/reads";
-import { buildTree, workspaceState, type AgentRow, type ProjectRow, type TreeRow, type WorkspaceRow } from "../shared/tree";
-import type { Filter } from "../shared/types";
+import { buildTree, workspaceState, type ProjectRow, type TabRow, type Tally, type TreeRow, type WorkspaceRow } from "../shared/tree";
+import type { Filter, WorkspaceState } from "../shared/types";
 import { GLIDE_MS, useDragController } from "./drag-controller";
 import { MONO_FONT, useFontScale } from "./font-scale";
 import { NamesCard, type Peek } from "./names-card";
 import { NewWorkspaceSheet } from "./new-workspace-sheet";
 import { InboxSheet } from "./inbox-sheet";
 import { OptionsMenu } from "./options-menu";
-import { useActiveProfile, useInbox, useNavigatorStore } from "./runtime";
+import { useActiveProfile, useInbox, useNavigatorStore, useTerminalTabs, withTerminals } from "./runtime";
 import type { Anchor } from "./sheet";
 import { SearchField, TitleBar, ViewsControl } from "./title-bar";
 import { Toast, useToastState } from "./toast";
-import { AGENT_ERROR_ICON, RUNNING_VIOLET, StateIcon, TallyBadge, UNREAD_BLUE } from "./visual";
+import { Mark, MARK_LABEL, markColor, TallyMarks, type MarkKind } from "./marks";
+import { UNREAD_BLUE } from "./colors";
 import { WorkspaceMenu } from "./workspace-menu";
 import { ColorPicker } from "./color-picker";
 import { projectColorHex, projectColorKey } from "../shared/colors";
@@ -34,8 +35,18 @@ const sessionFilters = new Map<string, Filter>();
  */
 let reopenInbox = false;
 
+type Navigation = NonNullable<PluginScreenProps["navigation"]> & {
+  /** Sidebar view only. */
+  openTerminal?(input: { terminalId: string; workspaceId: string; serverId: string }): void;
+};
+
 export function NavigatorScreen(
-  props: PluginScreenProps & { openSettings(): void; activeWorkspace?: { serverId: string; workspaceId: string } | null; surface: "screen" | "sidebar" },
+  props: Omit<PluginScreenProps, "navigation"> & {
+    navigation?: Navigation;
+    openSettings(): void;
+    activeWorkspace?: { serverId: string; workspaceId: string } | null;
+    surface: "screen" | "sidebar";
+  },
 ) {
   const { theme, layout, navigation, openSettings, activeWorkspace, surface } = props;
   const { store, snapshot } = useNavigatorStore();
@@ -74,9 +85,11 @@ export function NavigatorScreen(
     return () => clearInterval(timer);
   }, []);
 
+  const terminals = useTerminalTabs();
+  const hosts = useMemo(() => withTerminals(snapshot.hosts, terminals), [snapshot.hosts, terminals]);
   const tree = useMemo(
-    () => buildTree(snapshot.hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder, pins }),
-    [snapshot.hosts, snapshot.hostOrder, snapshot.reads, profile.order, filter, query, settings, collapse, now, pins],
+    () => buildTree(hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder, pins }),
+    [hosts, snapshot.hostOrder, snapshot.reads, profile.order, filter, query, settings, collapse, now, pins],
   );
   const loading = snapshot.hosts.some((host) => host.loading);
   useEffect(() => {
@@ -112,10 +125,13 @@ export function NavigatorScreen(
     },
     [navigation],
   );
-  const openAgent = useCallback(
-    (row: AgentRow) => {
+  const openTab = useCallback(
+    (row: TabRow) => {
       if (!navigation) return;
-      navigation.openAgent({ agentId: row.agent.id, serverId: row.serverId });
+      if (row.kind === "chat") navigation.openAgent({ agentId: row.id, serverId: row.serverId });
+      // Only the sidebar view can open a terminal; elsewhere its workspace opens.
+      else if (navigation.openTerminal) navigation.openTerminal({ terminalId: row.id, workspaceId: row.workspaceId, serverId: row.serverId });
+      else navigation.openWorkspace({ workspaceId: row.workspaceId, serverId: row.serverId });
     },
     [navigation],
   );
@@ -233,7 +249,8 @@ export function NavigatorScreen(
           now={now}
           onToggle={toggle}
           onOpen={open}
-          onOpenAgent={openAgent}
+          onOpenTab={openTab}
+          arranging={false}
           onMenu={setMenuFor}
           onCreate={setDraftFor}
           projectColors={snapshot.projectColors}
@@ -242,7 +259,7 @@ export function NavigatorScreen(
           dragHandle={canArrange && dragId(item) ? drag.handleFor(index) : undefined}
           active={!!activeWorkspace && item.type === "workspace" && item.serverId === activeWorkspace.serverId && item.workspace.id === activeWorkspace.workspaceId}
           lifted={dragging?.index === index ? dragging.dy : null}
-          onPeek={canPeek ? (show) => peekAt(item, index, show, touch ? 0 : 600) : undefined}
+          onPeek={canPeek ? (show) => peekAt(item, index, show, touch ? 0 : 450) : undefined}
         />
       </Glide>
     );
@@ -433,7 +450,9 @@ interface RowProps {
   canOpen: boolean;
   onToggle(key: string): void;
   onOpen(row: WorkspaceRow): void;
-  onOpenAgent?(row: AgentRow): void;
+  onOpenTab?(row: TabRow): void;
+  /** Phones in arrange mode: grips only, no tab marks. */
+  arranging: boolean;
   onMenu(row: WorkspaceRow): void;
   onCreate(row: ProjectRow): void;
   /** Folder colour id per project ("serverId:projectId"). */
@@ -444,7 +463,7 @@ interface RowProps {
   lifted: number | null;
   /** Set in manual mode: responder handlers for the grip at the row's end. */
   dragHandle?: GestureResponderHandlers;
-  /** Show (true) or hide the full-names card for this row: hover on desktop, long-press on phones. */
+  /** Show (true) or hide the full-names card for this row (hover, desktop). */
   onPeek?: (show: boolean) => void;
   /** The workspace open in the app (sidebar view): drawn highlighted. */
   active?: boolean;
@@ -469,13 +488,22 @@ function hoverProps(onPeek: ((show: boolean) => void) | undefined, touch: boolea
   return { onHoverIn: () => onPeek(true), onHoverOut: () => onPeek(false) };
 }
 
-export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenAgent, onMenu, onCreate, projectColors, onPickColor, lifted, dragHandle, onPeek, active = false }: RowProps) {
+const tallyWords = (tally: Tally) =>
+  [tally.asking ? `${tally.asking} ask you` : "", tally.error ? `${tally.error} failed` : "", tally.unread ? `${tally.unread} unread` : ""]
+    .filter(Boolean)
+    .map((part) => `, ${part}`)
+    .join("");
+
+const WORKSPACE_MARK: Record<WorkspaceState, MarkKind> = { needs_you: "asking", error: "error", unread: "unread", running: "running", read: "read" };
+
+export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenTab, arranging, onMenu, onCreate, projectColors, onPickColor, lifted, dragHandle, onPeek, active = false }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null
       ? { opacity: 0.95, backgroundColor: c.surface2, borderRadius: 8, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }
       : null;
-  const { group: groupHeight, workspace: workspaceHeight, note: noteHeight, agent: agentHeight } = heightsFor(comfortable, scale);
+  const { group: groupHeight, workspace: workspaceHeight, note: noteHeight, tab: tabHeight } = heightsFor(comfortable, scale);
+  const [metaWidth, setMetaWidth] = useState(0);
   const fs = (size: number) => Math.round(size * scale * 2) / 2;
   const fontSize = fs(comfortable ? 15 : 14);
   const separator = { borderBottomWidth: 1, borderBottomColor: c.border };
@@ -489,7 +517,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${row.label}${online ? `, ${row.count} workspaces` : row.state === "offline" ? ", offline" : ", loading"}`}
+        accessibilityLabel={`${row.label}${online ? `, ${row.count} workspaces${row.collapsed ? tallyWords(row.tally) : ""}` : row.state === "offline" ? ", offline" : ", loading"}`}
         accessibilityState={online ? { expanded: !row.collapsed } : { disabled: true }}
         disabled={!online}
         onPress={() => onToggle(row.key)}
@@ -501,7 +529,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         </View>
         <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>{row.label}</Text>
         {online ? <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.count}</Text> : <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.state === "offline" ? "offline" : "loading…"}</Text>}
-        {online ? <TallyBadge theme={theme} tally={row.tally} /> : null}
+        {online && row.collapsed ? <TallyMarks theme={theme} tally={row.tally} /> : null}
         {online ? <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} /> : null}
       </Pressable>
     );
@@ -512,10 +540,10 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
     // A section heading: tinted band, folder icon, bold name and a coloured bar, so it never reads as a workspace.
     return (
       <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", paddingRight: row.rootPath || dragHandle ? 0 : 12, backgroundColor: c.surface1, borderTopWidth: 1, borderTopColor: c.border, ...separator, ...liftStyle }}>
-      <View style={{ width: 3, alignSelf: "stretch", backgroundColor: row.tally.needsYou ? c.statusWarning : row.tally.unread ? UNREAD_BLUE : folder, opacity: row.tally.needsYou || row.tally.unread ? 1 : 0.55 }} />
+      <View style={{ width: 3, alignSelf: "stretch", backgroundColor: row.tally.asking ? c.statusWarning : row.tally.error ? c.statusDanger : row.tally.unread ? UNREAD_BLUE : folder, opacity: row.tally.asking || row.tally.error || row.tally.unread ? 1 : 0.55 }} />
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Project ${row.name}, ${row.count} workspaces${row.collapsed && row.tally.needsYou ? ", something asks you" : row.collapsed && row.tally.unread ? ", unread" : ""}`}
+        accessibilityLabel={`Project ${row.name}, ${row.count} workspaces${row.collapsed ? tallyWords(row.tally) : ""}`}
         accessibilityState={{ expanded: !row.collapsed }}
         onPress={() => onToggle(row.key)}
         style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 9 }}
@@ -536,7 +564,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
           <Text style={{ color: c.foregroundMuted, fontSize: fs(11), fontWeight: "600" }}>{row.count}</Text>
         </View>
         <View style={{ flex: 1 }} />
-        {row.collapsed ? <TallyBadge theme={theme} tally={row.tally} small /> : null}
+        {row.collapsed ? <TallyMarks theme={theme} tally={row.tally} /> : null}
         <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} />
       </Pressable>
         {row.rootPath ? (
@@ -567,38 +595,37 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
     );
   }
 
-  if (row.type === "agent") {
-    const { agent } = row;
-    const look =
-      agent.status === "asking"
-        ? { icon: "MessageCircleQuestion", color: c.statusWarning, label: "asking you" }
-        : agent.status === "running"
-          ? { icon: "LoaderCircle", color: RUNNING_VIOLET, label: "running" }
-          : agent.status === "error"
-            ? { icon: AGENT_ERROR_ICON, color: c.statusDanger, label: "error" }
-            : agent.status === "finished"
-              ? { icon: "CircleDot", color: UNREAD_BLUE, label: "finished" }
-              : agent.status === "closed"
-                ? { icon: "CircleSlash", color: c.foregroundMuted, label: "closed" }
-                : { icon: "Bot", color: c.foregroundMuted, label: "idle" };
-    const ago = timeAgo(agent.activityAt, now);
-    const meta = [row.modelShort, ago].filter(Boolean).join(" · ");
+  if (row.type === "tab") {
+    const hot = row.mark === "asking" || row.mark === "error" || row.mark === "unread";
+    const kindLabel = row.kind === "terminal" ? "Terminal" : row.depth ? "Sub-agent" : "Chat";
+    const subs = row.subagents;
     return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${agent.parentId ? "Sub-agent" : "Agent"} ${agent.title}, ${look.label}${meta ? `, ${meta}` : ""}`}
-        disabled={!canOpen}
-        onPress={() => onOpenAgent?.(row)}
-        style={({ pressed }) => ({ height: agentHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 29, paddingRight: 12, backgroundColor: pressed ? c.surface1 : c.surface0 })}
-      >
-        {/* Thread line from the workspace's icon down to its agents. */}
-        <View style={{ width: 1, alignSelf: "stretch", backgroundColor: c.border, marginRight: 6 }} />
-        {/* Sub-agents are marked with a branch arrow. */}
-        {agent.parentId ? <Icon name="CornerDownRight" size={12} color={c.foregroundMuted} /> : null}
-        <Icon name={look.icon} size={14} color={look.color} />
-        <Text numberOfLines={1} style={{ flex: 1, opacity: agent.status === "closed" ? 0.6 : 1, color: agent.status === "idle" || agent.status === "closed" ? c.foregroundMuted : c.foreground, fontSize: fs(comfortable ? 14 : 13), fontWeight: agent.status === "asking" || agent.status === "finished" || agent.status === "error" ? "600" : "400" }}>{agent.title}</Text>
-        {meta ? <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: "45%", color: c.foregroundMuted, fontSize: fs(12) }}>{meta}</Text> : null}
-      </Pressable>
+      <View style={{ height: tabHeight, flexDirection: "row", alignItems: "center", backgroundColor: c.surface0 }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${kindLabel} ${row.title}, ${row.kind === "terminal" ? "terminal" : MARK_LABEL[row.mark].toLowerCase()}${row.modelShort ? `, ${row.modelShort}` : ""}`}
+          disabled={!canOpen}
+          onPress={() => onOpenTab?.(row)}
+          style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: row.depth ? 62 : 44, paddingRight: subs ? 4 : 12, backgroundColor: pressed ? c.surface1 : "transparent" })}
+        >
+          <Mark theme={theme} kind={row.mark} size={13} />
+          <Text numberOfLines={1} style={{ flexShrink: 1, color: c.foreground, fontSize: fs(comfortable ? 14 : 13), fontWeight: hot ? "700" : "400" }}>{row.title}</Text>
+          <Text numberOfLines={1} style={{ flex: 1, color: c.foregroundMuted, fontSize: fs(12) }}>{row.kind === "terminal" ? "Terminal" : `${row.depth ? "Sub-agent · " : ""}${row.modelShort}`}</Text>
+        </Pressable>
+        {subs ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${subs.open ? "Hide" : "Show"} ${subs.count} ${subs.count === 1 ? "sub-agent" : "sub-agents"} of ${row.title}${subs.waiting ? `, ${subs.waiting} waiting` : ""}`}
+            accessibilityState={{ expanded: subs.open }}
+            onPress={() => onToggle(subs.key)}
+            style={{ minWidth: buttonWidth, height: tabHeight, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: 8 }}
+          >
+            <Icon name="Bot" size={14} color={subs.waiting ? c.statusWarning : c.foregroundMuted} />
+            <Text style={{ color: subs.waiting ? c.statusWarning : c.foregroundMuted, fontSize: fs(12), fontWeight: "600" }}>{subs.count}</Text>
+            <Icon name={subs.open ? "ChevronDown" : "ChevronRight"} size={12} color={c.foregroundMuted} />
+          </Pressable>
+        ) : null}
+      </View>
     );
   }
 
@@ -611,83 +638,115 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
   }
 
   const { workspace } = row;
-  const show = profile.settings.show;
-  const parts: string[] = [];
-  // In search a row names its host.
-  if (searching) parts.push(row.hostLabel);
-  // The branch is drawn in monospace before the other details.
-  const branch = show.branch && workspace.branch ? workspace.branch : null;
-  if (show.model && row.modelShort) parts.push(row.modelShort);
-  if (show.time) {
-    const ago = timeAgo(workspace.activityAt, now);
-    if (ago) parts.push(ago);
+  const settings = profile.settings;
+  const show = settings.show;
+  const glyph = WORKSPACE_MARK[row.state];
+  const metaSize = fs(comfortable ? 13 : 12);
+  const ago = show.time ? timeAgo(workspace.activityAt, now) : "";
+  // The second line: why search found it, else why it needs you, else the profile's values in its order.
+  let meta: ReactNode = null;
+  let metaText = "";
+  if (row.archiving) {
+    metaText = "Archiving…";
+    meta = <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: metaSize, fontStyle: "italic" }}>{metaText}</Text>;
+  } else if (row.matchedTab) {
+    metaText = `Matches ${row.matchedTab.kind} "${row.matchedTab.title}"`;
+    meta = <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: metaSize, fontStyle: "italic" }}>{metaText}</Text>;
+  } else if (settings.statusLine && row.reason) {
+    metaText = `${MARK_LABEL[row.reason.state]} · ${row.reason.title}`;
+    meta = <Text numberOfLines={1} style={{ color: markColor(theme, row.reason.state), fontSize: metaSize, fontWeight: "600" }}>{metaText}</Text>;
+  } else {
+    const branch = show.branch && workspace.branch ? workspace.branch : "";
+    // Narrow rows drop the model rather than cut it to a stub; the branch shows in full.
+    const charWidth = metaSize * 0.58;
+    const modelFits = !metaWidth || metaWidth - (branch.length + 3) * charWidth >= 7 * charWidth;
+    const pieces: ReactNode[] = [];
+    const words: string[] = [];
+    for (const field of settings.fieldOrder) {
+      if (field === "branch" && branch) {
+        pieces.push(<Text key="branch" style={{ fontFamily: MONO_FONT, fontSize: fs(comfortable ? 12 : 11) }}>{branch}</Text>);
+        words.push(branch);
+      } else if (field === "model" && show.model && row.modelShort && modelFits) {
+        pieces.push(<Text key="model">{row.modelShort}</Text>);
+        words.push(row.modelShort);
+      } else if (field === "diff" && show.diff && (workspace.additions || workspace.deletions)) {
+        pieces.push(
+          <Text key="diff" style={{ fontVariant: ["tabular-nums"] }}>
+            {workspace.additions ? <Text style={{ color: c.statusSuccess }}>{`+${workspace.additions}`}</Text> : null}
+            {workspace.additions && workspace.deletions ? " " : ""}
+            {workspace.deletions ? <Text style={{ color: c.statusDanger }}>{`−${workspace.deletions}`}</Text> : null}
+          </Text>,
+        );
+        words.push(`${workspace.additions} added, ${workspace.deletions} removed`);
+      }
+    }
+    if (searching) words.unshift(row.hostLabel);
+    metaText = words.join(", ");
+    meta = pieces.length ? (
+      <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: metaSize }}>
+        {searching ? `${row.hostLabel} · ` : ""}
+        {pieces.flatMap((piece, index) => (index ? [" · ", piece] : [piece]))}
+      </Text>
+    ) : null;
   }
-  const hasDiff = show.diff && (workspace.additions > 0 || workspace.deletions > 0);
+  const tabs = row.tabs && !arranging ? row.tabs : null;
+  const urgent = row.state === "needs_you" || row.state === "error" || row.state === "unread";
   return (
-    <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", backgroundColor: active ? c.surface2 : c.surface0, ...liftStyle }}>
+    <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", backgroundColor: active ? c.surface2 : c.surface0, opacity: row.archiving ? 0.55 : 1, ...liftStyle }}>
       {active ? <View style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, backgroundColor: c.accent }} /> : null}
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${row.pinned ? "Pinned, " : ""}${workspace.title}, ${row.state === "needs_you" ? "asking you" : row.state === "error" ? "agent error" : row.state === "unread" ? "unread" : row.state}, ${[branch, ...parts].filter(Boolean).join(", ")}`}
-        accessibilityHint={onPeek && touch ? "Long press to see full names" : undefined}
-        disabled={!canOpen && !onPeek}
+        accessibilityLabel={`${row.pinned ? "Pinned, " : ""}${workspace.title}, ${row.archiving ? "archiving" : MARK_LABEL[glyph].toLowerCase()}${metaText ? `, ${metaText}` : ""}`}
+        accessibilityHint={touch ? "Hold for actions" : undefined}
+        disabled={row.archiving || (!canOpen && !touch)}
         onPress={() => canOpen && onOpen(row)}
-        {...(onPeek && touch ? { onLongPress: () => onPeek(true), onPressOut: () => onPeek(false), delayLongPress: 400 } : {})}
+        {...(touch ? { onLongPress: () => onMenu(row), delayLongPress: 400 } : {})}
         {...hoverProps(onPeek, touch)}
-        style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 20, backgroundColor: pressed && lifted === null ? c.surface1 : "transparent" })}
+        style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 20, paddingRight: 4, backgroundColor: pressed && lifted === null ? c.surface1 : "transparent" })}
       >
         <View>
-          <StateIcon theme={theme} state={row.state} status={workspace.status} />
+          <Mark theme={theme} kind={glyph} size={16} />
           {row.pinned ? (
-            <View accessibilityLabel="Pinned" style={{ position: "absolute", right: -5, top: -5 }}>
+            <View style={{ position: "absolute", right: -6, top: -6 }}>
               <Icon name="Pin" size={10} color={c.foregroundMuted} />
             </View>
           ) : null}
         </View>
-        <View style={{ flex: 1, minWidth: 0, gap: comfortable ? 4 : 2 }}>
-          <Text numberOfLines={1} style={{ color: c.foreground, fontSize, fontWeight: row.state === "unread" || row.state === "needs_you" || row.state === "error" ? "700" : "400" }}>{workspace.title}</Text>
-          {parts.length || branch || hasDiff ? (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              {/* Meta truncates first; the diff keeps its width at the right end. */}
-              <Text numberOfLines={1} style={{ flex: 1, color: c.foregroundMuted, fontSize: fs(comfortable ? 13 : 12) }}>
-                {branch ? <Text style={{ fontFamily: MONO_FONT, fontSize: fs(comfortable ? 12 : 11) }}>{branch}</Text> : null}
-                {branch && parts.length ? " · " : ""}
-                {parts.join(" · ")}
-              </Text>
-              {hasDiff ? (
-                <Text style={{ flexShrink: 0, fontSize: fs(11.5), fontVariant: ["tabular-nums"] }}>
-                  <Text style={{ color: c.statusSuccess }}>{`+${workspace.additions}`}</Text>
-                  <Text style={{ color: c.statusDanger }}>{` −${workspace.deletions}`}</Text>
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
+        <View style={{ flex: 1, minWidth: 0, gap: comfortable ? 4 : 2 }} onLayout={(event) => setMetaWidth(Math.round(event.nativeEvent.layout.width))}>
+          <Text numberOfLines={1} style={{ color: c.foreground, fontSize, fontWeight: urgent ? "700" : "500" }}>{workspace.title}</Text>
+          {meta}
         </View>
       </Pressable>
-      {row.agentsKey ? (
+      {tabs ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`${row.agentsOpen ? "Hide" : "Show"} ${workspace.agents?.length ?? 0} agents of ${workspace.title}`}
-          accessibilityState={{ expanded: !!row.agentsOpen }}
-          onPress={() => onToggle(row.agentsKey!)}
-          style={{ height: workspaceHeight, paddingHorizontal: 6, flexDirection: "row", alignItems: "center", gap: 2 }}
+          accessibilityLabel={`${tabs.open ? "Hide" : "Show"} ${tabs.summary}`}
+          accessibilityState={{ expanded: tabs.open }}
+          onPress={() => onToggle(tabs.key)}
+          style={({ pressed }) => ({ minWidth: buttonWidth, height: workspaceHeight, alignItems: "flex-end", justifyContent: "center", gap: 4, paddingHorizontal: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, height: 22, borderRadius: 11, backgroundColor: row.agentsOpen ? c.surface2 : "transparent", borderWidth: 1, borderColor: c.border }}>
-            <Icon name="Bot" size={12} color={c.foregroundMuted} />
-            <Text style={{ color: c.foregroundMuted, fontSize: fs(11), fontWeight: "600" }}>{workspace.agents?.length ?? 0}</Text>
-            <Icon name={row.agentsOpen ? "ChevronUp" : "ChevronDown"} size={12} color={c.foregroundMuted} />
+          {ago ? <Text style={{ color: c.foregroundMuted, fontSize: fs(11.5), fontVariant: ["tabular-nums"] }}>{ago}</Text> : null}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+            {tabs.marks.map((kind, index) => <Mark key={index} theme={theme} kind={kind} size={12} />)}
+            {tabs.more ? <Text style={{ color: c.foregroundMuted, fontSize: fs(10.5) }}>{`+${tabs.more}`}</Text> : null}
+            <View style={{ transform: [{ rotate: tabs.open ? "90deg" : "0deg" }] }}>
+              <Icon name="ChevronRight" size={12} color={c.foregroundMuted} />
+            </View>
           </View>
         </Pressable>
+      ) : ago && !arranging ? (
+        <Text style={{ paddingHorizontal: 10, color: c.foregroundMuted, fontSize: fs(11.5), fontVariant: ["tabular-nums"] }}>{ago}</Text>
       ) : null}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Actions for ${workspace.title}`}
-        onPress={() => onMenu(row)}
-        hitSlop={{ left: 4 }}
-        style={{ width: buttonWidth, height: workspaceHeight, alignItems: "center", justifyContent: "center" }}
-      >
-        <Icon name="Ellipsis" size={16} color={row.state === "unread" ? UNREAD_BLUE : c.foregroundMuted} />
-      </Pressable>
+      {touch ? null : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Actions for ${workspace.title}`}
+          onPress={() => onMenu(row)}
+          style={{ width: 28, height: workspaceHeight, alignItems: "center", justifyContent: "center" }}
+        >
+          <Icon name="Ellipsis" size={16} color={c.foregroundMuted} />
+        </Pressable>
+      )}
       {dragHandle ? <Grip theme={theme} handlers={dragHandle} height={workspaceHeight} label={workspace.title} wide={touch} /> : null}
     </View>
   );

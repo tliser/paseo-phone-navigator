@@ -1,17 +1,19 @@
 // Builds the flattened tree the FlatList renders. Pure.
 import { shortenModel } from "./format";
 import { applyOrder, type OrderMap } from "./order";
-import { agentsKey, hostKey, isCollapsed, projectKey, type CollapseMap, type ProfileSettings } from "./profiles";
+import { agentsKey, hostKey, isCollapsed, projectKey, subagentsKey, type CollapseMap, type ProfileSettings } from "./profiles";
 import { isAgentUnread, isUnread, type ReadMap } from "./reads";
 import { FILTERS, type AgentInput, type ChatState, type Filter, type HostInput, type ProjectKind, type WorkspaceInput, type WorkspaceState } from "./types";
 
 const DAY_MS = 86_400_000;
 
-/** Per-group tallies shown as badges. */
+/** Per-group counts shown on folded groups. */
 export interface Tally {
-  needsYou: number;
+  asking: number;
+  error: number;
   unread: number;
 }
+const emptyTally = (): Tally => ({ asking: 0, error: 0, unread: 0 });
 
 interface HostRow {
   type: "host";
@@ -54,20 +56,45 @@ export interface WorkspaceRow {
   matchedTab?: MatchedTab;
   /** The order list this row belongs to ("proj:<serverId>:<projectId>"). */
   group: string;
-  /** Collapse key of its agent rows; set when it has two or more agents. */
-  agentsKey?: string;
-  agentsOpen?: boolean;
+  /** The chat that explains the row's state (asks you, failed or unread), for its status line. */
+  reason?: { state: "asking" | "error" | "unread"; title: string };
+  /** Archive requested; waiting for the host to drop it. */
+  archiving?: boolean;
+  /** Its tabs, when the profile shows tabs and it has any. */
+  tabs?: TabSummary;
 }
-/** One agent of an unfolded workspace. */
-export interface AgentRow {
-  type: "agent";
+
+/** Status of a tab: a chat's state, or a terminal. */
+export type TabMark = ChatState | "terminal";
+
+export interface TabSummary {
+  /** Collapse key of the tab list. */
+  key: string;
+  open: boolean;
+  /** Marks of the top-level tabs, most urgent first; at most 4 (3 and `more` when there are more). */
+  marks: TabMark[];
+  more: number;
+  /** "3 tabs: 1 asks you, 1 unread, 1 terminal; 1 sub-agent" */
+  summary: string;
+}
+
+/** One tab (chat or terminal) under an unfolded workspace; sub-agents sit one level deeper. */
+export interface TabRow {
+  type: "tab";
   key: string;
   serverId: string;
   workspaceId: string;
   workspaceTitle: string;
-  agent: AgentInput;
-  /** Shortened model name. */
+  kind: "chat" | "terminal";
+  id: string;
+  title: string;
+  mark: TabMark;
+  /** Shortened model name; "" for terminals. */
   modelShort: string;
+  /** 0 for top-level tabs, 1 for sub-agents. */
+  depth: 0 | 1;
+  /** The chat's sub-agents, when it has any and the profile shows them. */
+  subagents?: { key: string; open: boolean; count: number; waiting: number };
 }
 interface SkeletonRow {
   type: "skeleton";
@@ -82,7 +109,7 @@ export interface MatchedTab {
   title: string;
   kind: "chat" | "sub-agent" | "terminal";
 }
-export type TreeRow = HostRow | ProjectRow | WorkspaceRow | AgentRow | SkeletonRow | NoteRow;
+export type TreeRow = HostRow | ProjectRow | WorkspaceRow | TabRow | SkeletonRow | NoteRow;
 
 export interface TreeResult {
   rows: TreeRow[];
@@ -177,7 +204,10 @@ function ownFields(workspace: WorkspaceInput, hostLabel: string): string[] {
 }
 
 function tabsOf(workspace: WorkspaceInput): MatchedTab[] {
-  return (workspace.agents ?? []).map((agent) => ({ title: agent.title, kind: agent.parentId ? "sub-agent" : "chat" }));
+  return [
+    ...(workspace.agents ?? []).map((agent): MatchedTab => ({ title: agent.title, kind: agent.parentId ? "sub-agent" : "chat" })),
+    ...(workspace.terminals ?? []).map((terminal): MatchedTab => ({ title: terminal.title, kind: "terminal" })),
+  ];
 }
 
 /** Case-insensitive; every whitespace-separated term must match one of title, branch, project, host, model or a tab title. */
@@ -213,34 +243,79 @@ function orderHosts(hosts: readonly HostInput[], order: readonly string[] | unde
 }
 
 function addTally(tally: Tally, state: WorkspaceState): void {
-  if (state === "needs_you" || state === "error") tally.needsYou++;
+  if (state === "needs_you") tally.asking++;
+  else if (state === "error") tally.error++;
   else if (state === "unread") tally.unread++;
 }
 
-/** A workspace row, followed by its agent rows when it has several agents and they are unfolded. */
-function workspaceRows(host: HostInput, item: Ranked, group: string, query: string, collapse: CollapseMap, settings: ProfileSettings): TreeRow[] {
+const markRank = (mark: TabMark) => (mark === "asking" || mark === "error" ? 0 : mark === "unread" ? 1 : mark === "running" ? 2 : mark === "read" ? 3 : 4);
+const MARK_WORDS: Record<TabMark, string> = { asking: "asks you", error: "failed", unread: "unread", running: "running", read: "read", terminal: "terminal" };
+const MAX_MARKS = 4;
+
+const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+function summarize(marks: readonly TabMark[], subagents: number): string {
+  const counts = new Map<TabMark, number>();
+  for (const mark of marks) counts.set(mark, (counts.get(mark) ?? 0) + 1);
+  const parts = [...counts].sort((a, b) => markRank(a[0]) - markRank(b[0])).map(([mark, n]) => `${n} ${MARK_WORDS[mark]}`).join(", ");
+  return `${count(marks.length, "tab")}: ${parts}${subagents ? `; ${count(subagents, "sub-agent")}` : ""}`;
+}
+
+/** A workspace row, followed by its tab rows when the tab list is unfolded. */
+function workspaceRows(host: HostInput, item: Ranked, group: string, query: string, collapse: CollapseMap, settings: ProfileSettings, reads: ReadMap): TreeRow[] {
   const row = workspaceRow(host, item, group, query);
-  const agents = item.workspace.agents ?? [];
-  if (agents.length < 2) return [row];
-  const key = agentsKey(host.serverId, item.workspace.id);
+  const { workspace } = item;
+  const serverId = host.serverId;
+  const agents = workspace.agents ?? [];
+  const states = new Map(agents.map((agent) => [agent.id, chatState(agent, serverId, workspace.id, reads)]));
+  const wanted = item.state === "needs_you" ? "asking" : item.state === "error" || item.state === "unread" ? item.state : null;
+  const why = wanted ? agents.find((agent) => states.get(agent.id) === wanted && (wanted !== "unread" || !agent.parentId)) : undefined;
+  if (wanted && why) row.reason = { state: wanted, title: why.title };
+  if (!settings.show.tabs) return [row];
+
+  // A sub-agent whose parent is not listed (archived, not loaded) is a top-level tab, so it stays reachable.
+  const ids = new Set(agents.map((agent) => agent.id));
+  const parentOf = (agent: AgentInput) => (agent.parentId && ids.has(agent.parentId) ? agent.parentId : null);
+  const top = agents.filter((agent) => !parentOf(agent));
+  const children = (agent: AgentInput) => agents.filter((child) => parentOf(child) === agent.id);
+  const terminals = workspace.terminals ?? [];
+  const topMarks: TabMark[] = [...top.map((agent) => states.get(agent.id) ?? "read"), ...terminals.map((): TabMark => "terminal")];
+  if (!topMarks.length) return [row];
+  const sorted = [...topMarks].sort((a, b) => markRank(a) - markRank(b));
+  const shown = sorted.slice(0, sorted.length > MAX_MARKS ? MAX_MARKS - 1 : MAX_MARKS);
+  const key = agentsKey(serverId, workspace.id);
   const open = !isCollapsed(collapse, key, settings);
-  row.agentsKey = key;
-  row.agentsOpen = open;
+  row.tabs = { key, open, marks: shown, more: sorted.length - shown.length, summary: summarize(topMarks, agents.length - top.length) };
   if (!open) return [row];
-  return [
-    row,
-    ...agents.map(
-      (agent): AgentRow => ({
-        type: "agent",
-        key: `${row.key}#agent:${agent.id}`,
-        serverId: host.serverId,
-        workspaceId: item.workspace.id,
-        workspaceTitle: item.workspace.title,
-        agent,
-        modelShort: shortenModel(agent.model),
-      }),
-    ),
-  ];
+
+  const base = { serverId, workspaceId: workspace.id, workspaceTitle: workspace.title };
+  const chatRow = (agent: AgentInput, depth: 0 | 1): TabRow => ({
+    ...base,
+    type: "tab",
+    key: `${row.key}#tab:${agent.id}`,
+    kind: "chat",
+    id: agent.id,
+    title: agent.title,
+    mark: states.get(agent.id) ?? "read",
+    modelShort: shortenModel(agent.model),
+    depth,
+  });
+  const rows: TreeRow[] = [row];
+  for (const agent of top) {
+    const tab = chatRow(agent, 0);
+    rows.push(tab);
+    const kids = settings.show.subagents ? children(agent) : [];
+    if (!kids.length) continue;
+    const subKey = subagentsKey(serverId, workspace.id, agent.id);
+    const subOpen = !isCollapsed(collapse, subKey, settings);
+    const waiting = kids.filter((kid) => ["asking", "error", "unread"].includes(states.get(kid.id) ?? "read")).length;
+    tab.subagents = { key: subKey, open: subOpen, count: kids.length, waiting };
+    if (subOpen) for (const kid of kids) rows.push(chatRow(kid, 1));
+  }
+  for (const terminal of terminals) {
+    rows.push({ ...base, type: "tab", key: `${row.key}#term:${terminal.id}`, kind: "terminal", id: terminal.id, title: terminal.title, mark: "terminal", modelShort: "", depth: 0 });
+  }
+  return rows;
 }
 
 function workspaceRow(host: HostInput, item: Ranked, group: string, query: string): WorkspaceRow {
@@ -279,21 +354,21 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
 
   for (const host of orderHosts(hosts.filter((host) => !hidden.has(host.serverId)), options.hostOrder)) {
     const hKey = hostKey(host.serverId);
-    const emptyTally = { needsYou: 0, unread: 0 };
+    const noTally = emptyTally();
     if (host.status !== "online") {
       // Offline hosts: dimmed, not expandable, left out of search results.
       if (!searching) {
-        rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "offline", collapsed: true, count: 0, tally: emptyTally, error: host.error });
+        rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "offline", collapsed: true, count: 0, tally: noTally, error: host.error });
       }
       continue;
     }
     if (host.loading) {
-      rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "loading", collapsed: false, count: 0, tally: emptyTally, error: null });
+      rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "loading", collapsed: false, count: 0, tally: noTally, error: null });
       for (let i = 0; i < 3; i++) rows.push({ type: "skeleton", key: `${hKey}#skel${i}` });
       continue;
     }
 
-    const hostTally: Tally = { needsYou: 0, unread: 0 };
+    const hostTally = emptyTally();
     totalOnline += host.workspaces.length;
 
     // Group by project, keeping each project's activity from all its workspaces (filtering must not change rank).
@@ -302,7 +377,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       const item: Ranked = { workspace, state: workspaceState(workspace, host.serverId, reads), pinned: isPinned(host.serverId, workspace.id) };
       let project = projects.get(workspace.projectId);
       if (!project) {
-        project = { id: workspace.projectId, name: workspace.projectName, kind: workspace.projectKind, rootPath: workspace.projectRootPath, activity: 0, all: [], tally: { needsYou: 0, unread: 0 } };
+        project = { id: workspace.projectId, name: workspace.projectName, kind: workspace.projectKind, rootPath: workspace.projectRootPath, activity: 0, all: [], tally: emptyTally() };
         projects.set(workspace.projectId, project);
       }
       project.all.push(item);
@@ -361,7 +436,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       rows.push({ type: "project", key: pKey, serverId: host.serverId, projectId: project.id, name: project.name, kind: project.kind, rootPath: project.rootPath, collapsed: projectCollapsed, count: project.visible.length, tally: project.tally, group: hKey });
       if (projectCollapsed) continue;
       if (!project.visible.length) rows.push({ type: "note", key: `${pKey}#nomatch`, text: "No matching workspaces" });
-      for (const item of project.visible) rows.push(...workspaceRows(host, item, pKey, query, collapse, settings));
+      for (const item of project.visible) rows.push(...workspaceRows(host, item, pKey, query, collapse, settings, reads));
     }
   }
 

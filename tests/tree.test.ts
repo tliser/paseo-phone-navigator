@@ -132,9 +132,9 @@ describe("tree shape", () => {
   it("tallies asking and unread per project and host", () => {
     const tree = buildTree([host("h", [ws("1", "p", "needs_input", 1), ws("2", "p", "attention", 1, { news: 1 }), ws("3", "q", "failed", 1, { news: 1 })])], opts({ collapse: { "proj:h:p": true } }));
     const proj = tree.rows.find((r) => r.type === "project" && r.projectId === "p");
-    expect(proj?.type === "project" && proj.tally).toEqual({ needsYou: 1, unread: 1 });
+    expect(proj?.type === "project" && proj.tally).toEqual({ asking: 1, error: 0, unread: 1 });
     const h = tree.rows[0];
-    expect(h?.type === "host" && h.tally).toEqual({ needsYou: 1, unread: 2 });
+    expect(h?.type === "host" && h.tally).toEqual({ asking: 1, error: 0, unread: 2 });
   });
   it("renders loading skeletons per host and offline hosts dimmed", () => {
     const tree = buildTree([host("l", [], { loading: true }), host("o", [], { status: "offline" })], opts());
@@ -187,26 +187,42 @@ describe("pins", () => {
   });
 });
 
-describe("agent rows", () => {
-  const agents = [chat("a1", "asking", { title: "Plan", activityAt: 2 }), chat("a2", "idle", { title: "Fix" })];
-  const hosts = () => [host("h", [ws("a", "p", "running", 1, { agents }), ws("b", "p", "done", 5, { agents: [agents[0]!] })])];
-  it("are folded by default; a workspace with two or more agents offers them", () => {
-    const tree = buildTree(hosts(), opts());
-    expect(types(tree.rows)).toEqual(["host", "project", "workspace", "workspace"]);
-    const a = tree.rows[2];
-    expect(a?.type === "workspace" && a.agentsKey).toBe("agents:h:a");
-    const b = tree.rows[3];
-    expect(b?.type === "workspace" && b.agentsKey).toBeUndefined();
+describe("tab rows", () => {
+  const tabs = [
+    chat("main", "running", { title: "Main", model: "anthropic/claude-opus-4-6" }),
+    chat("sub", "asking", { title: "Helper", parentId: "main" }),
+    chat("orphan", "idle", { title: "Orphan", parentId: "gone" }),
+    chat("a", "finished", { title: "A", unreadAt: min(1) }),
+    chat("b", "idle"),
+    chat("c", "idle"),
+  ];
+  const hosts = () => [host("h", [ws("w", "p", "running", 1, { agents: tabs, terminals: [{ id: "t1", title: "Terminal 1" }] })])];
+  it("are folded by default and summed up as urgent-first marks, capped at 4", () => {
+    const row = buildTree(hosts(), opts()).rows[2];
+    expect(row?.type === "workspace" && row.tabs).toMatchObject({
+      key: "agents:h:w",
+      open: false,
+      marks: ["unread", "running", "read"],
+      more: 3,
+      summary: "6 tabs: 1 unread, 1 running, 3 read, 1 terminal; 1 sub-agent",
+    });
   });
-  it("unfold under their workspace", () => {
-    const tree = buildTree(hosts(), opts({ collapse: { "agents:h:a": false } }));
-    expect(types(tree.rows)).toEqual(["host", "project", "workspace", "agent", "agent", "workspace"]);
-    const first = tree.rows[3];
-    expect(first?.type === "agent" && first.agent.title).toBe("Plan");
+  it("unfold with sub-agents under their parent, folded until opened; a sub-agent without its parent is a top-level tab", () => {
+    const shown = (collapse: Record<string, boolean>) =>
+      buildTree(hosts(), opts({ collapse: { "agents:h:w": false, ...collapse } })).rows.flatMap((r) => (r.type === "tab" ? [`${r.depth}:${r.id}`] : []));
+    expect(shown({})).toEqual(["0:main", "0:orphan", "0:a", "0:b", "0:c", "0:t1"]);
+    expect(shown({ "subagents:h:w:main": false })).toEqual(["0:main", "1:sub", "0:orphan", "0:a", "0:b", "0:c", "0:t1"]);
+    const main = buildTree(hosts(), opts({ collapse: { "agents:h:w": false } })).rows.find((r) => r.type === "tab" && r.id === "main");
+    expect(main?.type === "tab" && main.subagents).toEqual({ key: "subagents:h:w:main", open: false, count: 1, waiting: 1 });
   });
-  it("agent titles are searchable", () => {
-    const tree = buildTree(hosts(), opts({ query: "plan" }));
-    expect(wsIds(tree.rows)).toEqual(["a", "b"]);
+  it("the status line names the chat that asks you", () => {
+    const row = buildTree(hosts(), opts()).rows[2];
+    expect(row?.type === "workspace" && row.reason).toEqual({ state: "asking", title: "Helper" });
+  });
+  it("tab and terminal titles are searchable", () => {
+    expect(wsIds(buildTree(hosts(), opts({ query: "orphan" })).rows)).toEqual(["w"]);
+    const row = buildTree(hosts(), opts({ query: "terminal 1" })).rows[2];
+    expect(row?.type === "workspace" && row.matchedTab).toEqual({ title: "Terminal 1", kind: "terminal" });
   });
 });
 

@@ -37,6 +37,11 @@ export interface AgentInput {
   unreadAt: number;
 }
 
+export interface TerminalInput {
+  id: string;
+  title: string;
+}
+
 export interface WorkspaceInput {
   id: string;
   projectId: string;
@@ -62,6 +67,8 @@ export interface WorkspaceInput {
   model: string | null;
   /** Agents of the workspace (internal and archived ones left out): open before closed, then most recently active first. */
   agents?: readonly AgentInput[];
+  /** Terminal tabs of the workspace. */
+  terminals?: readonly TerminalInput[];
 }
 
 export interface HostInput {

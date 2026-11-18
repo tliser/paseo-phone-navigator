@@ -5,8 +5,8 @@ import type { TreeRow } from "../shared/tree";
 import type { WorkspaceInput } from "../shared/types";
 
 const h = heightsFor(false); // group 44, workspace 56
-const hostRow = (id: string): TreeRow => ({ type: "host", key: `host:${id}`, serverId: id, label: id, state: "online", collapsed: false, count: 0, tally: { needsYou: 0, unread: 0 }, error: null });
-const projRow = (host: string, id: string): TreeRow => ({ type: "project", key: `proj:${host}:${id}`, serverId: host, projectId: id, name: id, kind: "git", rootPath: `/p/${id}`, collapsed: false, count: 0, tally: { needsYou: 0, unread: 0 }, group: `host:${host}` });
+const hostRow = (id: string): TreeRow => ({ type: "host", key: `host:${id}`, serverId: id, label: id, state: "online", collapsed: false, count: 0, tally: { asking: 0, error: 0, unread: 0 }, error: null });
+const projRow = (host: string, id: string): TreeRow => ({ type: "project", key: `proj:${host}:${id}`, serverId: host, projectId: id, name: id, kind: "git", rootPath: `/p/${id}`, collapsed: false, count: 0, tally: { asking: 0, error: 0, unread: 0 }, group: `host:${host}` });
 const wsRow = (host: string, proj: string, id: string): TreeRow => ({
   type: "workspace", key: `ws:${host}:${id}`, serverId: host, hostLabel: host, state: "read", modelShort: "", pinned: false, group: `proj:${host}:${proj}`,
   workspace: { id } as WorkspaceInput,
@@ -43,7 +43,7 @@ describe("findDropTarget", () => {
     expect(findDropTarget(rows, offsets, 1, 380)).toEqual({ targetId: "q", place: "after", lineY: 356 });
   });
   it("grows with the interface font size, never shrinks", () => {
-    expect(heightsFor(false, 1.25)).toEqual({ group: 55, workspace: 70, note: 55, agent: 50 });
+    expect(heightsFor(false, 1.25)).toEqual({ group: 55, workspace: 70, note: 55, tab: 50 });
     expect(heightsFor(false, 0.8)).toEqual(h);
   });
   it("ignores rows that cannot be dragged", () => {

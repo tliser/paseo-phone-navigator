@@ -8,7 +8,7 @@ import { View } from "react-native";
 import { createHostObserver } from "./host-observer";
 import { ReadStateContent, ReadStateIcon } from "./read-button";
 import { SCREEN_ID, useInboxTally } from "./runtime";
-import { UNREAD_BLUE } from "./visual";
+import { UNREAD_BLUE } from "./colors";
 
 function WorkspacesIcon({ theme, size, color }: PluginButtonIconProps) {
   const inbox = useInboxTally();

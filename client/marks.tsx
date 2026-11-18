@@ -2,9 +2,9 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Animated, Easing, Platform, View } from "react-native";
+import { AccessibilityInfo, Animated, Easing, Platform, Text, View } from "react-native";
 import type { ChatState } from "../shared/types";
-import { RUNNING_VIOLET, UNREAD_BLUE } from "./visual";
+import { RUNNING_VIOLET, UNREAD_BLUE } from "./colors";
 
 export type MarkKind = ChatState | "terminal";
 
@@ -90,6 +90,24 @@ export function Mark({ theme, kind, size = 14, label }: { theme: PluginTheme; ki
       style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}
     >
       {glyph}
+    </View>
+  );
+}
+
+const tallyCount = (n: number) => (n > 99 ? "99+" : String(n));
+
+/** Glyph and number per waiting state (asks you, failed, unread); nothing when all are zero. */
+export function TallyMarks({ theme, tally, size = 12 }: { theme: PluginTheme; tally: { asking: number; error: number; unread: number }; size?: number }) {
+  const kinds = (["asking", "error", "unread"] as const).filter((kind) => tally[kind] > 0);
+  if (!kinds.length) return null;
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      {kinds.map((kind) => (
+        <View key={kind} style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+          <Mark theme={theme} kind={kind} size={size} />
+          <Text style={{ color: markColor(theme, kind), fontSize: size, fontWeight: "700", fontVariant: ["tabular-nums"] }}>{tallyCount(tally[kind])}</Text>
+        </View>
+      ))}
     </View>
   );
 }

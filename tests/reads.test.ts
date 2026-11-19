@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isUnread, markSeen, normalizeReads, readKey } from "../shared/reads";
+import { isAgentUnread, isUnread, markSeen, normalizeReads, readAgentKey, readKey, undoReads } from "../shared/reads";
 
 const DAY = 86_400_000;
 const NOW = 100 * DAY;
@@ -14,6 +14,26 @@ describe("read state", () => {
   it("stays unread when marked so, even with no news from Paseo", () => {
     expect(isUnread({ [readKey("h", "w")]: -NOW }, "h", "w", 0)).toBe(true);
     expect(isUnread({ [readKey("h", "w")]: -NOW }, "h", "w", NOW + 5)).toBe(true);
+  });
+  it("a chat is unread when its news came after Done, or when put back in the Inbox", () => {
+    const agent = { id: "a", unreadAt: 10 };
+    expect(isAgentUnread({ [readAgentKey("h", "a")]: 5 }, "h", "w", agent)).toBe(true);
+    expect(isAgentUnread({ [readAgentKey("h", "a")]: 20 }, "h", "w", agent)).toBe(false);
+    expect(isAgentUnread({ [readAgentKey("h", "a")]: -NOW }, "h", "w", { id: "a", unreadAt: 0 })).toBe(true);
+  });
+  it("sending a prompt clears put-back-in-Inbox; only a turn finishing after it is news again", () => {
+    const putBack = { [readAgentKey("h", "a")]: -100 };
+    expect(isAgentUnread(putBack, "h", "w", { id: "a", unreadAt: 0, promptAt: 200 })).toBe(false);
+    expect(isAgentUnread(putBack, "h", "w", { id: "a", unreadAt: 300, promptAt: 200 })).toBe(true);
+    expect(isAgentUnread(putBack, "h", "w", { id: "a", unreadAt: 0, promptAt: 50 })).toBe(true);
+  });
+  it("a chat without its own entry falls back to the workspace's entry from before per-chat reads", () => {
+    expect(isAgentUnread({ [readKey("h", "w")]: 20 }, "h", "w", { id: "a", unreadAt: 10 })).toBe(false);
+    expect(isAgentUnread({ [readKey("h", "w")]: 20, [readAgentKey("h", "a")]: -NOW }, "h", "w", { id: "a", unreadAt: 10 })).toBe(true);
+  });
+  it("undo writes a fresh opposite mark, only for keys nothing changed since", () => {
+    const changes = [{ key: "a", after: 10 }, { key: "b", after: -10 }, { key: "c", after: 10 }];
+    expect(undoReads({ a: 10, b: -10, c: 20 }, changes, 30)).toEqual({ a: -30, b: 30 });
   });
   it("marks seen, keeps the later time, and prunes views and unread marks older than 60 days", () => {
     const reads = { a: NOW - 70 * DAY, b: NOW - DAY, c: NOW, m: -(NOW - 70 * DAY) };

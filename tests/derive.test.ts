@@ -38,6 +38,18 @@ describe("deriveWorkspaces", () => {
     expect(result[0]).toMatchObject({ title: "Real title", projectName: "Custom", projectKind: "git", projectRootPath: "/srv/p", branch: "main", additions: 3, deletions: 4, model: "m-x", activityAt: Date.parse("2026-02-01T00:00:00Z") });
     expect(result[1]).toMatchObject({ title: "name-b", projectName: "Project", projectKind: "directory", projectRootPath: "", branch: null, model: null });
   });
+  it("orders by your last prompt to a main chat, else creation; agent output and sub-agent prompts don't count", () => {
+    const [prompted, untouched] = deriveWorkspaces(
+      [workspace("a", { createdAt: "2026-01-01T00:00:00Z", activityAt: "2026-01-09T00:00:00Z" }), workspace("b", { createdAt: "2026-01-02T00:00:00Z" })],
+      [
+        agent("main", "a", "2026-01-08T00:00:00Z", { lastUserMessageAt: "2026-01-03T00:00:00Z" }),
+        agent("sub", "a", "2026-01-08T00:00:00Z", { lastUserMessageAt: "2026-01-07T00:00:00Z", labels: { "paseo.parent-agent-id": "main" } }),
+        agent("busy", "b", "2026-01-08T00:00:00Z", { status: "running" }),
+      ],
+    );
+    expect(prompted?.orderAt).toBe(Date.parse("2026-01-03T00:00:00Z"));
+    expect(untouched?.orderAt).toBe(Date.parse("2026-01-02T00:00:00Z"));
+  });
 });
 
 describe("asking vs unread", () => {
@@ -92,7 +104,7 @@ describe("agents of a workspace", () => {
         agent("sub", "x", "2026-01-04T00:00:00Z", { labels: { "paseo.parent-agent-id": "new" } }),
       ],
     );
-    expect(w!.agents!.map((a) => `${a.title}:${a.status}:${a.sub}`)).toEqual(["Agent 3:idle:true", "Review:asking:false", "Agent 1:finished:false"]);
+    expect(w!.agents!.map((a) => `${a.title}:${a.status}:${a.parentId}`)).toEqual(["Agent 3:idle:new", "Review:asking:null", "Agent 1:finished:null"]);
   });
   it("closed agents are listed after open ones; archived and internal ones are left out", () => {
     const [w] = deriveWorkspaces(

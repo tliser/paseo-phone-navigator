@@ -1,8 +1,8 @@
 {
-  "name": "paseo-phone-navigator",
+  "name": "paseo-workspace-organizer",
   "private": true,
-  "version": "0.1.0",
-  "description": "Host, Project and Workspace tree for Paseo, built for phones",
+  "version": "0.2.0",
+  "description": "Host, Project and Workspace tree with an Inbox for Paseo",
   "license": "MIT",
   "type": "module",
   "files": [

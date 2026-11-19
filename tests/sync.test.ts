@@ -34,6 +34,12 @@ describe("mergeReadDocs", () => {
     const b = { seen: { k: now - 500, u: now - 100 } };
     expect(mergeReadDocs([a, b], now).seen).toEqual({ k: now - 500, u: -(now - 10) });
   });
+  it("merges per-chat keys independently of their workspace key", () => {
+    const now = Date.now();
+    const a = { seen: { "h:w": now - 900, "h:agent:x": now - 100 } };
+    const b = { seen: { "h:agent:x": -(now - 50), "h:agent:y": now - 10 } };
+    expect(mergeReadDocs([a, b], now).seen).toEqual({ "h:w": now - 900, "h:agent:x": -(now - 50), "h:agent:y": now - 10 });
+  });
 });
 
 describe("mergeUpdateDocs", () => {

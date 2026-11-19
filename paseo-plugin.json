@@ -1,6 +1,6 @@
 {
-  "id": "phone-navigator",
-  "name": "Phone Navigator",
+  "id": "workspace-organizer",
+  "name": "Workspace Organizer",
   "description": "Your workspaces as a Host, Project and Workspace tree with a compact header, status, branch and model on every row, and per-device profiles.",
   "requirements": {
     "paseo": ">=0.15.0"

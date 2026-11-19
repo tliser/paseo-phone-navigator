@@ -7,6 +7,7 @@ import {
   expandOrCollapseAll,
   isCollapsed,
   normalizeDocument,
+  normalizeFieldOrder,
   pruneCollapse,
   resolveProfile,
   setCollapsed,
@@ -76,6 +77,18 @@ describe("profile edits", () => {
     const doc = normalizeDocument({ profiles: [{ id: "a", name: "A" }, { id: "a", name: "dup" }] });
     expect(doc.profiles).toHaveLength(1);
     expect(doc.profiles[0]?.settings.density).toBe("compact");
+  });
+});
+
+describe("settings migration", () => {
+  it("an old profile that opened on the Inbox opens on Active and gets the new defaults", () => {
+    const doc = normalizeDocument({ profiles: [{ id: "a", name: "A", settings: { defaultFilter: "inbox", show: { model: false } } }] });
+    const s = doc.profiles[0]!.settings;
+    expect(s.defaultFilter).toBe("active");
+    expect(s).toMatchObject({ fieldOrder: ["branch", "model", "diff"], statusLine: true, show: { model: false, tabs: true, subagents: true } });
+  });
+  it("field order drops duplicates and unknown values and appends missing ones", () => {
+    expect(normalizeFieldOrder(["diff", "diff", "nope", "model"])).toEqual(["diff", "model", "branch"]);
   });
 });
 

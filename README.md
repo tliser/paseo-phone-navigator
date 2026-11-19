@@ -1,6 +1,6 @@
-# Phone Navigator for Paseo
+# Workspace Organizer for Paseo
 
-A Host → Project → Workspace tree for [Paseo](https://paseo.sh), built for the mobile apps but usable on desktop and web too. It shows every workspace on every connected host in one place, with what needs you on top.
+A Host → Project → Workspace tree for [Paseo](https://paseo.sh) on the phone, desktop and web. It shows every workspace on every connected host in one place, with an Inbox of what needs you. Formerly "Phone Navigator".
 
 <p>
   <img src="docs/screenshots/phone-active.png" width="230" alt="Active filter on the phone">
@@ -10,16 +10,20 @@ A Host → Project → Workspace tree for [Paseo](https://paseo.sh), built for t
 
 ## Features
 
-- **One tree for all hosts.** Hosts, projects and workspaces can each be collapsed, and the tree remembers what you collapsed. Offline hosts are shown dimmed.
-- **Rich workspace rows.** Each row shows the status, title, diff size, branch, the model of the most recently active agent and when it was last active.
-- **Asking you vs. unread.** Workspaces that wait for input, failed or are flagged count as *asking you*. Finished work you haven't looked at yet counts as *unread*. Read state is synced across devices.
-- **Filters and search.** All, Recent (active in the last 2 days by default, plus anything running, new or asking; the number of days is a profile setting), Active and Inbox (asking you plus unread), and a search box. Tap the counter badge to jump to the Inbox.
-- **New workspace.** The **+** on a project row opens a draft, like Paseo's own New workspace screen: choose a new worktree (optional branch name) or the project folder, then an agent with model, mode, the agent's on/off options such as *Auto Accept*, and a first message, or a terminal. While the host is still finding its agents, the draft shows a spinner and lists the ones already ready. Nothing is created until you tap *Create*; closing the draft discards it.
-- **Row actions.** The **⋯** on a workspace row renames it, pins it, marks it read or unread, or archives it. Archiving asks first and warns when an agent is still working or waiting for you.
-- **Pins.** A pinned workspace stays at the top of its project in every view and is never hidden by a filter. Pins are part of the profile, so every device using it shows them.
-- **Manual order.** Set a profile's *Order* to *Manual*, then long-press a row and drag it. Projects reorder within their host and workspaces within their project. Each profile keeps its own order, and new items appear first.
-- **Profiles.** Phone and Desktop come built in, and you can add your own. A profile holds the density, default filter, what Recent means, order, pins, hidden hosts, the "hide finished/read workspaces" setting and the collapse state. Profiles are stored on the host serving the plugin, so all your devices share them. The settings screen shows a live preview of the rows as you change a profile.
-- **Entry points.** A "Workspaces" row in the sidebar (with a badge for things that need you), a header button on every workspace, and a Command Center entry.
+- **One tree for all hosts.** Hosts, projects and workspaces can each be collapsed, and the tree remembers what you collapsed. Offline hosts are shown dimmed. Folded groups count what asks you, failed or is unread.
+- **Inbox.** The title bar shows how many chats wait for you, how many ask you and how many failed. Tapping it opens the Inbox: one entry per chat that asks you, failed or is unread, on every host (hidden hosts too), questions and errors first. An entry opens that chat; "Mark N unread as read" can be undone.
+- **Read state per chat.** Opening a chat does not mark it read. Press **Done** in the chat header to mark it read, or **Put back in Inbox** to make it unread again. Questions and errors stay until you answer or fix them. Read state is synced across devices.
+- **Workspace rows.** Each row shows a status glyph (a shape per status, not only a colour), the title and one line: why it needs you ("Asks you · Payment states"), or the branch, model and changes in the order you choose. On the right: last activity and one mark per tab. Tap the marks to list the tabs (chats and terminals); a chat with sub-agents folds them under it.
+- **Views and search.** All, Recent, Active and Pinned, each with a count. Search covers titles, branches, projects, hosts, models and tab titles; a row found through a tab says which.
+- **Actions.** Hold a row (or use ⋯ / right-click on desktop) for pin, mark read, remove from Recent, rename, move and archive; holding a tab adds "Mark … read" for it. A workspace removed from Recent comes back when you send it a prompt, or while it asks you or failed. Holding a project's name opens its sheet (new workspace, move, folder colour). Archiving keeps the row dimmed until the host has archived it.
+- **Colours.** Hold (or right-click) a project's folder icon or a host's icon to give it a colour. Colours sync to every profile, device and host.
+- **New workspace.** The **+** on a project row opens a draft, like Paseo's own New workspace screen: choose a new worktree (optional branch name) or the project folder, then an agent with model, mode, the agent's on/off options such as *Auto Accept*, and a first message, or a terminal. Nothing is created until you tap *Create*.
+- **New project.** The folder-plus on an online host adds an existing folder on that host as a project (`~` works) and opens a workspace on it. Plugins cannot create folders, so the folder must exist.
+- **Stable order.** Projects and workspaces are sorted by when you last prompted them (or created them), newest first. Agent output and status never move a row; the Inbox and the marks show what needs you. For your own order, set a profile's *Order* to *Manual*, then drag rows by their grip. On phones, Options → *Arrange order…* shows the grips. Projects reorder within their host and workspaces within their project.
+- **Profiles.** Phone and Desktop come built in, and you can add your own. A profile holds the density, the view it opens on, what Recent means, the row layout, order, pins, hidden hosts and the collapse state. The settings screen shows a live preview of sample rows as you change a profile.
+- **Entry points.** A "Workspaces" row in the sidebar, a sidebar view (Paseo 0.16), header buttons on every workspace (Done and Workspaces), and a Command Center entry.
+
+The screenshots below show the previous version.
 
 | Desktop | Settings | Profiles | Search |
 | --- | --- | --- | --- |
@@ -33,17 +37,17 @@ See [OVERVIEW.md](OVERVIEW.md) for more detail.
 
 ## Install
 
-Requires Paseo 0.15 or later. The repository is private, so you need read access to it, and `git` on the daemon host must be able to clone from GitHub.
+Requires Paseo 0.15 or later, and `git` on the daemon host must be able to clone from GitHub.
 
 ```bash
-paseo plugin install git:tliser/paseo-phone-navigator
-paseo plugin ls                       # phone-navigator should be "running"
-paseo plugin logs phone-navigator     # "Plugin ready"
+paseo plugin install git:tliser/paseo-workspace-organizer
+paseo plugin ls                           # workspace-organizer should be "running"
+paseo plugin logs workspace-organizer     # "Plugin ready"
 ```
 
-Then open the sidebar on any client and tap **Workspaces**. You can configure profiles under **Settings → Plugins → Phone Navigator**.
+Then open the sidebar on any client and tap **Workspaces**. You can configure profiles under **Settings → Plugins → Workspace Organizer**.
 
-To update, run the install command again (or `paseo plugin reload phone-navigator` for a local checkout).
+To update, run the install command again (or `paseo plugin reload workspace-organizer` for a local checkout).
 
 ### Tips
 
@@ -52,7 +56,7 @@ To update, run the install command again (or `paseo plugin reload phone-navigato
 
 ## Privacy
 
-The plugin only reads workspace and agent metadata through the app's existing host connections. It does not read conversations, change workspaces, or contact any outside service.
+The plugin works only through the app's existing host connections. It reads workspace and agent metadata, not conversations, and changes workspaces only when you ask it to (create, rename, archive, add a project). It does not contact any outside service, except GitHub through `paseo plugin update` when automatic updates are on.
 
 ## Development
 
@@ -61,7 +65,7 @@ npm install
 npm run typecheck
 npm test
 paseo plugin install /path/to/checkout     # local install
-paseo plugin reload phone-navigator         # after changes
+paseo plugin reload workspace-organizer     # after changes
 ```
 
 Layout:
@@ -87,4 +91,4 @@ There are no classes anywhere, because the mobile apps run plugins on Hermes.
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).

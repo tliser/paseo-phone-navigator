@@ -1,26 +1,31 @@
-// A "Workspaces" header button on every workspace of the host serving the plugin. Header buttons are
-// registered per workspace, so this follows that host's workspace list and adds or removes buttons.
+// Header buttons on every workspace of the host serving the plugin: "Workspaces" opens the navigator,
+// "Done" marks the open chat read. Header buttons are registered per workspace, so this follows that
+// host's workspace list and adds or removes buttons.
 // Workspaces of other hosts only get it where the plugin is installed on that host as well.
 import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { View } from "react-native";
 import { createHostObserver } from "./host-observer";
-import { SCREEN_ID, useTally } from "./runtime";
-import { UNREAD_BLUE } from "./visual";
+import { ReadStateContent, ReadStateIcon } from "./read-button";
+import { SCREEN_ID, useInboxTally } from "./runtime";
+import { unreadColor } from "./colors";
 
 function WorkspacesIcon({ theme, size, color }: PluginButtonIconProps) {
-  const tally = useTally();
+  const inbox = useInboxTally();
+  const urgent = inbox.asking + inbox.error;
   // Paseo draws plugin button icons in a box exactly `size` wide that clips overflow (header and the
   // "More actions" menu alike), so the indicator must stay inside it: a dot in the top-right corner,
-  // amber when something asks you, blue for unread news.
+  // amber when a chat asks you or failed, blue for unread news.
   const dot = Math.max(6, Math.round(size * 0.45));
-  const signal = tally.needsYou ? theme.colors.statusWarning : tally.unread ? UNREAD_BLUE : null;
+  const signal = urgent ? theme.colors.statusWarning : inbox.unread ? unreadColor(theme) : null;
   return (
     <View
+      accessible
       style={{ width: size, height: size }}
-      accessibilityLabel={tally.needsYou ? `${tally.needsYou} asking you` : tally.unread ? `${tally.unread} unread` : undefined}
+      accessibilityLabel={urgent ? `${urgent} ask you or failed` : inbox.unread ? `${inbox.unread} unread` : undefined}
     >
       <Icon name="Layers" size={size} color={color} />
+      {/* Urgent: a solid amber dot; unread only: a blue ring. Shape tells them apart, not colour alone. */}
       {signal ? (
         <View
           style={{
@@ -30,7 +35,7 @@ function WorkspacesIcon({ theme, size, color }: PluginButtonIconProps) {
             width: dot,
             height: dot,
             borderRadius: dot / 2,
-            backgroundColor: signal,
+            ...(urgent ? { backgroundColor: signal } : { borderWidth: 2, borderColor: signal }),
           }}
         />
       ) : null}
@@ -40,7 +45,7 @@ function WorkspacesIcon({ theme, size, color }: PluginButtonIconProps) {
 
 export function registerHeaderButtons(client: PluginClientContext): () => void {
   if (typeof client.addHeaderButton !== "function") return () => undefined;
-  const buttons = new Map<string, PluginButtonRegistration>();
+  const buttons = new Map<string, PluginButtonRegistration[]>();
   const open = () => client.openScreen({ screenId: SCREEN_ID });
 
   const observer = createHostObserver(
@@ -52,18 +57,22 @@ export function registerHeaderButtons(client: PluginClientContext): () => void {
         if (workspace.archivingAt || workspace.background || workspace.internal) continue;
         live.add(workspace.id);
         if (buttons.has(workspace.id)) continue;
-        buttons.set(
-          workspace.id,
+        buttons.set(workspace.id, [
+          client.addHeaderButton({
+            id: "read-state",
+            workspaceId: workspace.id,
+            button: { title: "Done", label: "Done", icon: ReadStateIcon, behavior: { kind: "popover", Content: ReadStateContent } },
+          }),
           client.addHeaderButton({
             id: "workspaces",
             workspaceId: workspace.id,
             button: { title: "Workspaces", icon: WorkspacesIcon, behavior: { kind: "action", onPress: open } },
           }),
-        );
+        ]);
       }
-      for (const [id, button] of buttons) {
+      for (const [id, registrations] of buttons) {
         if (!live.has(id)) {
-          button.remove();
+          for (const registration of registrations) registration.remove();
           buttons.delete(id);
         }
       }
@@ -73,7 +82,7 @@ export function registerHeaderButtons(client: PluginClientContext): () => void {
   observer.start();
   return () => {
     observer.stop();
-    for (const button of buttons.values()) button.remove();
+    for (const registrations of buttons.values()) for (const registration of registrations) registration.remove();
     buttons.clear();
   };
 }

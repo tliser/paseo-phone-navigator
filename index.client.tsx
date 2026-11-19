@@ -2,7 +2,7 @@ import type { PluginClientContext, PluginScreenProps, PluginSidebarViewProps } f
 import { registerHeaderButtons } from "./client/header-buttons";
 import { NavigatorScreen } from "./client/navigator-screen";
 import { agentRef, workspaceRef } from "./client/refs";
-import { getStore, SCREEN_ID, SETTINGS_ID, setStore } from "./client/runtime";
+import { getStore, SCREEN_ID, SETTINGS_ID, setStore, useTerminalTabs } from "./client/runtime";
 import { watchSettings } from "./client/settings-watch";
 import { SettingsScreen } from "./client/settings-screen";
 import { SidebarItem } from "./client/sidebar-item";
@@ -19,10 +19,12 @@ export default function contribute(client: PluginClientContext) {
     ),
   );
   const openSettings = () => client.openSettings(SETTINGS_ID);
-  const Screen = (props: PluginScreenProps) => <NavigatorScreen {...props} openSettings={openSettings} />;
+  const Screen = (props: PluginScreenProps) => <NavigatorScreen {...props} surface="screen" openSettings={openSettings} />;
   // Paseo 0.16+: the navigator can replace the app's sidebar. Its navigation opens by entity ref.
   const SidebarView = ({ theme, layout, navigation, active }: PluginSidebarViewProps) => (
     <NavigatorScreen
+      surface="sidebar"
+      terminals={useTerminalTabs()}
       theme={theme}
       layout={layout}
       host={{ id: active.workspace?.hostId ?? "", label: "" }}
@@ -32,16 +34,17 @@ export default function contribute(client: PluginClientContext) {
       navigation={{
         openWorkspace: ({ workspaceId, serverId }) => navigation.openWorkspace(workspaceRef(serverId ?? "", workspaceId)),
         openAgent: ({ agentId, serverId }) => navigation.openAgent(agentRef(serverId ?? "", agentId)),
+        openTerminal: (ref) => navigation.openTerminal(ref),
       }}
     />
   );
 
   const cleanups: (() => void | Promise<void>)[] = [
     client.addScreen({ id: SCREEN_ID, title: "Workspaces", Component: Screen }),
-    client.addSettingsScreen({ id: SETTINGS_ID, title: "Phone Navigator", icon: "Layers", Component: SettingsScreen }),
+    client.addSettingsScreen({ id: SETTINGS_ID, title: "Workspace Organizer", icon: "Layers", Component: SettingsScreen }),
     client.addSidebarHeaderItem({ id: "workspaces", title: "Workspaces", Component: SidebarItem }),
     ...(typeof client.addSidebarView === "function"
-      ? [client.addSidebarView({ id: "navigator", title: "Phone Navigator", description: "Hosts, projects and workspaces as a tree, with an inbox of what needs you.", Component: SidebarView })]
+      ? [client.addSidebarView({ id: "navigator", title: "Workspace Organizer", description: "Hosts, projects and workspaces as a tree, with an inbox of what needs you.", Component: SidebarView })]
       : []),
     client.addCommandCenterItem({
       id: "open-workspaces",

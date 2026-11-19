@@ -35,6 +35,9 @@ export interface AgentLike {
   lastUserMessageAt?: string | null;
   archivedAt?: string | null;
   internal?: boolean;
+  /** A helper Paseo hides from tabs, lists and attention. */
+  background?: boolean;
+  parentAgentId?: string | null;
   labels?: Readonly<Record<string, string>>;
   requiresAttention?: boolean;
   attentionReason?: "finished" | "error" | "permission" | null;
@@ -45,12 +48,14 @@ export interface AgentLike {
 /** Label Paseo sets on agents started by another agent. */
 const PARENT_AGENT_LABEL = "paseo.parent-agent-id";
 
-const isSubAgent = (agent: AgentLike) => !!agent.labels?.[PARENT_AGENT_LABEL]?.trim();
+const parentOf = (agent: AgentLike): string | null => agent.parentAgentId?.trim() || agent.labels?.[PARENT_AGENT_LABEL]?.trim() || null;
 
-/** Sub-agents, internal and archived agents never decide the model or the unread time. */
+/** Archived, internal and background agents are not tabs. */
+const isTab = (agent: AgentLike) => !agent.archivedAt && !agent.internal && !agent.background;
+
+/** Only top-level chats decide the model and the unread time. */
 function isListedAgent(agent: AgentLike): boolean {
-  if (agent.archivedAt || agent.internal) return false;
-  return !isSubAgent(agent);
+  return isTab(agent) && !parentOf(agent);
 }
 
 function isListedWorkspace(workspace: WorkspaceLike): boolean {
@@ -101,17 +106,18 @@ function agentInput(agent: AgentLike, index: number): AgentInput {
           : agent.status === "closed"
             ? "closed"
             : "idle";
-  return { id: agent.id, title: agent.title?.trim() || `Agent ${index + 1}`, model: agent.model, status, activityAt: agentActivity(agent), sub: isSubAgent(agent) };
+  const unreadAt = agent.requiresAttention && agent.attentionReason === "finished" ? epoch(agent.attentionTimestamp) || epoch(agent.updatedAt) : 0;
+  return { id: agent.id, title: agent.title?.trim() || `Agent ${index + 1}`, model: agent.model, status, parentId: parentOf(agent), activityAt: agentActivity(agent), unreadAt, promptAt: epoch(agent.lastUserMessageAt) };
 }
 
 /**
  * Every agent (chat tab) of a workspace, sub-agents and closed ones included, as Paseo lists them;
- * internal and archived agents are left out. Open ones first, then the most recently active.
+ * internal, background and archived agents are left out. Open ones first, then the most recently active.
  */
 export function agentsByWorkspace(agents: readonly AgentLike[]): Map<string, AgentInput[]> {
   const grouped = new Map<string, AgentLike[]>();
   for (const agent of agents) {
-    if (!agent.workspaceId || agent.archivedAt || agent.internal) continue;
+    if (!agent.workspaceId || !isTab(agent)) continue;
     grouped.set(agent.workspaceId, [...(grouped.get(agent.workspaceId) ?? []), agent]);
   }
   const result = new Map<string, AgentInput[]>();
@@ -132,14 +138,17 @@ export function deriveWorkspaces(workspaces: readonly WorkspaceLike[], agents: r
   const errored = new Set<string>();
   /** Latest finished/error flag of a main agent per workspace. */
   const finishedAt = new Map<string, number>();
+  /** Your latest prompt to a main agent per workspace. */
+  const promptedAt = new Map<string, number>();
   for (const agent of agents) {
-    if (!agent.workspaceId) continue;
+    if (!agent.workspaceId || agent.background) continue;
     if (agentNeedsYou(agent)) asking.add(agent.workspaceId);
     if (agentErrored(agent)) errored.add(agent.workspaceId);
     if (isListedAgent(agent) && agent.requiresAttention && (agent.attentionReason === "finished" || agent.attentionReason === "error")) {
       const at = epoch(agent.attentionTimestamp) || epoch(agent.updatedAt);
       finishedAt.set(agent.workspaceId, Math.max(finishedAt.get(agent.workspaceId) ?? 0, at));
     }
+    if (isListedAgent(agent)) promptedAt.set(agent.workspaceId, Math.max(promptedAt.get(agent.workspaceId) ?? 0, epoch(agent.lastUserMessageAt)));
   }
 
   const result: WorkspaceInput[] = [];
@@ -170,6 +179,7 @@ export function deriveWorkspaces(workspaces: readonly WorkspaceLike[], agents: r
       additions: workspace.diffStat?.additions ?? 0,
       deletions: workspace.diffStat?.deletions ?? 0,
       activityAt,
+      orderAt: Math.max(promptedAt.get(workspace.id) ?? 0, epoch(workspace.createdAt)),
       model: agent?.model ?? null,
       agents: agentLists.get(workspace.id) ?? [],
     });

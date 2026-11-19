@@ -1,25 +1,20 @@
 // The navigator's top: the Inbox, host button, search (phones), New project, Options, the views control and the search field.
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
-import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { useRef, type ReactNode, type RefObject } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { InboxTally } from "../shared/inbox";
 import { FILTERS, type Filter } from "../shared/types";
-import { Mark } from "./marks";
-import { unreadColor } from "./colors";
-import { isLightColor } from "../shared/colors";
+import { TallyMarks } from "./marks";
 import { measureAnchor, type Anchor } from "./sheet";
 
 export const VIEW_LABEL: Record<Filter, string> = { all: "All", recent: "Recent", active: "Active", pinned: "Pinned" };
 const VIEW_HINT: Record<Filter, string> = {
   all: "Everything, read workspaces included",
   recent: "Active lately, plus anything ongoing",
-  active: "Workspaces with a running agent; what needs you is in the Inbox",
+  active: "Running, unread or asking you",
   pinned: "Workspaces you pinned",
 };
-
-/** Below this width the Inbox indicator drops the words and keeps glyphs and numbers. */
-const NARROW_WIDTH = 310;
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -52,20 +47,21 @@ export function TitleBar({
 }) {
   const c = theme.colors;
   const fs = (size: number) => Math.round(size * scale * 2) / 2;
-  const [width, setWidth] = useState(0);
-  const narrow = width > 0 && width < NARROW_WIDTH;
   const optionsRef = useRef<View>(null);
   const newProjectRef = useRef<View>(null);
   // Same height as the host tabs and the views control below it; taps reach a little past the edges.
   const size = compact ? 36 : 32;
   const slop = { top: 4, bottom: 4 };
-  const label = [`Inbox, ${plural(inbox.total, "chat", "chats")}`, inbox.asking ? `${inbox.asking} ask${inbox.asking === 1 ? "s" : ""} you` : "", inbox.error ? `${inbox.error} failed` : ""]
+  const label = [
+    `Inbox, ${plural(inbox.total, "chat", "chats")}`,
+    inbox.asking ? `${inbox.asking} ask${inbox.asking === 1 ? "s" : ""} you` : "",
+    inbox.error ? `${inbox.error} failed` : "",
+    inbox.unread ? `${inbox.unread} unread` : "",
+  ]
     .filter(Boolean)
     .join(", ");
-  const pillColor = inbox.asking ? c.statusWarning : inbox.error ? c.statusDanger : inbox.total ? unreadColor(theme) : c.surface2;
-  const pillText = isLightColor(pillColor) ? "#111111" : "#FFFFFF";
   return (
-    <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)} style={{ flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 4 }}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 4 }}>
       <Text accessibilityRole="header" style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}>Workspaces</Text>
       <Pressable
         ref={inboxRef}
@@ -75,24 +71,16 @@ export function TitleBar({
         hitSlop={slop}
         style={({ pressed }) => ({ minHeight: size, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, borderRadius: 8, backgroundColor: pressed ? c.surface1 : "transparent" })}
       >
-        <Icon name="Inbox" size={16} color={inbox.total ? pillColor : c.foreground} />
+        <Icon name="Inbox" size={16} color={c.foreground} />
         <Text style={{ color: c.foreground, fontSize: fs(13.5), fontWeight: "600" }}>Inbox</Text>
-        {/* The count is a pill in the colour of the most urgent thing waiting: asks you, then failed, then unread. */}
-        <View style={{ minWidth: 20, height: 18, paddingHorizontal: 6, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: pillColor }}>
-          <Text style={{ color: inbox.total ? pillText : c.foregroundMuted, fontSize: fs(11.5), fontWeight: "700", fontVariant: ["tabular-nums"] }}>{inbox.total}</Text>
-        </View>
-        {inbox.asking ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 4 }}>
-            <Mark theme={theme} kind="asking" size={12} />
-            <Text numberOfLines={1} style={{ color: c.statusWarning, fontSize: fs(12), fontWeight: "600" }}>{narrow ? inbox.asking : `${inbox.asking} ask${inbox.asking === 1 ? "s" : ""} you`}</Text>
+        {/* The same glyph-and-number marks as folded groups: asks you, failed, unread, each in its colour. */}
+        {inbox.total ? (
+          <View style={{ marginLeft: 4 }}>
+            <TallyMarks theme={theme} tally={inbox} size={12} />
           </View>
-        ) : null}
-        {inbox.error ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 4 }}>
-            <Mark theme={theme} kind="error" size={12} />
-            <Text numberOfLines={1} style={{ color: c.statusDanger, fontSize: fs(12), fontWeight: "600" }}>{narrow ? inbox.error : `${inbox.error} failed`}</Text>
-          </View>
-        ) : null}
+        ) : (
+          <Text style={{ color: c.foregroundMuted, fontSize: fs(12.5) }}>0</Text>
+        )}
       </Pressable>
       <View style={{ flex: 1 }} />
       {host}

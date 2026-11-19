@@ -362,7 +362,7 @@ export function NavigatorScreen(
     <EmptyState
       theme={theme}
       icon="Search"
-      title={query.trim() ? `No workspaces match "${query.trim()}"` : filter === "pinned" ? "Nothing pinned" : filter === "recent" ? `Nothing active in the last ${settings.recentDays === 1 ? "day" : `${settings.recentDays} days`}` : "Nothing running"}
+      title={query.trim() ? `No workspaces match "${query.trim()}"` : filter === "pinned" ? "Nothing pinned" : filter === "recent" ? `Nothing active in the last ${settings.recentDays === 1 ? "day" : `${settings.recentDays} days`}` : "Nothing running, unread or asking"}
       action={{ label: "Show all", onPress: () => { setFilter("all"); closeSearch(); } }}
     />
   ) : null;

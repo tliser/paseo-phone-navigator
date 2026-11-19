@@ -153,7 +153,7 @@ export interface TreeOptions {
   hostOrder?: readonly string[];
   /** Workspaces ("serverId:workspaceId") being archived. */
   archiving?: ReadonlySet<string>;
-  /** Pinned workspaces ("serverId:workspaceId"); they pass every view and make up the Pinned view. */
+  /** Pinned workspaces ("serverId:workspaceId"); they make up the Pinned view and always show in All. */
   pins?: ReadonlySet<string>;
   /** Show only this host ("serverId"); null or unknown shows all. Host rows appear only when several hosts are shown. */
   hostView?: string | null;
@@ -202,6 +202,8 @@ function compareRanked(a: Ranked, b: Ranked): number {
 export function passesFilter(item: Ranked, filter: Filter, settings: ProfileSettings, now: number): boolean {
   const { workspace, state } = item;
   if (filter === "pinned") return !!item.pinned;
+  // A pin is explicit: All keeps it even when finished workspaces are hidden. Other views filter it like any other.
+  if (filter === "all" && item.pinned) return true;
   // Hide old finished workspaces, but never one that is new to you or asks for you.
   if (state === "read" && workspace.status !== "running" && settings.hideDone !== "off") {
     const limit = (settings.hideDone === "1d" ? 1 : 7) * DAY_MS;
@@ -212,8 +214,8 @@ export function passesFilter(item: Ranked, filter: Filter, settings: ProfileSett
     if (item.offRecent && state !== "needs_you" && state !== "error") return false;
     return state !== "read" || (!!workspace.activityAt && now - workspace.activityAt <= settings.recentDays * DAY_MS);
   }
-  // Active is what runs; what needs you (asks, failed, unread) is the Inbox's job.
-  if (filter === "active") return workspace.status === "running";
+  // Active: an agent runs, has output you have not read, or needs you (asks or failed).
+  if (filter === "active") return state !== "read";
   return true;
 }
 
@@ -425,9 +427,8 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       addTally(project.tally, item.state);
       addTally(hostTally, item.state);
       if (shown && matchesSearch(workspace, host.label, query)) {
-        // Counted exactly as listed: a pinned workspace shows in every view, so it counts in every view.
         for (const key of FILTERS) {
-          if (item.pinned || passesFilter(item, key, settings, now)) counts[key]++;
+          if (passesFilter(item, key, settings, now)) counts[key]++;
         }
       }
     }
@@ -443,7 +444,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
         const pKey = projectKey(host.serverId, project.id);
         const all = manual ? applyOrder(project.all, (entry) => entry.workspace.id, order[pKey], compareRanked) : [...project.all].sort(compareRanked);
         groups[pKey] = all.map((entry) => entry.workspace.id);
-        const visible = all.filter((entry) => (entry.pinned || passesFilter(entry, filter, settings, now)) && matchesSearch(entry.workspace, host.label, query));
+        const visible = all.filter((entry) => passesFilter(entry, filter, settings, now) && matchesSearch(entry.workspace, host.label, query));
         // A search hit on the project name lists the project even when none of its workspaces match.
         const nameHit = searching && searchTerms(query).every((term) => project.name.toLowerCase().includes(term));
         return { ...project, visible, nameHit };
@@ -469,7 +470,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       continue;
     }
     if (visibleProjects.length === 0) {
-      rows.push({ type: "note", key: `${hKey}#filtered`, text: filter === "pinned" ? "Nothing pinned" : filter === "active" ? "Nothing running" : filter === "recent" ? "Nothing recent" : "Nothing matches" });
+      rows.push({ type: "note", key: `${hKey}#filtered`, text: filter === "pinned" ? "Nothing pinned" : filter === "active" ? "Nothing running, unread or asking" : filter === "recent" ? "Nothing recent" : "Nothing matches" });
       continue;
     }
     for (const project of visibleProjects) {

@@ -69,11 +69,12 @@ describe("sorting", () => {
 });
 
 describe("filters and search", () => {
-  it("active = running only; asking, failed and unread belong to the Inbox", () => {
+  it("active = running, unread or needing you", () => {
     expect(passesFilter(item(ws("1", "p", "done", 1)), "active", settings, NOW)).toBe(false);
     expect(passesFilter(item(ws("1", "p", "running", 1)), "active", settings, NOW)).toBe(true);
-    expect(passesFilter(item(ws("1", "p", "attention", 1, { news: 5 })), "active", settings, NOW)).toBe(false);
-    expect(passesFilter(item(ws("1", "p", "needs_input", 1)), "active", settings, NOW)).toBe(false);
+    expect(passesFilter(item(ws("1", "p", "attention", 1, { news: 5 })), "active", settings, NOW)).toBe(true);
+    expect(passesFilter(item(ws("1", "p", "attention", 1, { news: 5 }), { [readKey("h", "1")]: NOW }), "active", settings, NOW)).toBe(false);
+    expect(passesFilter(item(ws("1", "p", "needs_input", 1)), "active", settings, NOW)).toBe(true);
   });
   it("recent = active within the configured days, plus anything running, new or asking", () => {
     const day = 60 * 24;
@@ -121,7 +122,7 @@ describe("filters and search", () => {
   });
   it("counts per filter honor the search", () => {
     const tree = buildTree([host("h", [ws("1", "p", "running", 1, { title: "x" }), ws("2", "p", "failed", 1, { title: "x", news: 1 }), ws("3", "p", "running", 1, { title: "y" })])], opts({ query: "x" }));
-    expect(tree.counts).toEqual({ all: 2, recent: 2, active: 1, pinned: 0 });
+    expect(tree.counts).toEqual({ all: 2, recent: 2, active: 2, pinned: 0 });
   });
   it("reports empty because filtered", () => {
     const tree = buildTree([host("h", [ws("1", "p", "done", 1)])], opts({ filter: "active" }));
@@ -196,13 +197,12 @@ describe("manual order", () => {
 
 describe("pins", () => {
   const hosts = () => [host("h", [ws("a", "p", "done", 1), ws("b", "p", "running", 5), ws("old", "p", "done", 60 * 24 * 30)])];
-  it("pass every view in their project, even when old finished ones are hidden", () => {
-    const tree = buildTree(hosts(), opts({ pins: new Set(["h:old"]), settings: { ...settings, hideDone: "7d" }, filter: "active" }));
-    expect(wsIds(tree.rows)).toEqual(["b", "old"]);
-    // The view's count matches what it lists, the pinned workspace included.
-    expect(tree.counts.active).toBe(2);
-    const pinned = tree.rows.find((r) => r.type === "workspace" && r.workspace.id === "old");
-    expect(pinned?.type === "workspace" && pinned.pinned).toBe(true);
+  it("show only in Pinned and All; All keeps them when old finished ones are hidden", () => {
+    const view = (filter: "all" | "active" | "recent") => buildTree(hosts(), opts({ pins: new Set(["h:old"]), settings: { ...settings, hideDone: "7d" }, filter }));
+    expect(wsIds(view("all").rows)).toEqual(["a", "b", "old"]);
+    expect(view("all").counts).toMatchObject({ all: 3, active: 1, recent: 2, pinned: 1 });
+    expect(wsIds(view("active").rows)).toEqual(["b"]);
+    expect(wsIds(view("recent").rows)).toEqual(["a", "b"]);
   });
   it("the Pinned view shows only pinned workspaces", () => {
     const tree = buildTree(hosts(), opts({ pins: new Set(["h:a"]), filter: "pinned" }));
@@ -261,10 +261,10 @@ describe("tab rows", () => {
 });
 
 describe("agent errors", () => {
-  it("an errored agent needs you: own state, not running", () => {
+  it("an errored agent needs you: own state, shows in Active", () => {
     const w = ws("e", "p", "done", 1, { agentError: true });
     expect(workspaceState(w, "h", {})).toBe("error");
-    expect(passesFilter(item(w), "active", settings, NOW)).toBe(false);
+    expect(passesFilter(item(w), "active", settings, NOW)).toBe(true);
     // A real question still wins over the error.
     expect(workspaceState(ws("q", "p", "needs_input", 1, { agentError: true }), "h", {})).toBe("needs_you");
   });

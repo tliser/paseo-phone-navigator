@@ -3,8 +3,8 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, SettingsAction, SettingsCard, SettingsInput, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Pressable, Text, useWindowDimensions, View } from "react-native";
+import { useEffect, useState, type ReactNode } from "react";
+import { Pressable, Text, View } from "react-native";
 import { bindPlatform, defaultSettings, MAX_LINES, newProfileId, normalizeLines, pruneCollapse, ROW_FIELDS, type Profile, type ProfileSettings, type RowField } from "../shared/profiles";
 import { ICON_COLORS } from "../shared/colors";
 import type { Platform } from "../shared/types";
@@ -13,10 +13,9 @@ import { useActiveProfile, useNavigatorStore } from "./runtime";
 import { SettingsPreview } from "./settings-preview";
 import { VIEW_LABEL } from "./title-bar";
 import { Toast, useToastState } from "./toast";
-import { UpdatesSection } from "./updates-section";
 
 type PlatformChoice = Platform | "none";
-type Section = "view" | "rows" | "order" | "groups" | "profile" | "updates";
+type Section = "view" | "rows" | "order" | "groups" | "profile";
 
 const SECTIONS: readonly [Section, string][] = [
   ["view", "View"],
@@ -24,7 +23,6 @@ const SECTIONS: readonly [Section, string][] = [
   ["order", "Order"],
   ["groups", "Groups"],
   ["profile", "Profile"],
-  ["updates", "Updates"],
 ];
 const RECENT_DAYS = [1, 2, 3, 7, 14, 30];
 const FIELD_LABEL: Record<RowField, string> = { title: "Title", time: "Last activity", branch: "Branch", model: "Model", diff: "Changes", reason: "Why it needs you", project: "Project", host: "Host" };
@@ -63,11 +61,10 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   const [section, setSection] = useState<Section>("view");
   const [largePreview, setLargePreview] = useState(false);
   const { toast, show: showToast, hide: hideToast } = useToastState();
-  const window = useWindowDimensions();
-  /** Where the screen starts in the window, so it can fill exactly the rest (see `frame` below). */
-  const frameRef = useRef<View>(null);
-  const [frameTop, setFrameTop] = useState(0);
   const c = theme.colors;
+  const pad = layout.compact ? 12 : 24;
+  /** The screen's height, so the preview takes a share of it. */
+  const [areaHeight, setAreaHeight] = useState(0);
   const ready = snapshot.profilesReady;
 
   const update = (change: (profile: Profile) => Profile) => {
@@ -309,35 +306,41 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
         {snapshot.savingError ? <Text style={{ color: c.statusDanger, fontSize: 12 }}>{snapshot.savingError}</Text> : null}
       </>
     ),
-    updates: <UpdatesSection />,
   };
 
+  // Underlined text tabs: one slim line instead of a row of buttons.
   const tabs = (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} accessibilityRole="tablist">
-      {SECTIONS.map(([id, label]) => (
-        <Chip key={id} theme={theme} label={label} selected={section === id} role="tab" onPress={() => setSection(id)} />
-      ))}
-    </ScrollView>
+    <View style={{ borderBottomWidth: 1, borderBottomColor: c.border }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityRole="tablist" contentContainerStyle={{ paddingHorizontal: pad - 10 }}>
+        {SECTIONS.map(([id, label]) => {
+          const selected = section === id;
+          return (
+            <Pressable
+              key={id}
+              accessibilityRole="tab"
+              accessibilityState={{ selected }}
+              onPress={() => setSection(id)}
+              hitSlop={{ top: 6, bottom: 6 }}
+              style={{ height: 38, justifyContent: "center", paddingHorizontal: 10, borderBottomWidth: 2, borderBottomColor: selected ? c.accent : "transparent", marginBottom: -1 }}
+            >
+              <Text style={{ color: selected ? c.foreground : c.foregroundMuted, fontSize: 14, fontWeight: selected ? "700" : "500" }}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
   );
-  const body = section === "updates" ? sections.updates : <SettingsSection title={SECTIONS.find(([id]) => id === section)![1]}>{sections[section]}</SettingsSection>;
+  const body = <SettingsSection title={SECTIONS.find(([id]) => id === section)![1]}>{sections[section]}</SettingsSection>;
 
   const touch = layout.platform !== "web";
-  // Paseo shows plugin settings inside its page scroll view (PageLayout: 16 pt content padding, plus the
-  // home-indicator inset at the bottom on phones). A frame that ends exactly above that padding leaves the
-  // page nothing to scroll, so only the settings scroll and the preview stays where it is.
-  const bottomRoom = layout.compact ? 16 + 34 : 16;
-  const frame = {
-    ref: frameRef,
-    onLayout: () => frameRef.current?.measureInWindow((_x, y) => setFrameTop((current) => (Math.abs(current - y) > 1 ? y : current))),
-  };
-  const frameHeight = Math.max(320, window.height - frameTop - bottomRoom);
-  // Same layout everywhere: Paseo's settings column is at most 720 pt wide, too narrow for a preview beside the controls.
-  const previewHeight = largePreview ? Math.round(frameHeight * 0.6) : Math.min(layout.compact ? 200 : 260, Math.round(frameHeight * 0.32));
   const link = { hitSlop: { top: 10, bottom: 10, left: 6, right: 6 }, style: { paddingHorizontal: 6, justifyContent: "center" as const } };
+  const previewHeight = !areaHeight ? 200 : largePreview ? Math.round(areaHeight * 0.6) : Math.min(layout.compact ? 200 : 260, Math.round(areaHeight * 0.3));
+  // Its own full screen (not Paseo's settings page), so the tabs and the preview stay on top and only the
+  // settings below them scroll.
   return (
-    <View {...frame} style={{ height: frameHeight, gap: 10 }}>
+    <View style={{ flex: 1, backgroundColor: c.surface0 }} onLayout={(event) => setAreaHeight(event.nativeEvent.layout.height)}>
       {tabs}
-      {section === "updates" ? null : (
+      <View style={{ paddingHorizontal: pad, paddingTop: 10, width: "100%", maxWidth: 760, alignSelf: "center" }}>
         <View style={{ height: previewHeight, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface1, overflow: "hidden" }}>
           <View style={{ height: 34, flexDirection: "row", alignItems: "center", paddingLeft: 12, paddingRight: 4, borderBottomWidth: 1, borderBottomColor: c.border }}>
             <Text numberOfLines={1} style={{ flex: 1, color: c.foregroundMuted, fontSize: 12, fontWeight: "600" }}>{`Preview · ${edit.name}${edit.id === active.id ? " (this device)" : ""}`}</Text>
@@ -354,8 +357,8 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
             <SettingsPreview theme={theme} profile={edit} touch={touch} />
           </ScrollView>
         </View>
-      )}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingTop: 2, paddingBottom: 24, gap: 12 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+      </View>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: pad, paddingTop: 14, paddingBottom: 40, gap: 12, width: "100%", maxWidth: 760, alignSelf: "center" }} keyboardShouldPersistTaps="handled">
         {body}
       </ScrollView>
       <Toast theme={theme} toast={toast} onHide={hideToast} />
@@ -363,15 +366,16 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   );
 }
 
-function Chip({ theme, label, selected, onPress, disabled, role = "button" }: { theme: PluginTheme; label: string; selected: boolean; onPress(): void; disabled?: boolean; role?: "button" | "tab" }) {
+function Chip({ theme, label, selected, onPress, disabled }: { theme: PluginTheme; label: string; selected: boolean; onPress(): void; disabled?: boolean }) {
   const c = theme.colors;
   return (
     <Pressable
-      accessibilityRole={role}
+      accessibilityRole="button"
       accessibilityState={{ selected, disabled: !!disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 14, borderRadius: 22, borderWidth: 1, borderColor: selected ? c.foreground : c.border, backgroundColor: selected ? c.surface2 : "transparent", opacity: disabled ? 0.5 : 1 }}
+      hitSlop={{ top: 4, bottom: 4 }}
+      style={{ minHeight: 36, justifyContent: "center", paddingHorizontal: 12, borderRadius: 18, borderWidth: 1, borderColor: selected ? c.foreground : c.border, backgroundColor: selected ? c.surface2 : "transparent", opacity: disabled ? 0.5 : 1 }}
     >
       <Text style={{ color: c.foreground, fontSize: 13, fontWeight: selected ? "700" : "500" }}>{label}</Text>
     </Pressable>

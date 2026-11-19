@@ -20,7 +20,7 @@ A Host → Project → Workspace tree for [Paseo](https://paseo.sh) on the phone
 - **New workspace.** The **+** on a project row opens a draft, like Paseo's own New workspace screen: choose a new worktree (optional branch name) or the project folder, then an agent with model, mode, the agent's on/off options such as *Auto Accept*, and a first message, or a terminal. Nothing is created until you tap *Create*.
 - **New project.** The folder-plus in the title bar adds an existing folder on that host as a project (`~` works) and opens a workspace on it. Plugins cannot create folders, so the folder must exist.
 - **Stable order.** Projects and workspaces are sorted by when you last prompted them (or created them), newest first. Agent output and status never move a row; the Inbox and the marks show what needs you. For your own order, set a profile's *Order* to *Manual*, then drag rows by their grip. On phones, Options → *Arrange order…* shows the grips. Projects reorder within their host and workspaces within their project.
-- **Profiles.** Phone and Desktop come built in, and you can add your own. A profile holds the density, how you pick the host, the view it opens on, what Recent means, the row lines, order, pins, hidden hosts and the collapse state. The settings show a live preview of sample hosts, projects and rows above the settings; it stays in place while the settings scroll.
+- **Profiles.** Phone and Desktop come built in, and you can add your own. A profile holds the density, how you pick the host, the view it opens on, what Recent means, the row lines, order, pins, hidden hosts and the collapse state. The settings screen shows a live preview of sample hosts, projects and rows above the settings; it stays in place while the settings scroll.
 - **Entry points.** A "Workspaces" row in the sidebar, a sidebar view (Paseo 0.16), header buttons on every workspace (Done and Workspaces), and a Command Center entry.
 
 The screenshots below show the previous version.
@@ -45,7 +45,7 @@ paseo plugin ls                           # workspace-organizer should be "runni
 paseo plugin logs workspace-organizer     # "Plugin ready"
 ```
 
-Then open the sidebar on any client and tap **Workspaces**. You can configure profiles under **Settings → Plugins → Workspace Organizer**.
+Then open the sidebar on any client and tap **Workspaces**. Profiles are set up on their own settings screen: Options → *Settings…* in the tree, or **Open** under Settings → Plugins → Workspace Organizer.
 
 To update, run the install command again (or `paseo plugin reload workspace-organizer` for a local checkout).
 

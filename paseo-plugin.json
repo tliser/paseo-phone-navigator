@@ -1,7 +1,7 @@
 {
   "id": "workspace-organizer",
   "name": "Workspace Organizer",
-  "description": "Your workspaces as a Host, Project and Workspace tree with a compact header, status, branch and model on every row, and per-device profiles.",
+  "description": "Hosts, projects and workspaces as one tree, with an Inbox of what needs you.",
   "requirements": {
     "paseo": ">=0.15.0"
   },

@@ -54,6 +54,8 @@ export function useActiveProfile(snapshot: StoreSnapshot, platform: Platform, co
 
 export const SCREEN_ID = "navigator";
 export const SETTINGS_ID = "settings";
+/** The full profile settings screen (Paseo's settings page links to it). */
+export const PROFILES_SCREEN_ID = "profiles";
 
 export interface TerminalTabs {
   byWorkspace: ReadonlyMap<string, TerminalInput[]>;

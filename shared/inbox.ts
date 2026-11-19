@@ -1,4 +1,5 @@
-// The Inbox: every chat that asks you, errored or has unread news, on every online host. Pure.
+// The Inbox: every top-level chat that asks you, errored or has unread news, on every online host. Sub-agents
+// are left out: they belong to their parent's work, which the Inbox already lists. Pure.
 import type { ReadMap } from "./reads";
 import { chatState } from "./tree";
 import type { HostInput } from "./types";
@@ -49,7 +50,10 @@ export function buildInbox(hosts: readonly HostInput[], reads: ReadMap): Inbox {
       continue;
     }
     for (const workspace of host.workspaces) {
-      for (const agent of workspace.agents ?? []) {
+      const agents = workspace.agents ?? [];
+      const ids = new Set(agents.map((agent) => agent.id));
+      // A sub-agent whose parent is not listed (archived, not loaded) counts as a chat of its own, as in the tab list.
+      for (const agent of agents.filter((entry) => !entry.parentId || !ids.has(entry.parentId))) {
         const state = chatState(agent, host.serverId, workspace.id, reads);
         if (state !== "asking" && state !== "error" && state !== "unread") continue;
         entries.push({

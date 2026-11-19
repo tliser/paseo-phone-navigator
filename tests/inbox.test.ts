@@ -24,8 +24,12 @@ describe("buildInbox", () => {
       host("slow", [], { loading: true }),
     ];
     const inbox = buildInbox(hosts, { [readAgentKey("b", "done")]: 100 });
-    expect(inbox.entries.map((e) => `${e.hostLabel}/${e.agentId}:${e.state}`)).toEqual(["B/err:error", "B/sub:asking", "A/ask:asking", "B/new:unread", "A/old:unread"]);
+    expect(inbox.entries.map((e) => `${e.hostLabel}/${e.agentId}:${e.state}`)).toEqual(["B/err:error", "A/ask:asking", "B/new:unread", "A/old:unread"]);
     expect(inbox).toMatchObject({ offlineHosts: ["OFF"], loadingHosts: ["SLOW"] });
-    expect(inboxTally(inbox.entries)).toEqual({ total: 5, asking: 2, error: 1, unread: 2 });
+    expect(inboxTally(inbox.entries)).toEqual({ total: 4, asking: 1, error: 1, unread: 2 });
+  });
+  it("leaves sub-agents out, unless their parent is not listed", () => {
+    const hosts = [host("a", [ws("1", [chat("main", "running", 10), chat("sub", "asking", 20, { parentId: "main" }), chat("orphan", "asking", 30, { parentId: "gone" })])])];
+    expect(buildInbox(hosts, {}).entries.map((e) => e.agentId)).toEqual(["orphan"]);
   });
 });

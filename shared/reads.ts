@@ -34,11 +34,14 @@ export function isUnread(reads: ReadMap, serverId: string, workspaceId: string, 
 
 /**
  * The same for one chat. Without its own entry the workspace's entry counts, so marks made before
- * reads were per chat do not turn every chat unread after the update.
+ * reads were per chat do not turn every chat unread after the update. Sending a prompt counts as
+ * reading: it clears an earlier "put back in Inbox", and only a turn finishing after it is news.
  */
-export function isAgentUnread(reads: ReadMap, serverId: string, workspaceId: string, agent: { id: string; unreadAt: number }): boolean {
-  const own = reads[readAgentKey(serverId, agent.id)];
-  return unreadFrom(own ?? reads[readKey(serverId, workspaceId)] ?? 0, agent.unreadAt);
+export function isAgentUnread(reads: ReadMap, serverId: string, workspaceId: string, agent: { id: string; unreadAt: number; promptAt?: number }): boolean {
+  const mark = reads[readAgentKey(serverId, agent.id)] ?? reads[readKey(serverId, workspaceId)] ?? 0;
+  const prompt = agent.promptAt ?? 0;
+  const seen = prompt > Math.abs(mark) ? prompt : mark;
+  return unreadFrom(seen, agent.unreadAt);
 }
 
 /** A key and the value a mark wrote, so it can be undone. */

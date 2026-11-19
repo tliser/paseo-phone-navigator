@@ -243,6 +243,10 @@ describe("read state per chat", () => {
     expect(workspaceState(w, "h", { [readAgentKey("h", "c1")]: NOW })).toBe("unread");
     expect(workspaceState(w, "h", { [readAgentKey("h", "c1")]: NOW, [readAgentKey("h", "c2")]: NOW })).toBe("read");
   });
+  it("a working chat is not in the Inbox, even when put back there before", () => {
+    const w = ws("w", "p", "running", 1, { agents: [chat("c", "running")] });
+    expect(workspaceState(w, "h", { [readAgentKey("h", "c")]: -NOW })).toBe("running");
+  });
   it("an unread sub-agent alone does not make the workspace unread", () => {
     const w = ws("w", "p", "done", 1, { agents: [chat("m", "idle"), chat("s", "finished", { parentId: "m", unreadAt: min(2) })] });
     expect(workspaceState(w, "h", {})).toBe("read");

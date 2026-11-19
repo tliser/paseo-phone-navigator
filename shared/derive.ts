@@ -107,7 +107,7 @@ function agentInput(agent: AgentLike, index: number): AgentInput {
             ? "closed"
             : "idle";
   const unreadAt = agent.requiresAttention && agent.attentionReason === "finished" ? epoch(agent.attentionTimestamp) || epoch(agent.updatedAt) : 0;
-  return { id: agent.id, title: agent.title?.trim() || `Agent ${index + 1}`, model: agent.model, status, parentId: parentOf(agent), activityAt: agentActivity(agent), unreadAt };
+  return { id: agent.id, title: agent.title?.trim() || `Agent ${index + 1}`, model: agent.model, status, parentId: parentOf(agent), activityAt: agentActivity(agent), unreadAt, promptAt: epoch(agent.lastUserMessageAt) };
 }
 
 /**

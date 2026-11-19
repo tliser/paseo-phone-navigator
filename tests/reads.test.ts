@@ -21,6 +21,12 @@ describe("read state", () => {
     expect(isAgentUnread({ [readAgentKey("h", "a")]: 20 }, "h", "w", agent)).toBe(false);
     expect(isAgentUnread({ [readAgentKey("h", "a")]: -NOW }, "h", "w", { id: "a", unreadAt: 0 })).toBe(true);
   });
+  it("sending a prompt clears put-back-in-Inbox; only a turn finishing after it is news again", () => {
+    const putBack = { [readAgentKey("h", "a")]: -100 };
+    expect(isAgentUnread(putBack, "h", "w", { id: "a", unreadAt: 0, promptAt: 200 })).toBe(false);
+    expect(isAgentUnread(putBack, "h", "w", { id: "a", unreadAt: 300, promptAt: 200 })).toBe(true);
+    expect(isAgentUnread(putBack, "h", "w", { id: "a", unreadAt: 0, promptAt: 50 })).toBe(true);
+  });
   it("a chat without its own entry falls back to the workspace's entry from before per-chat reads", () => {
     expect(isAgentUnread({ [readKey("h", "w")]: 20 }, "h", "w", { id: "a", unreadAt: 10 })).toBe(false);
     expect(isAgentUnread({ [readKey("h", "w")]: 20, [readAgentKey("h", "a")]: -NOW }, "h", "w", { id: "a", unreadAt: 10 })).toBe(true);

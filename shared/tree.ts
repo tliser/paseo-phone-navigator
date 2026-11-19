@@ -145,12 +145,12 @@ export interface TreeOptions {
   pins?: ReadonlySet<string>;
 }
 
-/** A chat's state: asking, then error, then unread news, then running; anything else is read. */
+/** A chat's state: asking, then error, then running, then unread news; anything else is read. A working chat never waits for you. */
 export function chatState(agent: AgentInput, serverId: string, workspaceId: string, reads: ReadMap): ChatState {
   if (agent.status === "asking") return "asking";
   if (agent.status === "error") return "error";
-  if (isAgentUnread(reads, serverId, workspaceId, agent)) return "unread";
   if (agent.status === "running") return "running";
+  if (isAgentUnread(reads, serverId, workspaceId, agent)) return "unread";
   return "read";
 }
 

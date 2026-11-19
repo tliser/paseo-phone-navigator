@@ -35,6 +35,8 @@ export interface AgentInput {
   activityAt: number;
   /** When its last finished turn happened, epoch ms; 0 when Paseo reports nothing to read. */
   unreadAt: number;
+  /** When you last sent it a prompt, epoch ms; 0 when unknown. */
+  promptAt?: number;
 }
 
 export interface TerminalInput {

@@ -6,7 +6,7 @@ import { dirname, sep } from "node:path";
 import type { InstalledVersion } from "../shared/updates";
 import { runCli, startCliDetached } from "./cli";
 
-const PLUGIN_ID = "phone-navigator";
+const PLUGIN_ID = "workspace-organizer";
 
 interface Listed {
   id: string;

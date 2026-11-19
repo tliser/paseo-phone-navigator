@@ -41,10 +41,10 @@ export default function contribute(client: PluginClientContext) {
 
   const cleanups: (() => void | Promise<void>)[] = [
     client.addScreen({ id: SCREEN_ID, title: "Workspaces", Component: Screen }),
-    client.addSettingsScreen({ id: SETTINGS_ID, title: "Phone Navigator", icon: "Layers", Component: SettingsScreen }),
+    client.addSettingsScreen({ id: SETTINGS_ID, title: "Workspace Organizer", icon: "Layers", Component: SettingsScreen }),
     client.addSidebarHeaderItem({ id: "workspaces", title: "Workspaces", Component: SidebarItem }),
     ...(typeof client.addSidebarView === "function"
-      ? [client.addSidebarView({ id: "navigator", title: "Phone Navigator", description: "Hosts, projects and workspaces as a tree, with an inbox of what needs you.", Component: SidebarView })]
+      ? [client.addSidebarView({ id: "navigator", title: "Workspace Organizer", description: "Hosts, projects and workspaces as a tree, with an inbox of what needs you.", Component: SidebarView })]
       : []),
     client.addCommandCenterItem({
       id: "open-workspaces",

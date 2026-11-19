@@ -13,7 +13,7 @@ export function setStore(store: Store | null): void {
 }
 
 export function getStore(): Store {
-  if (!current) throw new Error("Phone Navigator is not loaded");
+  if (!current) throw new Error("Workspace Organizer is not loaded");
   return current;
 }
 

@@ -24,10 +24,10 @@ export default function contribute(server: PluginServerContext) {
         if (state.status === "ready" && !state.values.autoUpdate) return "automatic updates are off";
       }
       const result = await updateIfBehind();
-      console.log(`Phone Navigator update check (${reason}): ${result}`);
+      console.log(`Workspace Organizer update check (${reason}): ${result}`);
       return result;
     } catch (error) {
-      console.error("Phone Navigator update check failed", error);
+      console.error("Workspace Organizer update check failed", error);
       return `failed: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       checking = false;
@@ -37,7 +37,7 @@ export default function contribute(server: PluginServerContext) {
 
   // Only changes with an update, which restarts this process, so it is read once.
   const own: Promise<InstalledVersion | null> = installedVersion().catch((error: unknown) => {
-    console.error("Phone Navigator: reading the installed version failed", error);
+    console.error("Workspace Organizer: reading the installed version failed", error);
     return null;
   });
   server.handle(installedVersionRpc, () => own);

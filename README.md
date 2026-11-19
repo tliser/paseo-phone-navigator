@@ -1,6 +1,6 @@
-# Phone Navigator for Paseo
+# Workspace Organizer for Paseo
 
-A Host → Project → Workspace tree for [Paseo](https://paseo.sh), built for the mobile apps but usable on desktop and web too. It shows every workspace on every connected host in one place, with what needs you on top.
+A Host → Project → Workspace tree for [Paseo](https://paseo.sh) on the phone, desktop and web. It shows every workspace on every connected host in one place, with an Inbox of what needs you. Formerly "Phone Navigator".
 
 <p>
   <img src="docs/screenshots/phone-active.png" width="230" alt="Active filter on the phone">
@@ -39,14 +39,14 @@ See [OVERVIEW.md](OVERVIEW.md) for more detail.
 Requires Paseo 0.15 or later. The repository is private, so you need read access to it, and `git` on the daemon host must be able to clone from GitHub.
 
 ```bash
-paseo plugin install git:tliser/paseo-phone-navigator
-paseo plugin ls                       # phone-navigator should be "running"
-paseo plugin logs phone-navigator     # "Plugin ready"
+paseo plugin install git:tliser/paseo-workspace-organizer
+paseo plugin ls                           # workspace-organizer should be "running"
+paseo plugin logs workspace-organizer     # "Plugin ready"
 ```
 
-Then open the sidebar on any client and tap **Workspaces**. You can configure profiles under **Settings → Plugins → Phone Navigator**.
+Then open the sidebar on any client and tap **Workspaces**. You can configure profiles under **Settings → Plugins → Workspace Organizer**.
 
-To update, run the install command again (or `paseo plugin reload phone-navigator` for a local checkout).
+To update, run the install command again (or `paseo plugin reload workspace-organizer` for a local checkout).
 
 ### Tips
 
@@ -64,7 +64,7 @@ npm install
 npm run typecheck
 npm test
 paseo plugin install /path/to/checkout     # local install
-paseo plugin reload phone-navigator         # after changes
+paseo plugin reload workspace-organizer     # after changes
 ```
 
 Layout:

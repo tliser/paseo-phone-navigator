@@ -8,6 +8,7 @@ declare const localStorage: {
   removeItem(key: string): void;
 };
 
+// The plugin's former name; renaming it would forget every device's profile choice and folded groups.
 const PREFIX = "phone-navigator:";
 
 export function hasDeviceStorage(): boolean {

@@ -4,6 +4,7 @@
 // different plugin versions share it, so the shape is a contract: change it only with DIRECTORY_KEY.
 import type { PluginClientContext } from "@getpaseo/plugin/client";
 
+// Named after the plugin's former name (Phone Navigator); it is a contract between versions, so it stays.
 const DIRECTORY_KEY = "__paseoPhoneNavigator.peers.v1";
 
 export interface Peer {

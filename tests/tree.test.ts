@@ -14,7 +14,7 @@ function ws(id: string, projectId: string, status: WorkspaceInput["status"], act
   return {
     id, projectId, projectName: projectId.toUpperCase(), projectKind: "git", projectRootPath: `/p/${projectId}`, title: `title ${id}`, status,
     needsYou: status === "needs_input", unreadAt: news !== undefined ? min(news) : 0,
-    branch: `br-${id}`, additions: 1, deletions: 2, activityAt: min(activityMinutes),
+    branch: `br-${id}`, additions: 1, deletions: 2, activityAt: min(activityMinutes), orderAt: min(activityMinutes),
     model: "anthropic/claude-sonnet-4-5-20250929", ...rest,
   };
 }
@@ -51,19 +51,15 @@ describe("workspace state (asking vs unread vs read)", () => {
 });
 
 describe("sorting", () => {
-  it("orders asking, unread, running, the rest; then recent first", () => {
-    const tree = buildTree([host("h", [ws("d", "p", "done", 1), ws("r", "p", "running", 50), ws("u", "p", "attention", 100, { news: 100 }), ws("n", "p", "needs_input", 10), ws("r2", "p", "running", 5), ws("f", "p", "failed", 3, { news: 3 })])], opts());
-    expect(wsIds(tree.rows)).toEqual(["n", "f", "u", "r2", "r", "d"]);
+  it("orders by your newest prompt or creation; status and agent output do not move rows", () => {
+    const tree = buildTree(
+      [host("h", [ws("asks", "p", "needs_input", 1, { orderAt: min(300) }), ws("fresh", "p", "done", 500, { orderAt: min(10) }), ws("busy", "p", "running", 0, { orderAt: min(100) })])],
+      opts(),
+    );
+    expect(wsIds(tree.rows)).toEqual(["fresh", "busy", "asks"]);
   });
-  it("a read 'attention' workspace drops to the bottom", () => {
-    const reads = { [readKey("h", "u")]: NOW };
-    const tree = buildTree([host("h", [ws("u", "p", "attention", 1, { news: 5 }), ws("d", "p", "done", 30)])], opts({ reads }));
-    expect(wsIds(tree.rows)).toEqual(["u", "d"]); // same rank: more recent first
-    const row = tree.rows.find((r) => r.type === "workspace" && r.workspace.id === "u");
-    expect(row?.type === "workspace" && row.state).toBe("read");
-  });
-  it("orders projects by latest activity of any workspace, even filtered ones", () => {
-    const tree = buildTree([host("h", [ws("1", "old", "running", 100), ws("2", "new", "running", 200), ws("3", "new", "done", 1)])], opts({ filter: "active" }));
+  it("orders projects by the newest prompt of any workspace, even filtered ones", () => {
+    const tree = buildTree([host("h", [ws("1", "old", "running", 0, { orderAt: min(100) }), ws("2", "new", "running", 0, { orderAt: min(200) }), ws("3", "new", "done", 0, { orderAt: min(1) })])], opts({ filter: "active" }));
     expect(tree.rows.flatMap((r) => (r.type === "project" ? [r.projectId] : []))).toEqual(["new", "old"]);
   });
   it("puts offline hosts last and respects configured order", () => {
@@ -159,8 +155,8 @@ describe("manual order", () => {
     expect(wsIds(tree({ "proj:h:p": ["a"] }).rows)).toEqual(["b", "a", "c"]);
   });
   it("auto mode ignores a saved order", () => {
-    const t = buildTree([host("h", [ws("a", "p", "done", 1), ws("b", "p", "needs_input", 50)])], opts({ order: { "proj:h:p": ["a", "b"] } }));
-    expect(wsIds(t.rows)).toEqual(["b", "a"]);
+    const t = buildTree([host("h", [ws("a", "p", "done", 1), ws("b", "p", "needs_input", 50)])], opts({ order: { "proj:h:p": ["b", "a"] } }));
+    expect(wsIds(t.rows)).toEqual(["a", "b"]);
   });
   it("exposes complete groups even when a filter hides items", () => {
     const t = tree({ "proj:h:p": ["a", "b"] }, { filter: "pinned", pins: new Set(["h:b"]) });

@@ -65,6 +65,8 @@ export interface WorkspaceInput {
   deletions: number;
   /** Last activity, epoch ms; 0 when unknown. */
   activityAt: number;
+  /** When you last prompted one of its chats, else when it was created; epoch ms, 0 when unknown. Agent output never changes it, so rows keep their place. */
+  orderAt: number;
   /** Model of the most recently active agent, as the daemon reports it. */
   model: string | null;
   /** Agents of the workspace (internal and archived ones left out): open before closed, then most recently active first. */

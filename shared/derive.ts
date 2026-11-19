@@ -138,6 +138,8 @@ export function deriveWorkspaces(workspaces: readonly WorkspaceLike[], agents: r
   const errored = new Set<string>();
   /** Latest finished/error flag of a main agent per workspace. */
   const finishedAt = new Map<string, number>();
+  /** Your latest prompt to a main agent per workspace. */
+  const promptedAt = new Map<string, number>();
   for (const agent of agents) {
     if (!agent.workspaceId || agent.background) continue;
     if (agentNeedsYou(agent)) asking.add(agent.workspaceId);
@@ -146,6 +148,7 @@ export function deriveWorkspaces(workspaces: readonly WorkspaceLike[], agents: r
       const at = epoch(agent.attentionTimestamp) || epoch(agent.updatedAt);
       finishedAt.set(agent.workspaceId, Math.max(finishedAt.get(agent.workspaceId) ?? 0, at));
     }
+    if (isListedAgent(agent)) promptedAt.set(agent.workspaceId, Math.max(promptedAt.get(agent.workspaceId) ?? 0, epoch(agent.lastUserMessageAt)));
   }
 
   const result: WorkspaceInput[] = [];
@@ -176,6 +179,7 @@ export function deriveWorkspaces(workspaces: readonly WorkspaceLike[], agents: r
       additions: workspace.diffStat?.additions ?? 0,
       deletions: workspace.diffStat?.deletions ?? 0,
       activityAt,
+      orderAt: Math.max(promptedAt.get(workspace.id) ?? 0, epoch(workspace.createdAt)),
       model: agent?.model ?? null,
       agents: agentLists.get(workspace.id) ?? [],
     });

@@ -8,7 +8,7 @@ const chat = (id: string, status: AgentInput["status"], activityAt: number, extr
 });
 const ws = (id: string, agents: AgentInput[]): WorkspaceInput => ({
   id, projectId: "p", projectName: "P", projectKind: "git", projectRootPath: "/p", title: `ws ${id}`, status: "done",
-  needsYou: false, unreadAt: 0, branch: null, additions: 0, deletions: 0, activityAt: 1, model: null, agents,
+  needsYou: false, unreadAt: 0, branch: null, additions: 0, deletions: 0, activityAt: 1, orderAt: 1, model: null, agents,
 });
 const host = (serverId: string, workspaces: WorkspaceInput[], extra: Partial<HostInput> = {}): HostInput => ({
   serverId, label: serverId.toUpperCase(), status: "online", loading: false, error: null, workspaces, ...extra,

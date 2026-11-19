@@ -159,7 +159,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
       <SettingsCard>
         <SettingsSelect
           label="Order"
-          hint={s.sort === "manual" ? (layout.compact ? "Options → Arrange order… shows the grips." : "Drag a project or workspace by its grip.") : "Asks you, unread and running first, then most recent."}
+          hint={s.sort === "manual" ? (layout.compact ? "Options → Arrange order… shows the grips." : "Drag a project or workspace by its grip.") : "Newest prompt or workspace first. Agent output never moves rows."}
           value={s.sort}
           options={[{ value: "auto", label: "Automatic" }, { value: "manual", label: "Manual" }]}
           onValueChange={(sort) => updateSettings({ sort })}

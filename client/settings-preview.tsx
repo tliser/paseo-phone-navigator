@@ -19,7 +19,7 @@ function sampleHosts(now: number): HostInput[] {
   const ws = (id: string, project: string, title: string, status: WorkspaceInput["status"], minutes: number, extra: Partial<WorkspaceInput> = {}): WorkspaceInput => ({
     id, projectId: project, projectName: project, projectKind: "git", projectRootPath: "", title, status,
     needsYou: status === "needs_input", unreadAt: 0, branch: `feat/${id}`, additions: 42, deletions: 7,
-    activityAt: now - minutes * MINUTE, model: "anthropic/claude-sonnet-4-5", ...extra,
+    activityAt: now - minutes * MINUTE, orderAt: now - minutes * MINUTE, model: "anthropic/claude-sonnet-4-5", ...extra,
   });
   return [{
     serverId: "preview", label: "Sample host", status: "online", loading: false, error: null,

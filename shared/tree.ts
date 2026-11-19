@@ -168,21 +168,16 @@ export function workspaceState(workspace: WorkspaceInput, serverId: string, read
   return isUnread(reads, serverId, workspace.id, workspace.unreadAt) ? "unread" : "read";
 }
 
-/** needs you (asking or errored), then unread, then running, then the rest. */
-function stateRank(state: WorkspaceState): number {
-  return state === "needs_you" || state === "error" ? 0 : state === "unread" ? 1 : state === "running" ? 2 : 3;
-}
-
 interface Ranked {
   workspace: WorkspaceInput;
   state: WorkspaceState;
   pinned?: boolean;
 }
 
+/** Newest prompt or workspace first. Status and agent output do not move rows; the Inbox and the marks show those. */
 function compareRanked(a: Ranked, b: Ranked): number {
   return (
-    stateRank(a.state) - stateRank(b.state) ||
-    b.workspace.activityAt - a.workspace.activityAt ||
+    b.workspace.orderAt - a.workspace.orderAt ||
     a.workspace.title.localeCompare(b.workspace.title) ||
     a.workspace.id.localeCompare(b.workspace.id)
   );
@@ -381,17 +376,17 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
     const hostTally = emptyTally();
     totalOnline += host.workspaces.length;
 
-    // Group by project, keeping each project's activity from all its workspaces (filtering must not change rank).
-    const projects = new Map<string, { id: string; name: string; kind: ProjectKind; rootPath: string; activity: number; all: Ranked[]; tally: Tally }>();
+    // Group by project, keeping each project's newest prompt from all its workspaces (filtering must not change rank).
+    const projects = new Map<string, { id: string; name: string; kind: ProjectKind; rootPath: string; orderAt: number; all: Ranked[]; tally: Tally }>();
     for (const workspace of host.workspaces) {
       const item: Ranked = { workspace, state: workspaceState(workspace, host.serverId, reads), pinned: isPinned(host.serverId, workspace.id) };
       let project = projects.get(workspace.projectId);
       if (!project) {
-        project = { id: workspace.projectId, name: workspace.projectName, kind: workspace.projectKind, rootPath: workspace.projectRootPath, activity: 0, all: [], tally: emptyTally() };
+        project = { id: workspace.projectId, name: workspace.projectName, kind: workspace.projectKind, rootPath: workspace.projectRootPath, orderAt: 0, all: [], tally: emptyTally() };
         projects.set(workspace.projectId, project);
       }
       project.all.push(item);
-      project.activity = Math.max(project.activity, workspace.activityAt);
+      project.orderAt = Math.max(project.orderAt, workspace.orderAt);
       addTally(project.tally, item.state);
       addTally(hostTally, item.state);
       if (item.state === "running") running++;
@@ -402,11 +397,11 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       }
     }
 
-    const byActivity = (a: { activity: number; name: string; id: string }, b: { activity: number; name: string; id: string }) =>
-      b.activity - a.activity || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+    const byPrompt = (a: { orderAt: number; name: string; id: string }, b: { orderAt: number; name: string; id: string }) =>
+      b.orderAt - a.orderAt || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
     const orderedProjects = manual
-      ? applyOrder([...projects.values()], (project) => project.id, order[hKey], byActivity)
-      : [...projects.values()].sort(byActivity);
+      ? applyOrder([...projects.values()], (project) => project.id, order[hKey], byPrompt)
+      : [...projects.values()].sort(byPrompt);
     groups[hKey] = orderedProjects.map((project) => project.id);
     const visibleProjects = orderedProjects
       .map((project) => {

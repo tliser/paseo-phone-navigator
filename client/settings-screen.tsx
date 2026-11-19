@@ -340,24 +340,25 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface0 }} onLayout={(event) => setAreaHeight(event.nativeEvent.layout.height)}>
       {tabs}
-      <View style={{ paddingHorizontal: pad, paddingTop: 10, width: "100%", maxWidth: 760, alignSelf: "center" }}>
-        <View style={{ height: previewHeight, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface1, overflow: "hidden" }}>
-          <View style={{ height: 34, flexDirection: "row", alignItems: "center", paddingLeft: 12, paddingRight: 4, borderBottomWidth: 1, borderBottomColor: c.border }}>
-            <Text numberOfLines={1} style={{ flex: 1, color: c.foregroundMuted, fontSize: 12, fontWeight: "600" }}>{`Preview · ${edit.name}${edit.id === active.id ? " (this device)" : ""}`}</Text>
-            {section === "profile" ? null : (
+      {/* Every tab except Profile changes what the navigator shows, so only Profile has no preview. */}
+      {section === "profile" ? null : (
+        <View style={{ paddingHorizontal: pad, paddingTop: 10, width: "100%", maxWidth: 760, alignSelf: "center" }}>
+          <View style={{ height: previewHeight, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface1, overflow: "hidden" }}>
+            <View style={{ height: 34, flexDirection: "row", alignItems: "center", paddingLeft: 12, paddingRight: 4, borderBottomWidth: 1, borderBottomColor: c.border }}>
+              <Text numberOfLines={1} style={{ flex: 1, color: c.foregroundMuted, fontSize: 12, fontWeight: "600" }}>{`Preview · ${edit.name}${edit.id === active.id ? " (this device)" : ""}`}</Text>
               <Pressable accessibilityRole="button" accessibilityLabel={`Change the profile being edited, now ${edit.name}`} onPress={() => setSection("profile")} {...link}>
                 <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>Change</Text>
               </Pressable>
-            )}
-            <Pressable accessibilityRole="button" accessibilityLabel={largePreview ? "Smaller preview" : "Larger preview"} onPress={() => setLargePreview((value) => !value)} {...link}>
-              <Icon name={largePreview ? "Minimize2" : "Maximize2"} size={15} color={c.accent} />
-            </Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel={largePreview ? "Smaller preview" : "Larger preview"} onPress={() => setLargePreview((value) => !value)} {...link}>
+                <Icon name={largePreview ? "Minimize2" : "Maximize2"} size={15} color={c.accent} />
+              </Pressable>
+            </View>
+            <ScrollView style={{ flex: 1 }} nestedScrollEnabled>
+              <SettingsPreview theme={theme} profile={edit} touch={touch} hosts={snapshot.hosts} colors={snapshot.colors} />
+            </ScrollView>
           </View>
-          <ScrollView style={{ flex: 1 }} nestedScrollEnabled>
-            <SettingsPreview theme={theme} profile={edit} touch={touch} />
-          </ScrollView>
         </View>
-      </View>
+      )}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: pad, paddingTop: 14, paddingBottom: 40, gap: 12, width: "100%", maxWidth: 760, alignSelf: "center" }} keyboardShouldPersistTaps="handled">
         {body}
       </ScrollView>

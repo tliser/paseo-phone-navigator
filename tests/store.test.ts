@@ -249,22 +249,28 @@ describe("store workspace actions", () => {
         ),
         subscribe: () => () => undefined,
         waitForReady: () => new Promise(() => undefined),
+        // The shape Paseo's app hands plugins (compact "wire" snapshot, checked against a live daemon): `entries`
+        // is empty and models point into shared thinking sets.
         snapshot: async () => ({
-          entries: [
-            {
-              provider: "plexus",
-              label: "Plexus",
-              enabled: true,
-              status: "ready",
-              defaultModeId: "build",
-              modes: [{ id: "build", label: "Build" }],
-              models: [
-                { id: "m1", label: "M1", isDefault: true, thinkingOptions: [{ id: "low", label: "Low" }, { id: "high", label: "High", isDefault: true }] },
-                { id: "hidden", label: "H", isSelectable: false },
-              ],
-            },
-            { provider: "claude", enabled: false, status: "unavailable", models: [{ id: "x", label: "X" }] },
-          ],
+          entries: [],
+          compactSnapshot: {
+            entries: [
+              {
+                provider: "plexus",
+                label: "Plexus",
+                enabled: true,
+                status: "ready",
+                defaultModeId: "build",
+                modes: [{ id: "build", label: "Build" }],
+                models: [
+                  { id: "m1", label: "M1", isDefault: true, thinkingSet: 0 },
+                  { id: "hidden", label: "H", isSelectable: false },
+                ],
+              },
+              { provider: "claude", enabled: false, status: "unavailable", models: [{ id: "x", label: "X" }] },
+            ],
+            thinkingSets: [{ options: [{ id: "low", label: "Low" }, { id: "high", label: "High", isDefault: true }] }],
+          },
         }),
       },
     };

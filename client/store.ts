@@ -606,13 +606,18 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       const fail = (reason: unknown) => {
         if (live && !done) onChange({ ready: [], loading: [], error: reason instanceof Error ? reason.message : String(reason) });
       };
+      const fetchSnapshot = () => api.providers.snapshot({ cwd }).then((snapshot) => publish(snapshotEntries(snapshot)), fail);
       // Updates arrive while discovery runs; the snapshot gives the current state at once.
       const unsubscribe = api.providers.subscribe((update) => {
-        if (!update.cwd || update.cwd === cwd) publish(update.entries);
+        if (update.cwd && update.cwd !== cwd) return;
+        const entries = snapshotEntries(update);
+        // A compact update may carry only the new snapshot's hash: ask for its content.
+        if (entries.length) publish(entries);
+        else if (live && !done) void fetchSnapshot();
       });
-      api.providers.snapshot({ cwd }).then((snapshot) => publish(snapshot.entries), fail);
+      void fetchSnapshot();
       // Safety net if no update ever comes: wait for discovery to finish once.
-      api.providers.waitForReady({ cwd, timeoutMs: 60_000 }).then((snapshot) => publish(snapshot.entries), () => undefined);
+      api.providers.waitForReady({ cwd, timeoutMs: 60_000 }).then((snapshot) => publish(snapshotEntries(snapshot)), () => undefined);
       return () => {
         live = false;
         unsubscribe();
@@ -709,9 +714,36 @@ interface ProviderEntry {
         isSelectable?: boolean;
         thinkingOptions?: readonly { id: string; label: string; isDefault?: boolean }[] | null;
         defaultThinkingOptionId?: string | null;
+        /** Compact snapshots: index into the snapshot's `thinkingSets` instead of `thinkingOptions`. */
+        thinkingSet?: number;
       }[]
     | null;
   modes?: readonly { id: string; label: string }[] | null;
+}
+
+interface ProviderSnapshotPayload {
+  entries?: readonly ProviderEntry[];
+  compactSnapshot?: {
+    entries: readonly ProviderEntry[];
+    thinkingSets: readonly { options: readonly { id: string; label: string; isDefault?: boolean }[]; defaultOptionId?: string }[];
+  } | null;
+}
+
+/**
+ * The provider entries of a snapshot or update. Paseo's app asks its hosts for compact snapshots and hands
+ * them to plugins as they came: `entries` is then empty, the data is in `compactSnapshot`, and each model
+ * points into shared thinking sets (Paseo's own `expandProviderSnapshot`, which plugins cannot import).
+ */
+export function snapshotEntries(payload: ProviderSnapshotPayload): readonly ProviderEntry[] {
+  const compact = payload.compactSnapshot;
+  if (!compact) return payload.entries ?? [];
+  return compact.entries.map((entry) => ({
+    ...entry,
+    models: entry.models?.map((model) => {
+      const set = model.thinkingSet === undefined ? undefined : compact.thinkingSets[model.thinkingSet];
+      return set ? { ...model, thinkingOptions: set.options, defaultThinkingOptionId: set.defaultOptionId ?? model.defaultThinkingOptionId } : model;
+    }),
+  }));
 }
 
 /** Ready providers with selectable models, and which enabled providers are still being discovered. */

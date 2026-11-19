@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dragShift, findDropTarget, heightsFor, rowOffsets } from "../shared/drag";
+import { dragShift, findDropTarget, heightsFor, rowOffsets, stickyHeaders } from "../shared/drag";
 import { moveRelative } from "../shared/order";
 import type { TreeRow } from "../shared/tree";
 import type { WorkspaceInput } from "../shared/types";
@@ -65,5 +65,23 @@ describe("dragShift", () => {
     expect(dragShift(rows, offsets, 5, drop)).toEqual({ carried: 7, start: 1, end: 5, shift: 100 });
     const down = findDropTarget(rows, offsets, 1, 380)!; // p after q
     expect(dragShift(rows, offsets, 1, down)).toEqual({ carried: 5, start: 5, end: 7, shift: -212 });
+  });
+});
+
+describe("sticky headers", () => {
+  // host a (0), project p (44), 3 workspaces (88..), project q (256), 1 workspace, host b (344)
+  const rows = [hostRow("a"), projRow("a", "p"), wsRow("a", "p", "1"), wsRow("a", "p", "2"), wsRow("a", "p", "3"), projRow("a", "q"), wsRow("a", "q", "4"), hostRow("b")];
+  const offsets = [0, 44, 88, 144, 200, 256, 300, 356, 400];
+  it("pin nothing at the top, then the host and the project under it", () => {
+    expect(stickyHeaders(rows, offsets, 0, 44)).toEqual({ host: null, hostShift: 0, project: null, projectShift: 0 });
+    expect(stickyHeaders(rows, offsets, 100, 44)).toEqual({ host: 0, hostShift: 0, project: 1, projectShift: 0 });
+  });
+  it("the next project pushes the pinned one up, then takes its place", () => {
+    expect(stickyHeaders(rows, offsets, 200, 44)).toMatchObject({ project: 1, projectShift: -32 });
+    expect(stickyHeaders(rows, offsets, 220, 44)).toMatchObject({ project: 5, projectShift: 0 });
+  });
+  it("the next host pushes the pinned host up", () => {
+    expect(stickyHeaders(rows, offsets, 330, 44)).toMatchObject({ host: 0, hostShift: -18 });
+    expect(stickyHeaders(rows, offsets, 360, 44)).toMatchObject({ host: 7, hostShift: 0, project: null });
   });
 });

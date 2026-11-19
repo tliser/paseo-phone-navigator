@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { AccessibilityInfo, Animated, Easing, findNodeHandle, Platform, Pressable, Text, View, type GestureResponderHandlers } from "react-native";
 import { timeAgo } from "../shared/format";
 import { expandForAttention, expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
-import { blockEnd, dragId, dragShift, heightsFor, rowOffsets, type DropTarget } from "../shared/drag";
+import { blockEnd, dragId, dragShift, heightsFor, rowOffsets, stickyHeaders, type DropTarget, type StickyHeaders } from "../shared/drag";
 import { inboxTally, type InboxEntry } from "../shared/inbox";
 import { buildTree, workspaceState, type ProjectRow, type TabRow, type Tally, type TreeRow, type WorkspaceRow } from "../shared/tree";
 import type { Filter, WorkspaceState } from "../shared/types";
@@ -15,7 +15,7 @@ import { NamesCard, type Peek } from "./names-card";
 import { NewWorkspaceSheet } from "./new-workspace-sheet";
 import { InboxSheet } from "./inbox-sheet";
 import { OptionsMenu } from "./options-menu";
-import { useActiveProfile, useInbox, useNavigatorStore, useTerminalTabs, withTerminals } from "./runtime";
+import { useActiveProfile, useInbox, useNavigatorStore, withTerminals, type TerminalTabs } from "./runtime";
 import type { Anchor } from "./sheet";
 import type { Place } from "../shared/order";
 import { SearchField, TitleBar, ViewsControl } from "./title-bar";
@@ -35,6 +35,8 @@ const sessionFilters = new Map<string, Filter>();
  * A chat was opened from the Inbox on the phone screen: coming back to the screen reopens the Inbox.
  * The sidebar view leaves the plugin when it opens a chat, so it never sets this.
  */
+const NO_TERMINALS: TerminalTabs = { byWorkspace: new Map(), refs: new Map() };
+
 let reopenInboxUntil = 0;
 const REOPEN_WINDOW_MS = 10 * 60_000;
 
@@ -49,6 +51,8 @@ export function NavigatorScreen(
     openSettings(): void;
     activeWorkspace?: { serverId: string; workspaceId: string } | null;
     surface: "screen" | "sidebar";
+    /** Terminal tabs; only the sidebar view can read them. */
+    terminals?: TerminalTabs;
   },
 ) {
   const { theme, layout, navigation, openSettings, activeWorkspace, surface } = props;
@@ -96,7 +100,7 @@ export function NavigatorScreen(
     return () => clearInterval(timer);
   }, []);
 
-  const terminals = useTerminalTabs();
+  const terminals = props.terminals ?? NO_TERMINALS;
   const hosts = useMemo(() => withTerminals(snapshot.hosts, terminals.byWorkspace), [snapshot.hosts, terminals]);
   const tree = useMemo(
     () => buildTree(hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder, pins, archiving: snapshot.archiving }),
@@ -263,6 +267,53 @@ export function NavigatorScreen(
   }, []);
   const canPeek = settings.namesCard && !dragging && !touch;
 
+  // Host and project headers stay at the top while their rows scroll under them.
+  // Only a change of the pinned headers re-renders, not every scroll event.
+  const [sticky, setSticky] = useState<StickyHeaders | null>(null);
+  const updateSticky = useCallback(
+    (scrollY: number) => {
+      const next = stickyHeaders(tree.rows, offsets, scrollY, heights.group);
+      setSticky((current) =>
+        current && current.host === next.host && current.project === next.project && current.hostShift === next.hostShift && current.projectShift === next.projectShift ? current : next,
+      );
+    },
+    [tree.rows, offsets, heights.group],
+  );
+  // Rows changed (folding, data): re-check against the current scroll position.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => updateSticky(drag.scrollY()), [updateSticky]);
+
+  const rowFor = (item: TreeRow, index: number) => (
+    <Row
+      row={item}
+      theme={theme}
+      profile={profile}
+      comfortable={comfortable}
+      scale={scale}
+      touch={touch}
+      searching={searching}
+      now={now}
+      onToggle={toggle}
+      onOpen={open}
+      onOpenTab={openTab}
+      arranging={arranging}
+      onMenu={(row, anchor) => setMenuFor({ row, anchor })}
+      onTabMenu={(tab, anchor) => {
+        const row = rowOfTab(tab);
+        if (row) setMenuFor({ row, tab, anchor });
+      }}
+      onProjectMenu={(row, anchor) => setProjectFor({ row, anchor })}
+      onCreate={setDraftFor}
+      projectColors={snapshot.projectColors}
+      onPickColor={setColorFor}
+      canOpen={!!navigation}
+      dragHandle={canArrange && dragId(item) ? drag.handleFor(index) : undefined}
+      active={!!activeWorkspace && item.type === "workspace" && item.serverId === activeWorkspace.serverId && item.workspace.id === activeWorkspace.workspaceId}
+      lifted={dragging?.index === index ? dragging.dy : null}
+      onPeek={canPeek ? (show) => peekAt(item, index, show) : undefined}
+    />
+  );
+
   const renderItem = ({ item, index }: { item: TreeRow; index: number }) => {
     const carried = !!dragging && !!shift && index >= dragging.index && index < shift.carried;
     const lands = landing && index >= landing.start && index < landing.end ? landing.from : null;
@@ -273,34 +324,7 @@ export function NavigatorScreen(
         dragging={!!dragging}
         landFrom={lands}
       >
-        <Row
-          row={item}
-          theme={theme}
-          profile={profile}
-          comfortable={comfortable}
-          scale={scale}
-          touch={touch}
-          searching={searching}
-          now={now}
-          onToggle={toggle}
-          onOpen={open}
-          onOpenTab={openTab}
-          arranging={arranging}
-          onMenu={(row, anchor) => setMenuFor({ row, anchor })}
-          onTabMenu={(tab, anchor) => {
-            const row = rowOfTab(tab);
-            if (row) setMenuFor({ row, tab, anchor });
-          }}
-          onProjectMenu={(row, anchor) => setProjectFor({ row, anchor })}
-          onCreate={setDraftFor}
-          projectColors={snapshot.projectColors}
-          onPickColor={setColorFor}
-          canOpen={!!navigation}
-          dragHandle={canArrange && dragId(item) ? drag.handleFor(index) : undefined}
-          active={!!activeWorkspace && item.type === "workspace" && item.serverId === activeWorkspace.serverId && item.workspace.id === activeWorkspace.workspaceId}
-          lifted={dragging?.index === index ? dragging.dy : null}
-          onPeek={canPeek ? (show) => peekAt(item, index, show) : undefined}
-        />
+        {rowFor(item, index)}
       </Glide>
     );
   };
@@ -366,6 +390,7 @@ export function NavigatorScreen(
           scrollEnabled={!dragging}
           onScroll={(event) => {
             drag.setScrollY(event.nativeEvent.contentOffset.y);
+            updateSticky(event.nativeEvent.contentOffset.y);
             if (peek) setPeek(null);
           }}
           scrollEventThrottle={32}
@@ -382,6 +407,16 @@ export function NavigatorScreen(
             return { index, offset: top, length: (offsets[index + 1] ?? top) - top };
           }}
         />
+        {sticky && !dragging && (sticky.host !== null || sticky.project !== null) ? (
+          <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, top: 0, height: heights.group * 2, overflow: "hidden", zIndex: 30, elevation: 6 }}>
+            {sticky.project !== null && tree.rows[sticky.project] ? (
+              <View style={{ position: "absolute", left: 0, right: 0, top: heights.group + sticky.hostShift + sticky.projectShift }}>{rowFor(tree.rows[sticky.project]!, sticky.project)}</View>
+            ) : null}
+            {sticky.host !== null && tree.rows[sticky.host] ? (
+              <View style={{ position: "absolute", left: 0, right: 0, top: sticky.hostShift }}>{rowFor(tree.rows[sticky.host]!, sticky.host)}</View>
+            ) : null}
+          </View>
+        ) : null}
         {peek && canPeek ? <NamesCard theme={theme} peek={peek} scale={scale} now={now} areaHeight={areaHeight} /> : null}
         <Toast theme={theme} toast={toast} onHide={hideToast} />
       </View>

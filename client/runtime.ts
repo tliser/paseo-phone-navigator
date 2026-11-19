@@ -55,8 +55,16 @@ export function useActiveProfile(snapshot: StoreSnapshot, platform: Platform, co
 export const SCREEN_ID = "navigator";
 export const SETTINGS_ID = "settings";
 
-/** Terminal tabs per "serverId:workspaceId", from the app's live terminal list, with their real refs. */
-export function useTerminalTabs(): { byWorkspace: ReadonlyMap<string, TerminalInput[]>; refs: ReadonlyMap<string, TerminalRef> } {
+export interface TerminalTabs {
+  byWorkspace: ReadonlyMap<string, TerminalInput[]>;
+  refs: ReadonlyMap<string, TerminalRef>;
+}
+
+/**
+ * Terminal tabs per "serverId:workspaceId", from the app's live terminal list, with their real refs.
+ * Paseo's state hooks only work inside its state provider: the sidebar view has one, plugin screens don't.
+ */
+export function useTerminalTabs(): TerminalTabs {
   // `useTerminals` hands out refs only; one group per terminal carries its workspace and title in the group key.
   const groups = useTerminals({
     where: (terminal) => !terminal.isScript,

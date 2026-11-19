@@ -2,7 +2,7 @@ import type { PluginClientContext, PluginScreenProps, PluginSidebarViewProps } f
 import { registerHeaderButtons } from "./client/header-buttons";
 import { NavigatorScreen } from "./client/navigator-screen";
 import { agentRef, workspaceRef } from "./client/refs";
-import { getStore, SCREEN_ID, SETTINGS_ID, setStore } from "./client/runtime";
+import { getStore, SCREEN_ID, SETTINGS_ID, setStore, useTerminalTabs } from "./client/runtime";
 import { watchSettings } from "./client/settings-watch";
 import { SettingsScreen } from "./client/settings-screen";
 import { SidebarItem } from "./client/sidebar-item";
@@ -24,6 +24,7 @@ export default function contribute(client: PluginClientContext) {
   const SidebarView = ({ theme, layout, navigation, active }: PluginSidebarViewProps) => (
     <NavigatorScreen
       surface="sidebar"
+      terminals={useTerminalTabs()}
       theme={theme}
       layout={layout}
       host={{ id: active.workspace?.hostId ?? "", label: "" }}

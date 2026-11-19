@@ -127,3 +127,36 @@ export function findDropTarget(rows: readonly TreeRow[], offsets: readonly numbe
   const target = others[before]!;
   return { targetId: target.id, place: "before", lineY: offsets[target.index] ?? 0 };
 }
+
+/** Host and project headers pinned to the top of the list, and how far the next header pushes each up (≤ 0). */
+export interface StickyHeaders {
+  host: number | null;
+  hostShift: number;
+  project: number | null;
+  projectShift: number;
+}
+
+/**
+ * Which headers stick at scroll offset `scrollY`: the host whose section is under the top edge, and below
+ * it the project whose section is under the host header. The next header of the same level pushes the
+ * pinned one up, so they hand over instead of overlapping.
+ */
+export function stickyHeaders(rows: readonly TreeRow[], offsets: readonly number[], scrollY: number, groupHeight: number): StickyHeaders {
+  const none: StickyHeaders = { host: null, hostShift: 0, project: null, projectShift: 0 };
+  if (scrollY <= 0) return none;
+  const top = (index: number) => offsets[index] ?? 0;
+  let host: number | null = null;
+  for (let index = 0; index < rows.length && top(index) < scrollY; index++) if (rows[index]!.type === "host") host = index;
+  if (host === null) return none;
+  let nextHost = rows.length;
+  for (let index = host + 1; index < rows.length; index++) if (rows[index]!.type === "host") { nextHost = index; break; }
+  const hostShift = nextHost < rows.length ? Math.min(0, top(nextHost) - scrollY - groupHeight) : 0;
+  const result: StickyHeaders = { host, hostShift, project: null, projectShift: 0 };
+  const line = scrollY + groupHeight;
+  for (let index = host + 1; index < nextHost && top(index) < line; index++) if (rows[index]!.type === "project") result.project = index;
+  if (result.project === null) return result;
+  let next = nextHost;
+  for (let index = result.project + 1; index < nextHost; index++) if (rows[index]!.type === "project") { next = index; break; }
+  result.projectShift = next < rows.length ? Math.min(0, top(next) - line - groupHeight) : 0;
+  return result;
+}

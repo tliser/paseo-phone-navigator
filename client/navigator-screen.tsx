@@ -661,9 +661,8 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
   const buttonWidth = touch ? 44 : 40;
   if (row.type === "host") {
     const online = row.state === "online";
-    // Offline: name and "offline" stay readable; only the dot and chevron are dimmed.
+    // Offline: name and "offline" stay readable; only the icon and chevron are dimmed.
     const dim = row.state === "offline" ? 0.45 : 1;
-    const dot = row.state === "online" ? c.statusSuccess : row.state === "loading" ? c.statusWarning : c.foregroundMuted;
     const newProject = online && !arranging && onNewProject ? () => measureAnchor(anchorRef.current, (anchor) => onNewProject(row, anchor)) : null;
     return (
       <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", backgroundColor: c.surface1, ...separator }}>
@@ -675,9 +674,9 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
           onPress={() => onToggle(row.key)}
           style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: newProject ? 4 : 12 }}
         >
-          {/* Status dot in the 18pt left column so host and project names align; the chevron moves to the trailing end. */}
+          {/* Paseo's own host icon, in the 18pt left column so host and project names align; "offline"/"loading…" text carries the state. */}
           <View style={{ width: 18, alignItems: "center", opacity: dim }}>
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />
+            <Icon name="Server" size={15} color={c.foregroundMuted} />
           </View>
           <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>{row.label}</Text>
           {online ? <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.count}</Text> : <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.state === "offline" ? "offline" : "loading…"}</Text>}

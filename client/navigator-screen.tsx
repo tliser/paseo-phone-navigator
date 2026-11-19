@@ -7,11 +7,12 @@ import { timeAgo } from "../shared/format";
 import { expandForAttention, expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
 import { blockEnd, dragId, dragShift, heightsFor, rowOffsets, stickyHeaders, type DropTarget, type StickyHeaders } from "../shared/drag";
 import { inboxTally, type InboxEntry } from "../shared/inbox";
-import { buildTree, workspaceState, type ProjectRow, type TabRow, type Tally, type TreeRow, type WorkspaceRow } from "../shared/tree";
+import { buildTree, workspaceState, type HostRow, type ProjectRow, type TabRow, type Tally, type TreeRow, type WorkspaceRow } from "../shared/tree";
 import type { Filter, WorkspaceState } from "../shared/types";
 import { GLIDE_MS, useDragController } from "./drag-controller";
 import { MONO_FONT, useFontScale } from "./font-scale";
 import { NamesCard, type Peek } from "./names-card";
+import { NewProjectSheet } from "./new-project-sheet";
 import { NewWorkspaceSheet } from "./new-workspace-sheet";
 import { InboxSheet } from "./inbox-sheet";
 import { OptionsMenu } from "./options-menu";
@@ -93,6 +94,7 @@ export function NavigatorScreen(
   const [menuFor, setMenuFor] = useState<MenuTarget | null>(null);
   const [projectFor, setProjectFor] = useState<{ row: ProjectRow; anchor: Anchor | null } | null>(null);
   const [colorFor, setColorFor] = useState<ProjectRow | null>(null);
+  const [newProjectFor, setNewProjectFor] = useState<{ row: HostRow; anchor: Anchor | null } | null>(null);
 
   // Relative times stay fresh without re-rendering on every data tick.
   useEffect(() => {
@@ -304,6 +306,7 @@ export function NavigatorScreen(
       }}
       onProjectMenu={(row, anchor) => setProjectFor({ row, anchor })}
       onCreate={setDraftFor}
+      onNewProject={(row, anchor) => setNewProjectFor({ row, anchor })}
       projectColors={snapshot.projectColors}
       onPickColor={setColorFor}
       canOpen={!!navigation}
@@ -452,6 +455,20 @@ export function NavigatorScreen(
           onClose={() => setMenuFor(null)}
         />
       ) : null}
+      {newProjectFor ? (
+        <NewProjectSheet
+          theme={theme}
+          compact={layout.compact}
+          serverId={newProjectFor.row.serverId}
+          hostLabel={newProjectFor.row.label}
+          anchor={newProjectFor.anchor}
+          onAdded={(workspaceId) => {
+            setNewProjectFor(null);
+            created(newProjectFor.row.serverId, workspaceId);
+          }}
+          onClose={() => setNewProjectFor(null)}
+        />
+      ) : null}
       {projectFor ? (
         <ProjectMenu
           theme={theme}
@@ -574,6 +591,8 @@ interface RowProps {
   /** Hold (phones) or right-click (web) a project's name: its sheet. */
   onProjectMenu?(row: ProjectRow, anchor: Anchor | null): void;
   onCreate(row: ProjectRow): void;
+  /** The folder-plus on an online host: add a project there. */
+  onNewProject?(row: HostRow, anchor: Anchor | null): void;
   /** Folder colour id per project ("serverId:projectId"). */
   projectColors?: Readonly<Record<string, string>>;
   /** Long-press on a project's folder icon: choose its colour. */
@@ -625,7 +644,7 @@ const tallyWords = (tally: Tally) =>
 
 const WORKSPACE_MARK: Record<WorkspaceState, MarkKind> = { needs_you: "asking", error: "error", unread: "unread", running: "running", read: "read" };
 
-export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenTab, arranging, onMenu, onTabMenu, onProjectMenu, onCreate, projectColors, onPickColor, lifted, dragHandle, onPeek, active = false }: RowProps) {
+export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenTab, arranging, onMenu, onTabMenu, onProjectMenu, onCreate, onNewProject, projectColors, onPickColor, lifted, dragHandle, onPeek, active = false }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null
@@ -645,24 +664,39 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
     // Offline: name and "offline" stay readable; only the dot and chevron are dimmed.
     const dim = row.state === "offline" ? 0.45 : 1;
     const dot = row.state === "online" ? c.statusSuccess : row.state === "loading" ? c.statusWarning : c.foregroundMuted;
+    const newProject = online && !arranging && onNewProject ? () => measureAnchor(anchorRef.current, (anchor) => onNewProject(row, anchor)) : null;
     return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${row.label}${online ? `, ${row.count} workspaces${row.collapsed ? tallyWords(row.tally) : ""}` : row.state === "offline" ? ", offline" : ", loading"}`}
-        accessibilityState={online ? { expanded: !row.collapsed } : { disabled: true }}
-        disabled={!online}
-        onPress={() => onToggle(row.key)}
-        style={{ height: groupHeight, flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: 12, backgroundColor: c.surface1, ...separator }}
-      >
-        {/* Status dot in the 18pt left column so host and project names align; the chevron moves to the trailing end. */}
-        <View style={{ width: 18, alignItems: "center", opacity: dim }}>
-          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />
-        </View>
-        <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>{row.label}</Text>
-        {online ? <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.count}</Text> : <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.state === "offline" ? "offline" : "loading…"}</Text>}
-        {online && row.collapsed ? <TallyMarks theme={theme} tally={row.tally} /> : null}
-        {online ? <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} /> : null}
-      </Pressable>
+      <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", backgroundColor: c.surface1, ...separator }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${row.label}${online ? `, ${row.count} workspaces${row.collapsed ? tallyWords(row.tally) : ""}` : row.state === "offline" ? ", offline" : ", loading"}`}
+          accessibilityState={online ? { expanded: !row.collapsed } : { disabled: true }}
+          disabled={!online}
+          onPress={() => onToggle(row.key)}
+          style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: newProject ? 4 : 12 }}
+        >
+          {/* Status dot in the 18pt left column so host and project names align; the chevron moves to the trailing end. */}
+          <View style={{ width: 18, alignItems: "center", opacity: dim }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dot }} />
+          </View>
+          <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>{row.label}</Text>
+          {online ? <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.count}</Text> : <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.state === "offline" ? "offline" : "loading…"}</Text>}
+          {online && row.collapsed ? <TallyMarks theme={theme} tally={row.tally} /> : null}
+          {online ? <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} /> : null}
+        </Pressable>
+        {newProject ? (
+          <Pressable
+            ref={anchorRef}
+            accessibilityRole="button"
+            accessibilityLabel={`New project on ${row.label}`}
+            onPress={newProject}
+            hitSlop={{ left: 4 }}
+            style={{ width: buttonWidth, height: groupHeight, alignItems: "center", justifyContent: "center" }}
+          >
+            <Icon name="FolderPlus" size={16} color={c.foregroundMuted} />
+          </Pressable>
+        ) : null}
+      </View>
     );
   }
 

@@ -97,6 +97,8 @@ export interface Store {
   providerToggles(serverId: string, draft: { provider: string; model: string; modeId?: string; cwd: string }): Promise<ProviderToggle[]>;
   /** Creates a workspace with its first agent or terminal. Nothing exists before this resolves. Returns the workspace id. */
   launchWorkspace(serverId: string, input: LaunchInput): Promise<string>;
+  /** Adds an existing folder on the host as a project (`~` allowed) and returns the workspace Paseo opens on it. Rejects when the folder does not exist. */
+  addProject(serverId: string, path: string): Promise<string>;
   /** Archives on the host. The row stays (archiving) until the host drops it; then its pins go. Rejects on failure. */
   archiveWorkspace(serverId: string, workspaceId: string): Promise<void>;
   dispose(): void;
@@ -656,6 +658,10 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       });
       if (launch.kind === "terminal") await handle.terminals.create();
       return handle.id;
+    },
+    async addProject(serverId, path) {
+      // Paseo's own "open project": the host registers the folder's project and a workspace on it.
+      return (await apiFor(serverId).workspaces.open({ cwd: path.trim() })).id;
     },
     async archiveWorkspace(serverId, workspaceId) {
       const key = readKey(serverId, workspaceId);

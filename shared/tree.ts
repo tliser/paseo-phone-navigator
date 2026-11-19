@@ -15,7 +15,7 @@ export interface Tally {
 }
 const emptyTally = (): Tally => ({ asking: 0, error: 0, unread: 0 });
 
-interface HostRow {
+export interface HostRow {
   type: "host";
   key: string;
   serverId: string;

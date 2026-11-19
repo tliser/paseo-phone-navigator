@@ -425,8 +425,9 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       addTally(project.tally, item.state);
       addTally(hostTally, item.state);
       if (shown && matchesSearch(workspace, host.label, query)) {
+        // Counted exactly as listed: a pinned workspace shows in every view, so it counts in every view.
         for (const key of FILTERS) {
-          if (passesFilter(item, key, settings, now)) counts[key]++;
+          if (item.pinned || passesFilter(item, key, settings, now)) counts[key]++;
         }
       }
     }

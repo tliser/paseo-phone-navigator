@@ -199,6 +199,8 @@ describe("pins", () => {
   it("pass every view in their project, even when old finished ones are hidden", () => {
     const tree = buildTree(hosts(), opts({ pins: new Set(["h:old"]), settings: { ...settings, hideDone: "7d" }, filter: "active" }));
     expect(wsIds(tree.rows)).toEqual(["b", "old"]);
+    // The view's count matches what it lists, the pinned workspace included.
+    expect(tree.counts.active).toBe(2);
     const pinned = tree.rows.find((r) => r.type === "workspace" && r.workspace.id === "old");
     expect(pinned?.type === "workspace" && pinned.pinned).toBe(true);
   });

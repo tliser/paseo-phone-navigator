@@ -2,16 +2,25 @@
 // create. Nothing exists on the host until Create is tapped, so closing the sheet discards the draft.
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal, TextInput } from "@getpaseo/plugin/client/ui";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Switch, Text, View } from "react-native";
 import type { ProjectRow } from "../shared/tree";
+import { useKeyboardTop } from "./keyboard";
 import { useNavigatorStore } from "./runtime";
 import type { ProviderChoice, ProviderListState, ProviderToggle } from "./store";
 
 /** Last choice per host for this app session, so the next draft starts where you left off. */
 const lastChoice = new Map<
   string,
-  { provider: string; model: string; modeId: string | null; launch: "agent" | "terminal"; isolation: "worktree" | "local"; toggles: Record<string, boolean> }
+  {
+    provider: string;
+    model: string;
+    modeId: string | null;
+    thinkingId: string | null;
+    launch: "agent" | "terminal";
+    isolation: "worktree" | "local";
+    toggles: Record<string, boolean>;
+  }
 >();
 
 export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated }: { theme: PluginTheme; project: ProjectRow; compact: boolean; onClose(): void; onCreated(workspaceId: string): void }) {
@@ -30,9 +39,11 @@ export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated 
   const [providerId, setProviderId] = useState<string | null>(remembered?.provider ?? null);
   const [modelId, setModelId] = useState<string | null>(remembered?.model ?? null);
   const [modeId, setModeId] = useState<string | null>(remembered?.modeId ?? null);
+  const [thinkingId, setThinkingId] = useState<string | null>(remembered?.thinkingId ?? null);
+  const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [branch, setBranch] = useState("");
-  const [picker, setPicker] = useState<"provider" | "model" | "mode" | null>(null);
+  const [picker, setPicker] = useState<"provider" | "model" | "mode" | "thinking" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +53,8 @@ export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated 
   const provider = useMemo(() => providers?.find((entry) => entry.id === providerId) ?? providers?.[0] ?? null, [providers, providerId]);
   const model = provider?.models.find((entry) => entry.id === modelId) ?? provider?.models.find((entry) => entry.isDefault) ?? provider?.models[0] ?? null;
   const mode = provider?.modes.find((entry) => entry.id === modeId) ?? provider?.modes.find((entry) => entry.id === provider.defaultModeId) ?? null;
+  // Unset means the host's default for the model, which is also what Paseo's own picker preselects.
+  const thinking = model?.thinking.find((entry) => entry.id === thinkingId) ?? model?.thinking.find((entry) => entry.id === model.defaultThinkingId) ?? null;
 
   // On/off options such as Auto Accept depend on the provider, model and mode, so ask again when they change.
   const [toggles, setToggles] = useState<ProviderToggle[]>([]);
@@ -72,10 +85,24 @@ export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated 
         rootPath: project.rootPath,
         isolation,
         branchName: isolation === "worktree" ? branch : undefined,
-        launch: launch === "agent" && provider && model ? { kind: "agent", provider: provider.id, model: model.id, modeId: mode?.id, prompt, featureValues } : { kind: "terminal" },
+        title: name,
+        launch:
+          launch === "agent" && provider && model
+            ? { kind: "agent", provider: provider.id, model: model.id, modeId: mode?.id, thinkingOptionId: thinking?.id, prompt, featureValues }
+            : { kind: "terminal" },
       })
       .then((workspaceId) => {
-        if (provider && model) lastChoice.set(project.serverId, { provider: provider.id, model: model.id, modeId: mode?.id ?? null, launch, isolation, toggles: { ...toggleValues, ...featureValues } });
+        if (provider && model) {
+          lastChoice.set(project.serverId, {
+            provider: provider.id,
+            model: model.id,
+            modeId: mode?.id ?? null,
+            thinkingId: thinking?.id ?? null,
+            launch,
+            isolation,
+            toggles: { ...toggleValues, ...featureValues },
+          });
+        }
         onCreated(workspaceId);
       })
       .catch((reason: unknown) => {
@@ -107,7 +134,7 @@ export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated 
     </View>
   );
 
-  const select = (kind: "provider" | "model" | "mode", text: string) => (
+  const select = (kind: "provider" | "model" | "mode" | "thinking", text: string) => (
     <Pressable accessibilityRole="button" onPress={() => setPicker(picker === kind ? null : kind)} style={field}>
       <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize: 15 }}>{text}</Text>
       <Icon name={picker === kind ? "ChevronUp" : "ChevronDown"} size={16} color={c.foregroundMuted} />
@@ -151,9 +178,35 @@ export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated 
         </View>
   );
 
+  // Phones: the keyboard covers the page's bottom, so pad it away and keep the first message in view.
+  const page = useRef<View>(null);
+  const scroll = useRef<ScrollView>(null);
+  const promptFocused = useRef(false);
+  const keyboardTop = useKeyboardTop();
+  const [keyboardInset, setKeyboardInset] = useState(0);
+  useEffect(() => {
+    if (keyboardTop === null) setKeyboardInset(0);
+    else page.current?.measureInWindow((_x, y, _width, height) => setKeyboardInset(Math.max(0, y + height - keyboardTop)));
+  }, [keyboardTop]);
+
   const title = `New workspace · ${project.name}`;
   const form = (
     <>
+        <View>
+          <Text style={label}>Name (optional)</Text>
+          <View style={field}>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="Generated if empty"
+              placeholderTextColor={c.foregroundMuted}
+              accessibilityLabel="Workspace name"
+              maxLength={80}
+              style={{ flex: 1, color: c.foreground, fontSize: 15, paddingVertical: 10 }}
+            />
+          </View>
+        </View>
+
         {isGit ? (
           <View>
             <Text style={label}>Where</Text>
@@ -216,6 +269,13 @@ export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated 
                 {select("model", model?.label ?? "Choose a model")}
                 {picker === "model" && provider ? <View style={{ marginTop: 6 }}>{options(provider.models, model?.id, setModelId)}</View> : null}
               </View>
+              {model && model.thinking.length > 1 ? (
+                <View>
+                  <Text style={label}>Thinking</Text>
+                  {select("thinking", thinking?.label ?? "Default")}
+                  {picker === "thinking" ? <View style={{ marginTop: 6 }}>{options(model.thinking, thinking?.id, setThinkingId)}</View> : null}
+                </View>
+              ) : null}
               {provider && provider.modes.length > 1 ? (
                 <View>
                   <Text style={label}>Mode</Text>
@@ -242,6 +302,13 @@ export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated 
                   <TextInput
                     value={prompt}
                     onChangeText={setPrompt}
+                    onFocus={() => {
+                      promptFocused.current = true;
+                      if (keyboardInset) scroll.current?.scrollToEnd();
+                    }}
+                    onBlur={() => {
+                      promptFocused.current = false;
+                    }}
                     placeholder="What should the agent do?"
                     placeholderTextColor={c.foregroundMuted}
                     multiline
@@ -261,14 +328,21 @@ export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated 
   // Desktop: a dialog that sizes to its content and scrolls by itself.
   if (compact) {
     return (
-      <View style={{ flex: 1, backgroundColor: c.surface0 }}>
+      <View ref={page} style={{ flex: 1, backgroundColor: c.surface0, paddingBottom: keyboardInset }}>
         <View style={{ height: 44, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 4, borderBottomWidth: 1, borderBottomColor: c.border }}>
           <Pressable accessibilityRole="button" accessibilityLabel="Back" disabled={busy} onPress={onClose} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
             <Icon name="ChevronLeft" size={20} color={c.foreground} />
           </Pressable>
           <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontSize: 16, fontWeight: "600" }}>{title}</Text>
         </View>
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 16 }} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          ref={scroll}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: 16, gap: 16 }}
+          keyboardShouldPersistTaps="handled"
+          // Shrinks when the keyboard opens: bring the first message up if that is what is being typed.
+          onLayout={() => promptFocused.current && scroll.current?.scrollToEnd()}
+        >
           {form}
         </ScrollView>
         <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: c.border }}>{actions}</View>

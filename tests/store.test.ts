@@ -251,7 +251,18 @@ describe("store workspace actions", () => {
         waitForReady: () => new Promise(() => undefined),
         snapshot: async () => ({
           entries: [
-            { provider: "plexus", label: "Plexus", enabled: true, status: "ready", defaultModeId: "build", modes: [{ id: "build", label: "Build" }], models: [{ id: "m1", label: "M1", isDefault: true }, { id: "hidden", label: "H", isSelectable: false }] },
+            {
+              provider: "plexus",
+              label: "Plexus",
+              enabled: true,
+              status: "ready",
+              defaultModeId: "build",
+              modes: [{ id: "build", label: "Build" }],
+              models: [
+                { id: "m1", label: "M1", isDefault: true, thinkingOptions: [{ id: "low", label: "Low" }, { id: "high", label: "High", isDefault: true }] },
+                { id: "hidden", label: "H", isSelectable: false },
+              ],
+            },
             { provider: "claude", enabled: false, status: "unavailable", models: [{ id: "x", label: "X" }] },
           ],
         }),
@@ -272,7 +283,15 @@ describe("store workspace actions", () => {
     await flush();
     stop();
     expect(states[0]).toEqual({
-      ready: [{ id: "plexus", label: "Plexus", models: [{ id: "m1", label: "M1", isDefault: true }], modes: [{ id: "build", label: "Build" }], defaultModeId: "build" }],
+      ready: [
+        {
+          id: "plexus",
+          label: "Plexus",
+          models: [{ id: "m1", label: "M1", isDefault: true, thinking: [{ id: "low", label: "Low" }, { id: "high", label: "High" }], defaultThinkingId: "high" }],
+          modes: [{ id: "build", label: "Build" }],
+          defaultModeId: "build",
+        },
+      ],
       loading: [],
       error: null,
     });
@@ -292,11 +311,11 @@ describe("store workspace actions", () => {
   it("creates the workspace together with its first agent, or a terminal", async () => {
     const { store, calls } = setup();
     await flush();
-    await store.launchWorkspace("h", { projectId: "p1", kind: "git", rootPath: "/repo", isolation: "worktree", branchName: " feat/x ", launch: { kind: "agent", provider: "plexus", model: "m1", modeId: "build", prompt: "hi" } });
+    await store.launchWorkspace("h", { projectId: "p1", kind: "git", rootPath: "/repo", isolation: "worktree", branchName: " feat/x ", title: " Fix login ", launch: { kind: "agent", provider: "plexus", model: "m1", modeId: "build", thinkingOptionId: "high", prompt: "hi" } });
     await store.launchWorkspace("h", { projectId: "p1", kind: "git", rootPath: "/repo", isolation: "local", launch: { kind: "terminal" } });
     await store.launchWorkspace("h", { projectId: "p2", kind: "non_git", rootPath: "/notes", isolation: "worktree", launch: { kind: "agent", provider: "plexus", model: "m1" } });
     expect(calls).toEqual([
-      { kind: "create", value: { source: { kind: "worktree", projectId: "p1", cwd: "/repo", branchName: "feat/x" }, agent: { config: { provider: "plexus/m1", modeId: "build" }, cwd: "/repo", prompt: "hi" } } },
+      { kind: "create", value: { source: { kind: "worktree", projectId: "p1", cwd: "/repo", branchName: "feat/x" }, title: "Fix login", agent: { config: { provider: "plexus/m1", modeId: "build", thinkingOptionId: "high" }, cwd: "/repo", prompt: "hi" } } },
       { kind: "create", value: { source: { kind: "directory", path: "/repo", projectId: "p1" } } },
       { kind: "terminal", value: "w2" },
       { kind: "create", value: { source: { kind: "directory", path: "/notes", projectId: "p2" }, agent: { config: { provider: "plexus/m1" }, cwd: "/notes" } } },

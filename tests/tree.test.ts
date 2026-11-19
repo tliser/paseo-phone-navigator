@@ -219,6 +219,16 @@ describe("tab rows", () => {
     const row = buildTree(hosts(), opts()).rows[2];
     expect(row?.type === "workspace" && row.reason).toEqual({ state: "asking", title: "Helper" });
   });
+  it("a workspace with a single tab has no tab level, unless that tab has sub-agents", () => {
+    const only = (agents: AgentInput[], terminals: { id: string; title: string }[] = []) =>
+      buildTree([host("h", [ws("w", "p", "running", 1, { agents, terminals })])], opts({ collapse: { "agents:h:w": false } })).rows;
+    const lone = only([chat("main", "running")]);
+    expect(lone[2]?.type === "workspace" && lone[2].tabs).toBeFalsy();
+    expect(lone.some((r) => r.type === "tab")).toBe(false);
+    expect(only([], [{ id: "t1", title: "Terminal 1" }]).some((r) => r.type === "tab")).toBe(false);
+    const parent = only([chat("main", "running"), chat("sub", "idle", { parentId: "main" })]);
+    expect(parent[2]?.type === "workspace" && parent[2].tabs).toBeTruthy();
+  });
   it("tab and terminal titles are searchable", () => {
     expect(wsIds(buildTree(hosts(), opts({ query: "orphan" })).rows)).toEqual(["w"]);
     const row = buildTree(hosts(), opts({ query: "terminal 1" })).rows[2];

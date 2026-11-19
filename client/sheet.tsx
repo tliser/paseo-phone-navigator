@@ -4,6 +4,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/ui";
 import type { ReactNode } from "react";
 import { Modal, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { useKeyboardTop } from "./keyboard";
 
 /** Where the popover hangs on desktop: the opening button's frame in window coordinates. */
 export interface Anchor {
@@ -38,6 +39,9 @@ export function Sheet({
 }) {
   const c = theme.colors;
   const window = useWindowDimensions();
+  // A text field in the sheet (e.g. Rename) opens the keyboard: the phone sheet then sits on top of it.
+  const keyboardTop = useKeyboardTop();
+  const floor = keyboardTop === null ? 8 : window.height - keyboardTop + 8;
   const popover = !compact && anchor;
   const panelWidth = Math.min(width, window.width - 16);
   // Under the button, or above it when there is little room below.
@@ -51,7 +55,7 @@ export function Sheet({
         borderRadius: 12,
         ...(below >= 240 || below >= above ? { top: anchor.y + anchor.height + 4, maxHeight: below } : { bottom: window.height - anchor.y + 4, maxHeight: above }),
       }
-    : { position: "absolute" as const, left: 8, right: 8, bottom: 8, maxHeight: window.height * 0.85, borderRadius: 16 };
+    : { position: "absolute" as const, left: 8, right: 8, bottom: floor, maxHeight: Math.min(window.height * 0.85, window.height - floor - 48), borderRadius: 16 };
   return (
     <Modal transparent visible animationType={compact ? "slide" : "fade"} onRequestClose={onClose} statusBarTranslucent>
       <Pressable accessibilityRole="button" accessibilityLabel={`Close ${title}`} onPress={onClose} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: popover ? "transparent" : "rgba(0,0,0,0.45)" }} />

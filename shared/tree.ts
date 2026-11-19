@@ -286,7 +286,9 @@ function workspaceRows(host: HostInput, item: Ranked, group: string, query: stri
   const children = (agent: AgentInput) => agents.filter((child) => parentOf(child) === agent.id);
   const terminals = workspace.terminals ?? [];
   const topMarks: TabMark[] = [...top.map((agent) => states.get(agent.id) ?? "read"), ...terminals.map((): TabMark => "terminal")];
-  if (!topMarks.length) return [row];
+  // A lone tab without listed sub-agents is the workspace itself: nothing to unfold.
+  const lone = topMarks.length === 1 && !(settings.show.subagents && top.length === 1 && children(top[0]!).length);
+  if (!topMarks.length || lone) return [row];
   const sorted = [...topMarks].sort((a, b) => markRank(a) - markRank(b));
   const shown = sorted.slice(0, sorted.length > MAX_MARKS ? MAX_MARKS - 1 : MAX_MARKS);
   const key = agentsKey(serverId, workspace.id);

@@ -112,7 +112,8 @@ export interface ProviderListState {
 export interface ProviderChoice {
   id: string;
   label: string;
-  models: { id: string; label: string; isDefault: boolean }[];
+  /** `thinking` is empty when the model has no thinking choice; `defaultThinkingId` is what the host picks when none is sent. */
+  models: { id: string; label: string; isDefault: boolean; thinking: { id: string; label: string }[]; defaultThinkingId: string | null }[];
   modes: { id: string; label: string }[];
   defaultModeId: string | null;
 }
@@ -131,7 +132,11 @@ export type LaunchInput = {
   /** Git projects only: a new worktree (optionally on a named branch) or the project folder itself. */
   isolation: "worktree" | "local";
   branchName?: string;
-  launch: { kind: "agent"; provider: string; model: string; modeId?: string; prompt?: string; featureValues?: Record<string, boolean> } | { kind: "terminal" };
+  /** Workspace name; blank lets Paseo name it. */
+  title?: string;
+  launch:
+    | { kind: "agent"; provider: string; model: string; modeId?: string; thinkingOptionId?: string; prompt?: string; featureValues?: Record<string, boolean> }
+    | { kind: "terminal" };
 };
 
 export interface StoreOptions {
@@ -629,15 +634,18 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
           : { kind: "directory" as const, path: input.rootPath, projectId: input.projectId };
       const { launch } = input;
       const prompt = launch.kind === "agent" ? launch.prompt?.trim() : undefined;
+      const title = input.title?.trim();
       // The host observer's subscription brings the new workspace into the tree.
       const handle = await api.workspaces.create({
         source,
+        ...(title ? { title } : {}),
         ...(launch.kind === "agent"
           ? {
               agent: {
                 config: {
                   provider: `${launch.provider}/${launch.model}`,
                   ...(launch.modeId ? { modeId: launch.modeId } : {}),
+                  ...(launch.thinkingOptionId ? { thinkingOptionId: launch.thinkingOptionId } : {}),
                   ...(launch.featureValues && Object.keys(launch.featureValues).length ? { featureValues: launch.featureValues } : {}),
                 },
                 cwd: input.rootPath,
@@ -686,7 +694,16 @@ interface ProviderEntry {
   enabled?: boolean;
   status: string;
   defaultModeId?: string | null;
-  models?: readonly { id: string; label: string; isDefault?: boolean; isSelectable?: boolean }[] | null;
+  models?:
+    | readonly {
+        id: string;
+        label: string;
+        isDefault?: boolean;
+        isSelectable?: boolean;
+        thinkingOptions?: readonly { id: string; label: string; isDefault?: boolean }[] | null;
+        defaultThinkingOptionId?: string | null;
+      }[]
+    | null;
   modes?: readonly { id: string; label: string }[] | null;
 }
 
@@ -699,7 +716,13 @@ export function providerListState(entries: readonly ProviderEntry[]): ProviderLi
       .map((entry) => ({
         id: entry.provider,
         label: entry.label ?? entry.provider,
-        models: (entry.models ?? []).filter((model) => model.isSelectable !== false).map((model) => ({ id: model.id, label: model.label, isDefault: !!model.isDefault })),
+        models: (entry.models ?? [])
+          .filter((model) => model.isSelectable !== false)
+          .map((model) => {
+            const thinking = (model.thinkingOptions ?? []).map((option) => ({ id: option.id, label: option.label }));
+            const defaultThinkingId = model.defaultThinkingOptionId ?? model.thinkingOptions?.find((option) => option.isDefault)?.id ?? null;
+            return { id: model.id, label: model.label, isDefault: !!model.isDefault, thinking, defaultThinkingId };
+          }),
         modes: (entry.modes ?? []).map((mode) => ({ id: mode.id, label: mode.label })),
         defaultModeId: entry.defaultModeId ?? null,
       })),

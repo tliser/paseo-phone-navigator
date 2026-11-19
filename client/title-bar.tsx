@@ -54,7 +54,9 @@ export function TitleBar({
   const narrow = width > 0 && width < NARROW_WIDTH;
   const optionsRef = useRef<View>(null);
   const newProjectRef = useRef<View>(null);
-  const size = compact ? 44 : 40;
+  // Same height as the host tabs and the views control below it; taps reach a little past the edges.
+  const size = compact ? 36 : 32;
+  const slop = { top: 4, bottom: 4 };
   const label = [`Inbox, ${plural(inbox.total, "chat", "chats")}`, inbox.asking ? `${inbox.asking} ask${inbox.asking === 1 ? "s" : ""} you` : "", inbox.error ? `${inbox.error} failed` : ""]
     .filter(Boolean)
     .join(", ");
@@ -66,21 +68,22 @@ export function TitleBar({
         accessibilityRole="button"
         accessibilityLabel={`${label}. Open the list`}
         onPress={() => measureAnchor(inboxRef.current, onInbox)}
-        style={({ pressed }) => ({ minHeight: size, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8, borderRadius: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
+        hitSlop={slop}
+        style={({ pressed }) => ({ minHeight: size, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, borderRadius: 8, backgroundColor: pressed ? c.surface1 : "transparent" })}
       >
-        <Icon name="Inbox" size={18} color={c.foreground} />
-        <Text style={{ color: c.foreground, fontSize: fs(15), fontWeight: "700" }}>Inbox</Text>
-        <Text style={{ color: c.foreground, fontSize: fs(13), fontWeight: "600", fontVariant: ["tabular-nums"] }}>{inbox.total}</Text>
+        <Icon name="Inbox" size={16} color={c.foreground} />
+        <Text style={{ color: c.foreground, fontSize: fs(13.5), fontWeight: "600" }}>Inbox</Text>
+        <Text style={{ color: c.foregroundMuted, fontSize: fs(12.5), fontWeight: "600", fontVariant: ["tabular-nums"] }}>{inbox.total}</Text>
         {inbox.asking ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 4 }}>
-            <Mark theme={theme} kind="asking" size={14} />
-            <Text numberOfLines={1} style={{ color: c.statusWarning, fontSize: fs(12.5), fontWeight: "600" }}>{narrow ? inbox.asking : `${inbox.asking} ask${inbox.asking === 1 ? "s" : ""} you`}</Text>
+            <Mark theme={theme} kind="asking" size={12} />
+            <Text numberOfLines={1} style={{ color: c.statusWarning, fontSize: fs(12), fontWeight: "600" }}>{narrow ? inbox.asking : `${inbox.asking} ask${inbox.asking === 1 ? "s" : ""} you`}</Text>
           </View>
         ) : null}
         {inbox.error ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 4 }}>
-            <Mark theme={theme} kind="error" size={14} />
-            <Text numberOfLines={1} style={{ color: c.statusDanger, fontSize: fs(12.5), fontWeight: "600" }}>{narrow ? inbox.error : `${inbox.error} failed`}</Text>
+            <Mark theme={theme} kind="error" size={12} />
+            <Text numberOfLines={1} style={{ color: c.statusDanger, fontSize: fs(12), fontWeight: "600" }}>{narrow ? inbox.error : `${inbox.error} failed`}</Text>
           </View>
         ) : null}
       </Pressable>
@@ -91,9 +94,10 @@ export function TitleBar({
           accessibilityRole="button"
           accessibilityLabel="Search"
           onPress={onSearch}
-          style={({ pressed }) => ({ width: size, height: size, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
+          hitSlop={slop}
+          style={({ pressed }) => ({ width: size, height: size, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: pressed ? c.surface1 : "transparent" })}
         >
-          <Icon name="Search" size={18} color={c.foreground} />
+          <Icon name="Search" size={16} color={c.foreground} />
         </Pressable>
       ) : null}
       {onNewProject ? (
@@ -102,9 +106,10 @@ export function TitleBar({
           accessibilityRole="button"
           accessibilityLabel="New project"
           onPress={() => measureAnchor(newProjectRef.current, onNewProject)}
-          style={({ pressed }) => ({ width: size, height: size, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
+          hitSlop={slop}
+          style={({ pressed }) => ({ width: size, height: size, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: pressed ? c.surface1 : "transparent" })}
         >
-          <Icon name="FolderPlus" size={18} color={c.foreground} />
+          <Icon name="FolderPlus" size={16} color={c.foreground} />
         </Pressable>
       ) : null}
       <Pressable
@@ -112,9 +117,10 @@ export function TitleBar({
         accessibilityRole="button"
         accessibilityLabel="Options"
         onPress={() => measureAnchor(optionsRef.current, onOptions)}
-        style={({ pressed }) => ({ width: size, height: size, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
+        hitSlop={slop}
+        style={({ pressed }) => ({ width: size, height: size, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: pressed ? c.surface1 : "transparent" })}
       >
-        <Icon name="SlidersHorizontal" size={18} color={c.foreground} />
+        <Icon name="SlidersHorizontal" size={16} color={c.foreground} />
       </Pressable>
     </View>
   );

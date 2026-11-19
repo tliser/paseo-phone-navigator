@@ -72,7 +72,8 @@ export function HostButton({ theme, hosts, value, compact, colors, onOpen }: { t
       accessibilityRole="button"
       accessibilityLabel={`Host: ${host ? host.label : "all hosts"}. Choose`}
       onPress={() => measureAnchor(ref.current, onOpen)}
-      style={({ pressed }) => ({ minHeight: compact ? 44 : 40, maxWidth: 160, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, borderRadius: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
+      hitSlop={{ top: 4, bottom: 4 }}
+      style={({ pressed }) => ({ minHeight: compact ? 36 : 32, maxWidth: 160, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, borderRadius: 8, backgroundColor: pressed ? c.surface1 : "transparent" })}
     >
       <Icon name="Server" size={15} color={host ? colorHex(colors[hostColorKey(host.serverId)], c.foregroundMuted) : c.foregroundMuted} />
       <Text numberOfLines={1} style={{ flexShrink: 1, color: c.foreground, fontSize: 13, fontWeight: "600" }}>{host ? host.label : "All hosts"}</Text>

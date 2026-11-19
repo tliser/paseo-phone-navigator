@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultSettings } from "../shared/profiles";
-import { readAgentKey, readKey } from "../shared/reads";
+import { readAgentKey, readKey, recentKey } from "../shared/reads";
 import { buildTree, matchesSearch, passesFilter, workspaceState, type TreeOptions } from "../shared/tree";
 import type { AgentInput, HostInput, WorkspaceInput } from "../shared/types";
 import { dragId } from "../shared/drag";
@@ -84,6 +84,16 @@ describe("filters and search", () => {
     const tree = buildTree([host("h", [ws("new", "p", "done", 60), ws("old", "p", "done", 5 * day)])], opts({ filter: "recent" }));
     expect(wsIds(tree.rows)).toEqual(["new"]);
     expect(tree.counts).toMatchObject({ all: 2, recent: 1 });
+  });
+  it("a workspace you removed from Recent stays out until you prompt it again or it asks you", () => {
+    const reads = { [recentKey("h", "off")]: min(5) };
+    const tree = (off: WorkspaceInput) => buildTree([host("h", [ws("keep", "p", "done", 60), off])], opts({ filter: "recent", reads }));
+    const removed = tree(ws("off", "p", "running", 1, { orderAt: min(10) }));
+    expect(wsIds(removed.rows)).toEqual(["keep"]);
+    expect(removed.counts).toMatchObject({ all: 2, recent: 1 });
+    expect(wsIds(tree(ws("off", "p", "done", 1, { orderAt: min(1) })).rows)).toContain("off");
+    expect(wsIds(tree(ws("off", "p", "needs_input", 1, { orderAt: min(10) })).rows)).toContain("off");
+    expect(wsIds(buildTree([host("h", [ws("off", "p", "done", 1, { orderAt: min(10) })])], opts({ reads: { [recentKey("h", "off")]: -min(1) }, filter: "recent" })).rows)).toContain("off");
   });
   it("hides old read workspaces when hideDone is set, never unread ones", () => {
     const s = { ...settings, hideDone: "1d" as const };

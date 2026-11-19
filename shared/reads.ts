@@ -15,6 +15,17 @@ export type ReadsDocument = z.output<typeof readsDocumentSchema>;
 
 export const readKey = (serverId: string, workspaceId: string) => `${serverId}:${workspaceId}`;
 export const readAgentKey = (serverId: string, agentId: string) => `${serverId}:agent:${agentId}`;
+/**
+ * When you removed a workspace from the Recent view (positive) or put it back (negative, as -when). It
+ * lives in the reads document so it syncs and merges like a read mark: the later event wins.
+ */
+export const recentKey = (serverId: string, workspaceId: string) => `${serverId}:recent:${workspaceId}`;
+
+/** You removed it from Recent and have not sent it a prompt since. */
+export function removedFromRecent(reads: ReadMap, serverId: string, workspace: { id: string; orderAt: number }): boolean {
+  const mark = reads[recentKey(serverId, workspace.id)] ?? 0;
+  return mark > 0 && workspace.orderAt <= mark;
+}
 
 export function normalizeReads(raw: unknown): ReadsDocument {
   const parsed = readsDocumentSchema.safeParse(raw ?? {});

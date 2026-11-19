@@ -11,7 +11,7 @@ import {
   type ProfilesDocument,
 } from "../shared/profiles";
 import { moveRelative, type Place } from "../shared/order";
-import { markSeen, normalizeReads, readAgentKey, readKey, undoReads, type ReadChange, type ReadMap, type ReadsDocument } from "../shared/reads";
+import { markSeen, normalizeReads, readAgentKey, readKey, recentKey, undoReads, type ReadChange, type ReadMap, type ReadsDocument } from "../shared/reads";
 import { profilesSettings, readsSettings } from "../shared/settings";
 import { mergeProfileDocs, mergeReadDocs, mergeUpdateDocs, sameDoc } from "../shared/sync";
 import { checkForUpdateRpc, installedVersionRpc, updatesDocumentSchema, updatesSettings, type InstalledVersion, type UpdatesDocument } from "../shared/updates";
@@ -86,6 +86,8 @@ export interface Store {
   markChatUnread(serverId: string, agentId: string): ReadChange[];
   /** Undoes earlier changes, for keys nothing has changed since. */
   undoReads(changes: readonly ReadChange[]): void;
+  /** Removes a workspace from the Recent view until you prompt it again, or puts it back. Returns what changed, for `undoReads`. */
+  setInRecent(serverId: string, workspaceId: string, inRecent: boolean): ReadChange[];
   /**
    * Agents and models the host can launch in this folder. Paseo discovers providers lazily, so the
    * first answer may still have some loading: `onChange` gets every newer list until none is
@@ -590,6 +592,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     markChatsRead: (serverId, agentIds) => markKeysRead(agentIds.map((id) => readAgentKey(serverId, id))),
     markChatUnread: (serverId, agentId) => markKeyUnread(readAgentKey(serverId, agentId)),
     undoReads: (changes) => void writeReads(undoReads(currentReads(), changes, Date.now())),
+    setInRecent: (serverId, workspaceId, inRecent) => (inRecent ? markKeyUnread(recentKey(serverId, workspaceId)) : markKeysRead([recentKey(serverId, workspaceId)])),
     watchProviders(serverId, cwd, onChange) {
       const api = apiFor(serverId);
       let live = true;

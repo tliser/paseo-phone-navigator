@@ -2,7 +2,7 @@
 import { shortenModel } from "./format";
 import { applyOrder, type OrderMap } from "./order";
 import { agentsKey, hostKey, isCollapsed, projectKey, subagentsKey, type CollapseMap, type ProfileSettings } from "./profiles";
-import { isAgentUnread, isUnread, type ReadMap } from "./reads";
+import { isAgentUnread, isUnread, removedFromRecent, type ReadMap } from "./reads";
 import { FILTERS, type AgentInput, type ChatState, type Filter, type HostInput, type ProjectKind, type WorkspaceInput, type WorkspaceState } from "./types";
 
 const DAY_MS = 86_400_000;
@@ -172,6 +172,8 @@ interface Ranked {
   workspace: WorkspaceInput;
   state: WorkspaceState;
   pinned?: boolean;
+  /** You removed it from the Recent view (see `removedFromRecent`). */
+  offRecent?: boolean;
 }
 
 /** Newest prompt or workspace first. Status and agent output do not move rows; the Inbox and the marks show those. */
@@ -191,7 +193,11 @@ export function passesFilter(item: Ranked, filter: Filter, settings: ProfileSett
     const limit = (settings.hideDone === "1d" ? 1 : 7) * DAY_MS;
     if (!workspace.activityAt || now - workspace.activityAt > limit) return false;
   }
-  if (filter === "recent") return state !== "read" || (!!workspace.activityAt && now - workspace.activityAt <= settings.recentDays * DAY_MS);
+  if (filter === "recent") {
+    // Removed by you: back once you prompt it again, or while it asks you or failed.
+    if (item.offRecent && state !== "needs_you" && state !== "error") return false;
+    return state !== "read" || (!!workspace.activityAt && now - workspace.activityAt <= settings.recentDays * DAY_MS);
+  }
   if (filter === "active") return state !== "read";
   return true;
 }
@@ -379,7 +385,12 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
     // Group by project, keeping each project's newest prompt from all its workspaces (filtering must not change rank).
     const projects = new Map<string, { id: string; name: string; kind: ProjectKind; rootPath: string; orderAt: number; all: Ranked[]; tally: Tally }>();
     for (const workspace of host.workspaces) {
-      const item: Ranked = { workspace, state: workspaceState(workspace, host.serverId, reads), pinned: isPinned(host.serverId, workspace.id) };
+      const item: Ranked = {
+        workspace,
+        state: workspaceState(workspace, host.serverId, reads),
+        pinned: isPinned(host.serverId, workspace.id),
+        offRecent: removedFromRecent(reads, host.serverId, workspace),
+      };
       let project = projects.get(workspace.projectId);
       if (!project) {
         project = { id: workspace.projectId, name: workspace.projectName, kind: workspace.projectKind, rootPath: workspace.projectRootPath, orderAt: 0, all: [], tally: emptyTally() };

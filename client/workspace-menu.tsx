@@ -5,6 +5,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
+import { removedFromRecent } from "../shared/reads";
 import type { TabRow, WorkspaceRow } from "../shared/tree";
 import { InfoCard } from "./names-card";
 import { useNavigatorStore } from "./runtime";
@@ -55,6 +56,11 @@ export function WorkspaceMenu({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pinned = snapshot.pinsFor(profileId).has(`${row.serverId}:${workspace.id}`);
+  const offRecent = removedFromRecent(snapshot.reads, row.serverId, workspace);
+  const toggleRecent = () => {
+    const changes = store.setInRecent(row.serverId, workspace.id, offRecent);
+    onToast({ text: offRecent ? `"${workspace.title}" is back in Recent` : `Removed "${workspace.title}" from Recent`, undo: () => store.undoReads(changes) });
+  };
   const index = siblings.indexOf(workspace.id);
   const then = (action: () => void) => () => {
     onClose();
@@ -177,6 +183,7 @@ export function WorkspaceMenu({
           ) : null}
           <SheetItem theme={theme} compact={compact} icon={pinned ? "PinOff" : "Pin"} label={pinned ? "Unpin workspace" : "Pin workspace"} onPress={then(() => store.setPinned(profileId, row.serverId, workspace.id, !pinned))} />
           {canMarkRead ? <SheetItem theme={theme} compact={compact} icon="CheckCheck" label="Mark workspace read" onPress={then(markWorkspaceRead)} /> : null}
+          <SheetItem theme={theme} compact={compact} icon={offRecent ? "History" : "EyeOff"} label={offRecent ? "Show in Recent again" : "Remove from Recent"} onPress={then(toggleRecent)} />
           <SheetItem theme={theme} compact={compact} icon="Pencil" label="Rename workspace" onPress={() => setMode("rename")} />
           {manual && index !== -1 ? (
             <>

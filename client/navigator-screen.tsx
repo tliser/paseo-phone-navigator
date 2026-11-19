@@ -380,10 +380,8 @@ export function NavigatorScreen(
           theme={theme}
           compact={layout.compact}
           inbox={inboxCounts}
-          running={tree.running}
           scale={scale}
           onInbox={(anchor) => setOverlay({ kind: "inbox", anchor })}
-          onRunning={() => setFilter("active")}
           onOptions={(anchor) => setOverlay({ kind: "options", anchor })}
           host={hostSwitch === "menu" ? <HostButton theme={theme} hosts={tree.hosts} value={tree.hostView} compact={layout.compact} colors={snapshot.colors} onOpen={(anchor) => setOverlay({ kind: "hosts", anchor })} /> : null}
           onNewProject={projectHosts.length && !arranging ? (anchor) => setNewProjectFor({ hosts: projectHosts, anchor }) : undefined}

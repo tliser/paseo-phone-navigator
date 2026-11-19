@@ -127,8 +127,6 @@ interface TreeResult {
   rows: TreeRow[];
   /** Workspaces matching filter and search on online, shown hosts. */
   matched: number;
-  /** Running workspaces on online, visible hosts (ignores filter, search and the host choice). */
-  running: number;
   counts: Record<Filter, number>;
   /** Group keys shown (for expand/collapse all). */
   groupKeys: string[];
@@ -376,7 +374,6 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   const rows: TreeRow[] = [];
   const groupKeys: string[] = [];
   const counts: Record<Filter, number> = { all: 0, recent: 0, active: 0, pinned: 0 };
-  let running = 0;
   let matched = 0;
   let totalOnline = 0;
   const summaries: HostSummary[] = [];
@@ -427,7 +424,6 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       project.orderAt = Math.max(project.orderAt, workspace.orderAt);
       addTally(project.tally, item.state);
       addTally(hostTally, item.state);
-      if (item.state === "running") running++;
       if (shown && matchesSearch(workspace, host.label, query)) {
         for (const key of FILTERS) {
           if (passesFilter(item, key, settings, now)) counts[key]++;
@@ -488,7 +484,6 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   return {
     rows,
     matched,
-    running,
     counts,
     groupKeys,
     emptyBecauseFiltered: matched === 0 && totalOnline > 0 && (searching || filter !== "all"),

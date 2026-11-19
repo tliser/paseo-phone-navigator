@@ -1,4 +1,4 @@
-// The navigator's top: Inbox and Running indicators, Options, the views control, and the search field.
+// The navigator's top: the Inbox, host button, search (phones), New project, Options, the views control and the search field.
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
 import { useRef, useState, type ReactNode, type RefObject } from "react";
@@ -25,10 +25,8 @@ export function TitleBar({
   theme,
   compact,
   inbox,
-  running,
   scale,
   onInbox,
-  onRunning,
   onOptions,
   inboxRef,
   host,
@@ -40,10 +38,8 @@ export function TitleBar({
   inboxRef: RefObject<View | null>;
   compact: boolean;
   inbox: InboxTally;
-  running: number;
   scale: number;
   onInbox(anchor: Anchor | null): void;
-  onRunning(): void;
   onOptions(anchor: Anchor | null): void;
   /** The host button (menu mode with several hosts). */
   host?: ReactNode;
@@ -90,17 +86,6 @@ export function TitleBar({
       </Pressable>
       <View style={{ flex: 1 }} />
       {host}
-      {running ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${running} running. Show Active`}
-          onPress={onRunning}
-          style={({ pressed }) => ({ minWidth: size, height: size, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 8, borderRadius: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
-        >
-          <Mark theme={theme} kind="running" size={16} />
-          <Text style={{ color: c.foreground, fontSize: fs(13), fontWeight: "600", fontVariant: ["tabular-nums"] }}>{running}</Text>
-        </Pressable>
-      ) : null}
       {onSearch ? (
         <Pressable
           accessibilityRole="button"

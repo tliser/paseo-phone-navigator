@@ -3,7 +3,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, SettingsAction, SettingsCard, SettingsInput, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, Text, useWindowDimensions, View } from "react-native";
 import { bindPlatform, defaultSettings, MAX_LINES, newProfileId, normalizeLines, pruneCollapse, ROW_FIELDS, type Profile, type ProfileSettings, type RowField } from "../shared/profiles";
 import { ICON_COLORS } from "../shared/colors";
@@ -64,6 +64,9 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   const [largePreview, setLargePreview] = useState(false);
   const { toast, show: showToast, hide: hideToast } = useToastState();
   const window = useWindowDimensions();
+  /** Where the screen starts in the window, so it can fill exactly the rest (see `frame` below). */
+  const frameRef = useRef<View>(null);
+  const [frameTop, setFrameTop] = useState(0);
   const c = theme.colors;
   const ready = snapshot.profilesReady;
 
@@ -329,11 +332,18 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   const body = section === "updates" ? sections.updates : <SettingsSection title={SECTIONS.find(([id]) => id === section)![1]}>{sections[section]}</SettingsSection>;
 
   const touch = layout.platform !== "web";
+  // Paseo hosts settings screens inside its own scroll view, so a flex layout grows with its content and
+  // scrolls away as a whole. Sizing the frame to the window below its top keeps the outer view still: only
+  // the settings scroll, and the preview stays in place.
+  const frame = {
+    ref: frameRef,
+    onLayout: () => frameRef.current?.measureInWindow((_x, y) => setFrameTop((current) => (Math.abs(current - y) > 1 ? y : current))),
+  };
+  const frameHeight = Math.max(320, window.height - frameTop);
   if (layout.compact) {
-    const previewHeight = largePreview ? Math.round(window.height * 0.55) : 190;
-    // The preview sits above the section and stays put while the settings scroll under it.
+    const previewHeight = largePreview ? Math.round(frameHeight * 0.55) : 190;
     return (
-      <View style={{ flex: 1, backgroundColor: c.surface0 }}>
+      <View {...frame} style={{ height: frameHeight, backgroundColor: c.surface0 }}>
         <View style={{ paddingHorizontal: 12, paddingTop: 8, gap: 4 }}>
           {editing}
           {tabs}
@@ -351,7 +361,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
             </ScrollView>
           </View>
         )}
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 12 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, paddingBottom: 40, gap: 12 }}>
           {body}
         </ScrollView>
         <Toast theme={theme} toast={toast} onHide={hideToast} />
@@ -360,8 +370,8 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   }
 
   return (
-    <View style={{ flex: 1, flexDirection: "row", backgroundColor: c.surface0 }}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, gap: 16, maxWidth: 640 }}>
+    <View {...frame} style={{ height: frameHeight, flexDirection: "row", backgroundColor: c.surface0 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, paddingBottom: 40, gap: 16, maxWidth: 640 }}>
         {editing}
         {tabs}
         {body}

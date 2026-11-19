@@ -1,5 +1,5 @@
-// Settings of one profile, in sections: View · Rows · Order · Groups · Profile · Updates. A preview of
-// sample rows stays in view: beside the controls on desktop, pinned above the section on phones (can be made larger).
+// Settings of one profile, in sections: View · Rows · Order · Groups · Profile · Updates. Section tabs and a
+// preview of sample rows stay at the top; only the settings below them scroll.
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, SettingsAction, SettingsCard, SettingsInput, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
@@ -319,66 +319,44 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
       ))}
     </ScrollView>
   );
-  const editing = (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-      <Text style={{ flex: 1, color: c.foregroundMuted, fontSize: 13 }} numberOfLines={1}>{`Editing ${edit.name}${edit.id === active.id ? " · this device" : ""}`}</Text>
-      {section === "profile" ? null : (
-        <Pressable accessibilityRole="button" onPress={() => setSection("profile")} style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 8 }}>
-          <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>Change</Text>
-        </Pressable>
-      )}
-    </View>
-  );
   const body = section === "updates" ? sections.updates : <SettingsSection title={SECTIONS.find(([id]) => id === section)![1]}>{sections[section]}</SettingsSection>;
 
   const touch = layout.platform !== "web";
-  // Paseo hosts settings screens inside its own scroll view, so a flex layout grows with its content and
-  // scrolls away as a whole. Sizing the frame to the window below its top keeps the outer view still: only
-  // the settings scroll, and the preview stays in place.
+  // Paseo shows plugin settings inside its page scroll view (PageLayout: 16 pt content padding, plus the
+  // home-indicator inset at the bottom on phones). A frame that ends exactly above that padding leaves the
+  // page nothing to scroll, so only the settings scroll and the preview stays where it is.
+  const bottomRoom = layout.compact ? 16 + 34 : 16;
   const frame = {
     ref: frameRef,
     onLayout: () => frameRef.current?.measureInWindow((_x, y) => setFrameTop((current) => (Math.abs(current - y) > 1 ? y : current))),
   };
-  const frameHeight = Math.max(320, window.height - frameTop);
-  if (layout.compact) {
-    const previewHeight = largePreview ? Math.round(frameHeight * 0.55) : 190;
-    return (
-      <View {...frame} style={{ height: frameHeight, backgroundColor: c.surface0 }}>
-        <View style={{ paddingHorizontal: 12, paddingTop: 8, gap: 4 }}>
-          {editing}
-          {tabs}
-        </View>
-        {section === "updates" ? null : (
-          <View style={{ height: previewHeight, marginTop: 8, borderTopWidth: 1, borderBottomWidth: 1, borderColor: c.border, backgroundColor: c.surface1 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", paddingLeft: 12 }}>
-              <Text style={{ flex: 1, color: c.foregroundMuted, fontSize: 12, fontWeight: "600" }}>Preview · sample workspaces</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel={largePreview ? "Smaller preview" : "Larger preview"} onPress={() => setLargePreview((value) => !value)} style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}>
-                <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>{largePreview ? "Smaller" : "Larger"}</Text>
-              </Pressable>
-            </View>
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 8 }}>
-              <SettingsPreview theme={theme} profile={edit} touch={touch} />
-            </ScrollView>
-          </View>
-        )}
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, paddingBottom: 40, gap: 12 }}>
-          {body}
-        </ScrollView>
-        <Toast theme={theme} toast={toast} onHide={hideToast} />
-      </View>
-    );
-  }
-
+  const frameHeight = Math.max(320, window.height - frameTop - bottomRoom);
+  // Same layout everywhere: Paseo's settings column is at most 720 pt wide, too narrow for a preview beside the controls.
+  const previewHeight = largePreview ? Math.round(frameHeight * 0.6) : Math.min(layout.compact ? 200 : 260, Math.round(frameHeight * 0.32));
+  const link = { hitSlop: { top: 10, bottom: 10, left: 6, right: 6 }, style: { paddingHorizontal: 6, justifyContent: "center" as const } };
   return (
-    <View {...frame} style={{ height: frameHeight, flexDirection: "row", backgroundColor: c.surface0 }}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, paddingBottom: 40, gap: 16, maxWidth: 640 }}>
-        {editing}
-        {tabs}
+    <View {...frame} style={{ height: frameHeight, gap: 10 }}>
+      {tabs}
+      {section === "updates" ? null : (
+        <View style={{ height: previewHeight, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface1, overflow: "hidden" }}>
+          <View style={{ height: 34, flexDirection: "row", alignItems: "center", paddingLeft: 12, paddingRight: 4, borderBottomWidth: 1, borderBottomColor: c.border }}>
+            <Text numberOfLines={1} style={{ flex: 1, color: c.foregroundMuted, fontSize: 12, fontWeight: "600" }}>{`Preview · ${edit.name}${edit.id === active.id ? " (this device)" : ""}`}</Text>
+            {section === "profile" ? null : (
+              <Pressable accessibilityRole="button" accessibilityLabel={`Change the profile being edited, now ${edit.name}`} onPress={() => setSection("profile")} {...link}>
+                <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>Change</Text>
+              </Pressable>
+            )}
+            <Pressable accessibilityRole="button" accessibilityLabel={largePreview ? "Smaller preview" : "Larger preview"} onPress={() => setLargePreview((value) => !value)} {...link}>
+              <Icon name={largePreview ? "Minimize2" : "Maximize2"} size={15} color={c.accent} />
+            </Pressable>
+          </View>
+          <ScrollView style={{ flex: 1 }} nestedScrollEnabled>
+            <SettingsPreview theme={theme} profile={edit} touch={touch} />
+          </ScrollView>
+        </View>
+      )}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingTop: 2, paddingBottom: 24, gap: 12 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
         {body}
-      </ScrollView>
-      <ScrollView style={{ width: 380, flexGrow: 0 }} contentContainerStyle={{ padding: 24, paddingLeft: 0, gap: 8 }}>
-        <Text style={{ color: c.foregroundMuted, fontSize: 12, fontWeight: "600" }}>Preview · sample workspaces</Text>
-        <SettingsPreview theme={theme} profile={edit} touch={touch} />
       </ScrollView>
       <Toast theme={theme} toast={toast} onHide={hideToast} />
     </View>

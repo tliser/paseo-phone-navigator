@@ -52,7 +52,7 @@ export function SettingsPreview({ theme, profile, touch }: { theme: PluginTheme;
   }, [profile]);
   const noop = () => undefined;
   return (
-    <View accessibilityLabel="Preview" style={{ borderRadius: 10, overflow: "hidden", borderWidth: 1, borderColor: c.border, backgroundColor: c.surface0 }} pointerEvents="none">
+    <View accessibilityLabel="Preview" style={{ backgroundColor: c.surface0 }} pointerEvents="none">
       {rows.map((row) => (
         <Row
           key={row.key}

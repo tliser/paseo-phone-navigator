@@ -1,12 +1,11 @@
-// Settings of one profile, in sections: View · Rows · Order · Groups · Profile · Updates. Desktop: controls
-// on the left, the live preview on the right. Phones: section tabs and controls scroll, the preview sits
-// at the bottom and can be made larger.
+// Settings of one profile, in sections: View · Rows · Order · Groups · Profile · Updates. The Rows section
+// previews sample rows with the lines being edited.
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, SettingsAction, SettingsCard, SettingsInput, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useEffect, useState, type ReactNode } from "react";
-import { Pressable, Text, useWindowDimensions, View } from "react-native";
-import { bindPlatform, defaultSettings, newProfileId, pruneCollapse, type Profile, type ProfileSettings, type RowField } from "../shared/profiles";
+import { Pressable, Text, View } from "react-native";
+import { bindPlatform, defaultSettings, MAX_LINES, newProfileId, normalizeLines, pruneCollapse, ROW_FIELDS, type Profile, type ProfileSettings, type RowField } from "../shared/profiles";
 import type { Platform } from "../shared/types";
 import { PLATFORM_LABEL } from "./options-menu";
 import { useActiveProfile, useNavigatorStore } from "./runtime";
@@ -27,8 +26,31 @@ const SECTIONS: readonly [Section, string][] = [
   ["updates", "Updates"],
 ];
 const RECENT_DAYS = [1, 2, 3, 7, 14, 30];
-const FIELD_LABEL: Record<RowField, string> = { branch: "Branch", model: "Model", diff: "Changes" };
-const FIELD_SAMPLE: Record<RowField, string> = { branch: "feature/checkout", model: "sonnet-4-5", diff: "+142 −38" };
+const FIELD_LABEL: Record<RowField, string> = { title: "Title", time: "Last activity", branch: "Branch", model: "Model", diff: "Changes", reason: "Why it needs you", project: "Project", host: "Host" };
+const FIELD_SAMPLE: Record<RowField, string> = { title: "Checkout redesign", time: "3m", branch: "feat/checkout", model: "sonnet-4-5", diff: "+42 −7", reason: "Asks you · Payment states", project: "web-app", host: "tardis" };
+
+/** Puts `field` at the end of line `line` (0-based; one past the last adds a line), or removes it (null). */
+function placeField(lines: readonly RowField[][], field: RowField, line: number | null): RowField[][] {
+  const next = lines.map((entry) => entry.filter((name) => name !== field));
+  if (line !== null) {
+    if (line >= next.length) next.push([field]);
+    else next[line]!.push(field);
+  }
+  return normalizeLines(next);
+}
+
+/** Moves `field` one place within its line. */
+function stepField(lines: readonly RowField[][], field: RowField, direction: -1 | 1): RowField[][] {
+  return lines.map((line) => {
+    const from = line.indexOf(field);
+    const to = from + direction;
+    if (from === -1 || to < 0 || to >= line.length) return line;
+    const next = [...line];
+    next.splice(from, 1);
+    next.splice(to, 0, field);
+    return next;
+  });
+}
 
 export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   const { store, snapshot } = useNavigatorStore();
@@ -38,9 +60,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   const [name, setName] = useState(edit.name);
   useEffect(() => setName(edit.name), [edit.id, edit.name]);
   const [section, setSection] = useState<Section>("view");
-  const [largePreview, setLargePreview] = useState(false);
   const { toast, show: showToast, hide: hideToast } = useToastState();
-  const window = useWindowDimensions();
   const c = theme.colors;
   const ready = snapshot.profilesReady;
 
@@ -97,20 +117,34 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   const yesNo = (value: boolean, set: (value: boolean) => void, label: string, hint?: string, key?: string, disabled = false) => (
     <SettingsSwitch key={key ?? label} label={label} hint={hint} value={value} onValueChange={set} disabled={!ready || disabled} />
   );
-  const moveField = (field: RowField, direction: -1 | 1) => {
-    const order = [...s.fieldOrder];
-    const from = order.indexOf(field);
-    const to = from + direction;
-    if (to < 0 || to >= order.length) return;
-    order.splice(from, 1);
-    order.splice(to, 0, field);
-    updateSettings({ fieldOrder: order });
-  };
+  const unused = ROW_FIELDS.filter((field) => !s.lines.some((line) => line.includes(field)));
+  const fieldRow = (field: RowField, line: number | null, index: number, count: number) => (
+    <FieldRow
+      key={field}
+      theme={theme}
+      field={field}
+      line={line}
+      lineCount={s.lines.length}
+      first={index === 0}
+      last={index === count - 1}
+      disabled={!ready}
+      onLine={(next) => updateSettings({ lines: placeField(s.lines, field, next) })}
+      onMove={(direction) => updateSettings({ lines: stepField(s.lines, field, direction) })}
+    />
+  );
 
   const sections: Record<Section, ReactNode> = {
     view: (
       <SettingsCard>
         <SettingsSelect label="Density" value={s.density} options={[{ value: "compact", label: "Compact" }, { value: "comfortable", label: "Comfortable" }]} onValueChange={(density) => updateSettings({ density })} disabled={!ready} />
+        <SettingsSelect
+          label="Choose the host with"
+          hint="Shown with more than one host. All lists every host under a thin divider."
+          value={s.hostSwitch}
+          options={[{ value: "tabs", label: "Tabs above the list" }, { value: "menu", label: "Button in the title bar" }]}
+          onValueChange={(hostSwitch) => updateSettings({ hostSwitch })}
+          disabled={!ready}
+        />
         <SettingsSelect
           label="Opens on"
           value={s.defaultFilter}
@@ -130,27 +164,22 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
     ),
     rows: (
       <>
+        {s.lines.map((line, lineIndex) => (
+          <SettingsCard key={lineIndex}>
+            <SettingsRow label={`Line ${lineIndex + 1}`} hint={lineIndex === 0 ? "Pick a line for each value; arrows order a line. Values without data stay hidden on that row." : undefined} />
+            {line.map((field, index) => fieldRow(field, lineIndex, index, line.length))}
+          </SettingsCard>
+        ))}
+        {unused.length ? (
+          <SettingsCard>
+            <SettingsRow label="Not shown" />
+            {unused.map((field) => fieldRow(field, null, 0, 1))}
+          </SettingsCard>
+        ) : null}
+        <SettingsPreview theme={theme} profile={edit} touch={layout.platform !== "web"} />
         <SettingsCard>
-          <SettingsRow label="Second line, in this order" hint="Each value shows only when it is switched on." />
-          {s.fieldOrder.map((field, index) => (
-            <FieldRow
-              key={field}
-              theme={theme}
-              field={field}
-              shown={s.show[field]}
-              first={index === 0}
-              last={index === s.fieldOrder.length - 1}
-              disabled={!ready}
-              onToggle={(on) => updateSettings({ show: { ...s.show, [field]: on } })}
-              onMove={(direction) => moveField(field, direction)}
-            />
-          ))}
-        </SettingsCard>
-        <SettingsCard>
-          {yesNo(s.show.time, (time) => updateSettings({ show: { ...s.show, time } }), "Last activity")}
           {yesNo(s.show.tabs, (tabs) => updateSettings({ show: { ...s.show, tabs } }), "Tabs", "Status marks of a workspace's chats and terminals; tap them to list the tabs.")}
           {yesNo(s.show.subagents, (subagents) => updateSettings({ show: { ...s.show, subagents } }), "Sub-agents", s.show.tabs ? "Under their parent tab." : "Needs Tabs.", undefined, !s.show.tabs)}
-          {yesNo(s.statusLine, (statusLine) => updateSettings({ statusLine }), "Say why a row needs you", "Rows that ask you, failed or are unread show the reason instead of branch and model.")}
           {layout.compact ? null : yesNo(s.namesCard, (namesCard) => updateSettings({ namesCard }), "Info card on hover", "Full details of workspaces, tabs and projects.")}
         </SettingsCard>
       </>
@@ -266,7 +295,6 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   const body = section === "updates" ? sections.updates : <SettingsSection title={SECTIONS.find(([id]) => id === section)![1]}>{sections[section]}</SettingsSection>;
 
   if (layout.compact) {
-    const previewHeight = largePreview ? Math.round(window.height * 0.55) : 150;
     return (
       <View style={{ flex: 1, backgroundColor: c.surface0 }}>
         <View style={{ paddingHorizontal: 12, paddingTop: 8, gap: 4 }}>
@@ -276,33 +304,18 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 12 }}>
           {body}
         </ScrollView>
-        <View style={{ height: previewHeight, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface1 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", paddingLeft: 12 }}>
-            <Text style={{ flex: 1, color: c.foregroundMuted, fontSize: 12, fontWeight: "600" }}>Preview</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel={largePreview ? "Smaller preview" : "Larger preview"} onPress={() => setLargePreview((value) => !value)} style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}>
-              <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>{largePreview ? "Smaller" : "Larger"}</Text>
-            </Pressable>
-          </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 8 }}>
-            <SettingsPreview theme={theme} profile={edit} maxRows={14} />
-          </ScrollView>
-        </View>
         <Toast theme={theme} toast={toast} onHide={hideToast} />
       </View>
     );
   }
 
   return (
-    <View style={{ flex: 1, flexDirection: "row", backgroundColor: c.surface0 }}>
+    <View style={{ flex: 1, backgroundColor: c.surface0 }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, gap: 16, maxWidth: 640 }}>
         {editing}
         {tabs}
         {body}
       </ScrollView>
-      <View style={{ width: 380, padding: 24, paddingLeft: 0, gap: 8 }}>
-        <Text style={{ color: c.foregroundMuted, fontSize: 12, fontWeight: "600" }}>Preview · sample workspaces</Text>
-        <SettingsPreview theme={theme} profile={edit} maxRows={14} />
-      </View>
       <Toast theme={theme} toast={toast} onHide={hideToast} />
     </View>
   );
@@ -323,55 +336,69 @@ function Chip({ theme, label, selected, onPress, disabled, role = "button" }: { 
   );
 }
 
-/** One value of the second line: show switch, a sample, and Move up/down. */
+/** One row value: a sample, its line (1–3 or off; the title is never off) and Move left/right within the line. */
 function FieldRow({
   theme,
   field,
-  shown,
+  line,
+  lineCount,
   first,
   last,
   disabled,
-  onToggle,
+  onLine,
   onMove,
 }: {
   theme: PluginTheme;
   field: RowField;
-  shown: boolean;
+  /** 0-based line, null when not shown. */
+  line: number | null;
+  lineCount: number;
   first: boolean;
   last: boolean;
   disabled: boolean;
-  onToggle(on: boolean): void;
+  onLine(line: number | null): void;
   onMove(direction: -1 | 1): void;
 }) {
   const c = theme.colors;
+  // Up to one line past the last, never more than MAX_LINES; moving a line's only value away removes that line.
+  const choices: (number | null)[] = [...Array.from({ length: Math.min(MAX_LINES, lineCount + 1) }, (_, index) => index), ...(field === "title" ? [] : [null])];
   const arrow = (direction: -1 | 1, off: boolean) => (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`Move ${FIELD_LABEL[field]} ${direction < 0 ? "up" : "down"}`}
+      accessibilityLabel={`Move ${FIELD_LABEL[field]} ${direction < 0 ? "earlier" : "later"} in its line`}
       accessibilityState={{ disabled: off || disabled }}
       disabled={off || disabled}
       onPress={() => onMove(direction)}
-      style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center", opacity: off ? 0.3 : 1 }}
+      style={{ width: 36, height: 44, alignItems: "center", justifyContent: "center", opacity: off ? 0.3 : 1 }}
     >
-      <Icon name={direction < 0 ? "ArrowUp" : "ArrowDown"} size={16} color={c.foreground} />
+      <Icon name={direction < 0 ? "ArrowLeft" : "ArrowRight"} size={16} color={c.foreground} />
     </Pressable>
   );
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 12 }}>
-      <Pressable
-        accessibilityRole="switch"
-        accessibilityState={{ checked: shown, disabled }}
-        accessibilityLabel={`Show ${FIELD_LABEL[field]}`}
-        disabled={disabled}
-        onPress={() => onToggle(!shown)}
-        style={{ minHeight: 44, flex: 1, flexDirection: "row", alignItems: "center", gap: 10 }}
-      >
-        <Icon name={shown ? "SquareCheck" : "Square"} size={18} color={shown ? c.accent : c.foregroundMuted} />
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingLeft: 12, flexWrap: "wrap" }}>
+      <View style={{ flex: 1, minWidth: 140, minHeight: 44, justifyContent: "center" }}>
         <Text style={{ color: c.foreground, fontSize: 14 }}>{FIELD_LABEL[field]}</Text>
-        <Text numberOfLines={1} style={{ flex: 1, color: c.foregroundMuted, fontSize: 12 }}>{FIELD_SAMPLE[field]}</Text>
-      </Pressable>
-      {arrow(-1, first)}
-      {arrow(1, last)}
+        <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: 12 }}>{FIELD_SAMPLE[field]}</Text>
+      </View>
+      <View accessibilityRole="radiogroup" accessibilityLabel={`Line of ${FIELD_LABEL[field]}`} style={{ flexDirection: "row", padding: 2, borderRadius: 8, backgroundColor: c.surface1, borderWidth: 1, borderColor: c.border }}>
+        {choices.map((choice) => {
+          const selected = choice === line;
+          return (
+            <Pressable
+              key={choice ?? "off"}
+              accessibilityRole="radio"
+              accessibilityState={{ selected, checked: selected, disabled }}
+              accessibilityLabel={choice === null ? "Not shown" : `Line ${choice + 1}`}
+              disabled={disabled || selected}
+              onPress={() => onLine(choice)}
+              style={{ minWidth: 36, minHeight: 36, alignItems: "center", justifyContent: "center", borderRadius: 6, backgroundColor: selected ? c.surface2 : "transparent" }}
+            >
+              <Text style={{ color: selected ? c.foreground : c.foregroundMuted, fontSize: 13, fontWeight: "600" }}>{choice === null ? "Off" : choice + 1}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {line === null ? <View style={{ width: 72 }} /> : <>{arrow(-1, first)}{arrow(1, last)}</>}
     </View>
   );
 }

@@ -7,7 +7,7 @@ import {
   expandOrCollapseAll,
   isCollapsed,
   normalizeDocument,
-  normalizeFieldOrder,
+  normalizeLines,
   pruneCollapse,
   resolveProfile,
   setCollapsed,
@@ -62,6 +62,10 @@ describe("collapse map", () => {
     const expanded = { "proj:a:p": false };
     expect(expandOrCollapseAll(expanded, keys, settings)).toEqual({ "host:a": true });
   });
+  it("collapses the projects when the tree has no host rows (one host shown)", () => {
+    const open = { ...settings, newGroupsExpanded: { hosts: true, projects: true } };
+    expect(expandOrCollapseAll({}, ["proj:a:p", "proj:a:q"], open)).toEqual({ "proj:a:p": true, "proj:a:q": true });
+  });
 });
 
 describe("profile edits", () => {
@@ -82,13 +86,19 @@ describe("profile edits", () => {
 
 describe("settings migration", () => {
   it("an old profile that opened on the Inbox opens on Active and gets the new defaults", () => {
-    const doc = normalizeDocument({ profiles: [{ id: "a", name: "A", settings: { defaultFilter: "inbox", show: { model: false } } }] });
+    const doc = normalizeDocument({ profiles: [{ id: "a", name: "A", settings: { defaultFilter: "inbox" } }] });
     const s = doc.profiles[0]!.settings;
     expect(s.defaultFilter).toBe("active");
-    expect(s).toMatchObject({ fieldOrder: ["branch", "model", "diff"], statusLine: true, show: { model: false, tabs: true, subagents: true } });
+    expect(s).toMatchObject({ lines: [["title", "time"], ["branch", "model", "diff"]], show: { tabs: true, subagents: true }, hostSwitch: "tabs" });
   });
-  it("field order drops duplicates and unknown values and appends missing ones", () => {
-    expect(normalizeFieldOrder(["diff", "diff", "nope", "model"])).toEqual(["diff", "model", "branch"]);
+  it("an old second line becomes line 2 with its order and switches; time stays on line 1", () => {
+    const doc = normalizeDocument({ profiles: [{ id: "a", name: "A", settings: { show: { model: false, time: false, tabs: false }, fieldOrder: ["diff", "branch"] } }] });
+    expect(doc.profiles[0]!.settings).toMatchObject({ lines: [["title"], ["diff", "branch"]], show: { tabs: false } });
+  });
+  it("lines keep each value once, drop empty lines and always keep the title", () => {
+    expect(normalizeLines([["branch", "nope", "branch"], [], ["model", "title"], ["diff"]])).toEqual([["branch"], ["model", "title"]]);
+    expect(normalizeLines([["model"]])).toEqual([["title", "model"]]);
+    expect(normalizeLines([])).toEqual([["title"]]);
   });
 });
 

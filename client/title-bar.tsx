@@ -1,7 +1,7 @@
 // The navigator's top: Inbox and Running indicators, Options, the views control, and the search field.
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
-import { useRef, useState, type RefObject } from "react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { InboxTally } from "../shared/inbox";
 import { FILTERS, type Filter } from "../shared/types";
@@ -31,6 +31,7 @@ export function TitleBar({
   onRunning,
   onOptions,
   inboxRef,
+  host,
 }: {
   theme: PluginTheme;
   /** The Inbox button, so focus can return to it when the Inbox closes. */
@@ -42,6 +43,8 @@ export function TitleBar({
   onInbox(anchor: Anchor | null): void;
   onRunning(): void;
   onOptions(anchor: Anchor | null): void;
+  /** The host button (menu mode with several hosts). */
+  host?: ReactNode;
 }) {
   const c = theme.colors;
   const fs = (size: number) => Math.round(size * scale * 2) / 2;
@@ -79,6 +82,7 @@ export function TitleBar({
         ) : null}
       </Pressable>
       <View style={{ flex: 1 }} />
+      {host}
       {running ? (
         <Pressable
           accessibilityRole="button"

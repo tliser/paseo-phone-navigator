@@ -113,11 +113,21 @@ interface MatchedTab {
 }
 export type TreeRow = HostRow | ProjectRow | WorkspaceRow | TabRow | SkeletonRow | NoteRow;
 
+/** One host for the host tabs or menu, counted like its section of the tree. */
+export interface HostSummary {
+  serverId: string;
+  label: string;
+  state: "online" | "offline" | "loading";
+  /** Workspaces matching filter and search. */
+  count: number;
+  tally: Tally;
+}
+
 interface TreeResult {
   rows: TreeRow[];
-  /** Workspaces matching filter and search on online hosts. */
+  /** Workspaces matching filter and search on online, shown hosts. */
   matched: number;
-  /** Running workspaces on online, visible hosts (ignores filter and search). */
+  /** Running workspaces on online, visible hosts (ignores filter, search and the host choice). */
   running: number;
   counts: Record<Filter, number>;
   /** Group keys shown (for expand/collapse all). */
@@ -126,6 +136,10 @@ interface TreeResult {
   emptyBecauseFiltered: boolean;
   /** Every group's complete child ids in display order, hidden ones included (for drag and drop). */
   groups: Record<string, string[]>;
+  /** Every host not hidden by the profile, in display order. */
+  hosts: HostSummary[];
+  /** The host the tree is limited to; null shows all (also when the chosen host is gone). */
+  hostView: string | null;
 }
 
 export interface TreeOptions {
@@ -143,6 +157,8 @@ export interface TreeOptions {
   archiving?: ReadonlySet<string>;
   /** Pinned workspaces ("serverId:workspaceId"); they pass every view and make up the Pinned view. */
   pins?: ReadonlySet<string>;
+  /** Show only this host ("serverId"); null or unknown shows all. Host rows appear only when several hosts are shown. */
+  hostView?: string | null;
 }
 
 /** A chat's state: asking, then error, then running, then unread news; anything else is read. A working chat never waits for you. */
@@ -362,25 +378,35 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   let running = 0;
   let matched = 0;
   let totalOnline = 0;
+  const summaries: HostSummary[] = [];
+  const visibleHosts = orderHosts(hosts.filter((host) => !hidden.has(host.serverId)), options.hostOrder);
+  const hostView = options.hostView && visibleHosts.some((host) => host.serverId === options.hostView) ? options.hostView : null;
+  // A host row only separates hosts; with one host shown it would be a wasted line.
+  const hostRows = (hostView ? 1 : visibleHosts.length) > 1;
 
-  for (const host of orderHosts(hosts.filter((host) => !hidden.has(host.serverId)), options.hostOrder)) {
+  for (const host of visibleHosts) {
     const hKey = hostKey(host.serverId);
     const noTally = emptyTally();
+    const shown = !hostView || host.serverId === hostView;
     if (host.status !== "online") {
+      summaries.push({ serverId: host.serverId, label: host.label, state: "offline", count: 0, tally: noTally });
       // Offline hosts: dimmed, not expandable, left out of search results.
-      if (!searching) {
-        rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "offline", collapsed: true, count: 0, tally: noTally, error: host.error });
+      if (shown && !searching) {
+        if (hostRows) rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "offline", collapsed: true, count: 0, tally: noTally, error: host.error });
+        else rows.push({ type: "note", key: `${hKey}#offline`, text: `${host.label} is offline` });
       }
       continue;
     }
     if (host.loading) {
-      rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "loading", collapsed: false, count: 0, tally: noTally, error: null });
+      summaries.push({ serverId: host.serverId, label: host.label, state: "loading", count: 0, tally: noTally });
+      if (!shown) continue;
+      if (hostRows) rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "loading", collapsed: false, count: 0, tally: noTally, error: null });
       for (let i = 0; i < 3; i++) rows.push({ type: "skeleton", key: `${hKey}#skel${i}` });
       continue;
     }
 
     const hostTally = emptyTally();
-    totalOnline += host.workspaces.length;
+    if (shown) totalOnline += host.workspaces.length;
 
     // Group by project, keeping each project's newest prompt from all its workspaces (filtering must not change rank).
     const projects = new Map<string, { id: string; name: string; kind: ProjectKind; rootPath: string; orderAt: number; all: Ranked[]; tally: Tally }>();
@@ -401,7 +427,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       addTally(project.tally, item.state);
       addTally(hostTally, item.state);
       if (item.state === "running") running++;
-      if (matchesSearch(workspace, host.label, query)) {
+      if (shown && matchesSearch(workspace, host.label, query)) {
         for (const key of FILTERS) {
           if (passesFilter(item, key, settings, now)) counts[key]++;
         }
@@ -427,15 +453,17 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       .filter((project) => project.visible.length > 0 || project.nameHit);
 
     const count = visibleProjects.reduce((sum, project) => sum + project.visible.length, 0);
+    summaries.push({ serverId: host.serverId, label: host.label, state: "online", count, tally: hostTally });
+    if (!shown) continue;
     matched += count;
     if (searching && !visibleProjects.length) continue;
 
-    groupKeys.push(hKey);
+    if (hostRows) groupKeys.push(hKey);
     for (const project of visibleProjects) groupKeys.push(projectKey(host.serverId, project.id));
 
     // Search expands temporarily; the stored collapse map is not touched.
-    const hostCollapsed = searching ? false : isCollapsed(collapse, hKey, settings);
-    rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "online", collapsed: hostCollapsed, count, tally: hostTally, error: host.error });
+    const hostCollapsed = hostRows && !searching && isCollapsed(collapse, hKey, settings);
+    if (hostRows) rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "online", collapsed: hostCollapsed, count, tally: hostTally, error: host.error });
     if (hostCollapsed) continue;
 
     if (host.workspaces.length === 0) {
@@ -464,5 +492,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
     groupKeys,
     emptyBecauseFiltered: matched === 0 && totalOnline > 0 && (searching || filter !== "all"),
     groups,
+    hosts: summaries,
+    hostView,
   };
 }

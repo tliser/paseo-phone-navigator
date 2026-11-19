@@ -109,10 +109,10 @@ describe("filters and search", () => {
     expect(matchesSearch(w, "tardis", "sidebar nope")).toBe(false);
   });
   it("search expands collapsed groups without changing the map and keeps structure", () => {
-    const collapse = { "host:h": true };
+    const collapse = { "proj:h:p": true };
     const tree = buildTree([host("h", [ws("1", "p", "done", 1, { title: "alpha" }), ws("2", "q", "done", 1, { title: "beta" })])], opts({ query: "alpha", collapse }));
-    expect(types(tree.rows)).toEqual(["host", "project", "workspace"]);
-    expect(collapse).toEqual({ "host:h": true });
+    expect(types(tree.rows)).toEqual(["project", "workspace"]);
+    expect(collapse).toEqual({ "proj:h:p": true });
   });
   it("drops hosts without matches and offline hosts while searching", () => {
     const tree = buildTree([host("a", [ws("1", "p", "done", 1, { title: "alpha" })]), host("b", [ws("2", "p", "done", 1)]), host("off", [], { status: "offline" })], opts({ query: "alpha" }));
@@ -125,26 +125,41 @@ describe("filters and search", () => {
   it("reports empty because filtered", () => {
     const tree = buildTree([host("h", [ws("1", "p", "done", 1)])], opts({ filter: "active" }));
     expect(tree.emptyBecauseFiltered).toBe(true);
-    expect(types(tree.rows)).toEqual(["host", "note"]);
+    expect(types(tree.rows)).toEqual(["note"]);
   });
 });
 
 describe("tree shape", () => {
   it("respects collapse and defaults", () => {
     const tree = buildTree([host("h", [ws("1", "p", "running", 1)])], opts({ settings: defaultSettings() }));
-    expect(types(tree.rows)).toEqual(["host", "project"]);
-    expect(types(buildTree([host("h", [ws("1", "p", "running", 1)])], opts({ collapse: { "host:h": true } })).rows)).toEqual(["host"]);
+    expect(types(tree.rows)).toEqual(["project"]);
+    const two = [host("h", [ws("1", "p", "running", 1)]), host("k", [ws("2", "p", "running", 1)])];
+    expect(types(buildTree(two, opts({ collapse: { "host:h": true } })).rows)).toEqual(["host", "host", "project", "workspace"]);
   });
   it("tallies asking and unread per project and host", () => {
     const tree = buildTree([host("h", [ws("1", "p", "needs_input", 1), ws("2", "p", "attention", 1, { news: 1 }), ws("3", "q", "failed", 1, { news: 1 })])], opts({ collapse: { "proj:h:p": true } }));
     const proj = tree.rows.find((r) => r.type === "project" && r.projectId === "p");
     expect(proj?.type === "project" && proj.tally).toEqual({ asking: 1, error: 0, unread: 1 });
-    const h = tree.rows[0];
-    expect(h?.type === "host" && h.tally).toEqual({ asking: 1, error: 0, unread: 2 });
+    expect(tree.hosts[0]?.tally).toEqual({ asking: 1, error: 0, unread: 2 });
   });
   it("renders loading skeletons per host and offline hosts dimmed", () => {
     const tree = buildTree([host("l", [], { loading: true }), host("o", [], { status: "offline" })], opts());
     expect(types(tree.rows)).toEqual(["host", "skeleton", "skeleton", "skeleton", "host"]);
+  });
+  it("host rows only separate several hosts; one chosen host drops them and the others", () => {
+    const both = [host("a", [ws("1", "p", "needs_input", 1)]), host("b", [ws("2", "p", "done", 1)]), host("off", [], { status: "offline" })];
+    const all = buildTree(both, opts());
+    expect(types(all.rows)).toEqual(["host", "project", "workspace", "host", "project", "workspace", "host"]);
+    const onlyB = buildTree(both, opts({ hostView: "b" }));
+    expect(onlyB.hostView).toBe("b");
+    expect(types(onlyB.rows)).toEqual(["project", "workspace"]);
+    expect(wsIds(onlyB.rows)).toEqual(["2"]);
+    expect(onlyB.counts.all).toBe(1);
+    // The host list still covers every host, with what waits there.
+    expect(onlyB.hosts.map((h) => [h.serverId, h.state, h.tally.asking])).toEqual([["a", "online", 1], ["b", "online", 0], ["off", "offline", 0]]);
+    expect(types(buildTree(both, opts({ hostView: "off" })).rows)).toEqual(["note"]);
+    // A host that is gone (or hidden) falls back to all.
+    expect(buildTree(both, opts({ hostView: "gone" })).hostView).toBeNull();
   });
   it("hides hosts listed in hiddenHosts", () => {
     expect(buildTree([host("h", [ws("1", "p", "done", 1)])], opts({ settings: { ...settings, hiddenHosts: ["h"] } })).rows).toHaveLength(0);
@@ -204,7 +219,7 @@ describe("tab rows", () => {
   ];
   const hosts = () => [host("h", [ws("w", "p", "running", 1, { agents: tabs, terminals: [{ id: "t1", title: "Terminal 1" }] })])];
   it("are folded by default and summed up as urgent-first marks, capped at 4", () => {
-    const row = buildTree(hosts(), opts()).rows[2];
+    const row = buildTree(hosts(), opts()).rows[1];
     expect(row?.type === "workspace" && row.tabs).toMatchObject({
       key: "agents:h:w",
       open: false,
@@ -222,22 +237,22 @@ describe("tab rows", () => {
     expect(main?.type === "tab" && main.subagents).toEqual({ key: "subagents:h:w:main", open: false, count: 1, waiting: 1 });
   });
   it("the status line names the chat that asks you", () => {
-    const row = buildTree(hosts(), opts()).rows[2];
+    const row = buildTree(hosts(), opts()).rows[1];
     expect(row?.type === "workspace" && row.reason).toEqual({ state: "asking", title: "Helper" });
   });
   it("a workspace with a single tab has no tab level, unless that tab has sub-agents", () => {
     const only = (agents: AgentInput[], terminals: { id: string; title: string }[] = []) =>
       buildTree([host("h", [ws("w", "p", "running", 1, { agents, terminals })])], opts({ collapse: { "agents:h:w": false } })).rows;
     const lone = only([chat("main", "running")]);
-    expect(lone[2]?.type === "workspace" && lone[2].tabs).toBeFalsy();
+    expect(lone[1]?.type === "workspace" && lone[1].tabs).toBeFalsy();
     expect(lone.some((r) => r.type === "tab")).toBe(false);
     expect(only([], [{ id: "t1", title: "Terminal 1" }]).some((r) => r.type === "tab")).toBe(false);
     const parent = only([chat("main", "running"), chat("sub", "idle", { parentId: "main" })]);
-    expect(parent[2]?.type === "workspace" && parent[2].tabs).toBeTruthy();
+    expect(parent[1]?.type === "workspace" && parent[1].tabs).toBeTruthy();
   });
   it("tab and terminal titles are searchable", () => {
     expect(wsIds(buildTree(hosts(), opts({ query: "orphan" })).rows)).toEqual(["w"]);
-    const row = buildTree(hosts(), opts({ query: "terminal 1" })).rows[2];
+    const row = buildTree(hosts(), opts({ query: "terminal 1" })).rows[1];
     expect(row?.type === "workspace" && row.matchedTab).toEqual({ title: "Terminal 1", kind: "terminal" });
   });
 });
@@ -276,7 +291,7 @@ describe("read state per chat", () => {
 describe("search reasons", () => {
   it("a project-name hit lists the project even without matching workspaces", () => {
     const tree = buildTree([host("h", [ws("1", "atlas", "done", 1)])], opts({ query: "ATLAS", filter: "active" }));
-    expect(types(tree.rows)).toEqual(["host", "project", "note"]);
+    expect(types(tree.rows)).toEqual(["project", "note"]);
   });
   it("a hit only through a tab says which tab", () => {
     const w = ws("1", "p", "done", 1, { agents: [chat("m", "idle", { title: "Main" }), chat("s", "idle", { title: "Contrast check", parentId: "m" })] });

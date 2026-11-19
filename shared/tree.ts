@@ -214,7 +214,8 @@ export function passesFilter(item: Ranked, filter: Filter, settings: ProfileSett
     if (item.offRecent && state !== "needs_you" && state !== "error") return false;
     return state !== "read" || (!!workspace.activityAt && now - workspace.activityAt <= settings.recentDays * DAY_MS);
   }
-  if (filter === "active") return state !== "read";
+  // Active is what runs; what needs you (asks, failed, unread) is the Inbox's job.
+  if (filter === "active") return workspace.status === "running";
   return true;
 }
 
@@ -471,7 +472,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       continue;
     }
     if (visibleProjects.length === 0) {
-      rows.push({ type: "note", key: `${hKey}#filtered`, text: filter === "pinned" ? "Nothing pinned" : filter === "active" ? "Nothing active or new" : filter === "recent" ? "Nothing recent" : "Nothing matches" });
+      rows.push({ type: "note", key: `${hKey}#filtered`, text: filter === "pinned" ? "Nothing pinned" : filter === "active" ? "Nothing running" : filter === "recent" ? "Nothing recent" : "Nothing matches" });
       continue;
     }
     for (const project of visibleProjects) {

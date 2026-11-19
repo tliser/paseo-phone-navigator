@@ -69,10 +69,11 @@ describe("sorting", () => {
 });
 
 describe("filters and search", () => {
-  it("active = running, new or asking", () => {
+  it("active = running only; asking, failed and unread belong to the Inbox", () => {
     expect(passesFilter(item(ws("1", "p", "done", 1)), "active", settings, NOW)).toBe(false);
     expect(passesFilter(item(ws("1", "p", "running", 1)), "active", settings, NOW)).toBe(true);
-    expect(passesFilter(item(ws("1", "p", "attention", 1, { news: 5 }), { [readKey("h", "1")]: NOW }), "active", settings, NOW)).toBe(false);
+    expect(passesFilter(item(ws("1", "p", "attention", 1, { news: 5 })), "active", settings, NOW)).toBe(false);
+    expect(passesFilter(item(ws("1", "p", "needs_input", 1)), "active", settings, NOW)).toBe(false);
   });
   it("recent = active within the configured days, plus anything running, new or asking", () => {
     const day = 60 * 24;
@@ -119,7 +120,7 @@ describe("filters and search", () => {
     expect(tree.rows.filter((r) => r.type === "host")).toHaveLength(1);
   });
   it("counts per filter honor the search", () => {
-    const tree = buildTree([host("h", [ws("1", "p", "done", 1, { title: "x" }), ws("2", "p", "failed", 1, { title: "x", news: 1 }), ws("3", "p", "running", 1, { title: "y" })])], opts({ query: "x" }));
+    const tree = buildTree([host("h", [ws("1", "p", "running", 1, { title: "x" }), ws("2", "p", "failed", 1, { title: "x", news: 1 }), ws("3", "p", "running", 1, { title: "y" })])], opts({ query: "x" }));
     expect(tree.counts).toEqual({ all: 2, recent: 2, active: 1, pinned: 0 });
   });
   it("reports empty because filtered", () => {
@@ -258,10 +259,10 @@ describe("tab rows", () => {
 });
 
 describe("agent errors", () => {
-  it("an errored agent needs you: own state, shows in Active", () => {
+  it("an errored agent needs you: own state, not running", () => {
     const w = ws("e", "p", "done", 1, { agentError: true });
     expect(workspaceState(w, "h", {})).toBe("error");
-    expect(passesFilter(item(w), "active", settings, NOW)).toBe(true);
+    expect(passesFilter(item(w), "active", settings, NOW)).toBe(false);
     // A real question still wins over the error.
     expect(workspaceState(ws("q", "p", "needs_input", 1, { agentError: true }), "h", {})).toBe("needs_you");
   });

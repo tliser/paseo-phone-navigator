@@ -1,11 +1,12 @@
 // Settings of one profile, in sections: View · Rows · Order · Groups · Profile · Updates. A preview of
-// sample rows stays in view: beside the controls on desktop, at the bottom on phones (can be made larger).
+// sample rows stays in view: beside the controls on desktop, pinned above the section on phones (can be made larger).
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, SettingsAction, SettingsCard, SettingsInput, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useEffect, useState, type ReactNode } from "react";
 import { Pressable, Text, useWindowDimensions, View } from "react-native";
 import { bindPlatform, defaultSettings, MAX_LINES, newProfileId, normalizeLines, pruneCollapse, ROW_FIELDS, type Profile, type ProfileSettings, type RowField } from "../shared/profiles";
+import { ICON_COLORS } from "../shared/colors";
 import type { Platform } from "../shared/types";
 import { PLATFORM_LABEL } from "./options-menu";
 import { useActiveProfile, useNavigatorStore } from "./runtime";
@@ -137,6 +138,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
 
   const sections: Record<Section, ReactNode> = {
     view: (
+      <>
       <SettingsCard>
         <SettingsSelect label="Density" value={s.density} options={[{ value: "compact", label: "Compact" }, { value: "comfortable", label: "Comfortable" }]} onValueChange={(density) => updateSettings({ density })} disabled={!ready} />
         <SettingsSelect
@@ -163,6 +165,37 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
           disabled={!ready}
         />
       </SettingsCard>
+      <SettingsCard>
+        <SettingsSelect
+          label="Open workspace"
+          hint="How the sidebar marks the workspace open beside it (desktop; phones show none)."
+          value={s.openMarker.style}
+          options={[{ value: "bar", label: "Bar on the left" }, { value: "tint", label: "Tinted row" }, { value: "outline", label: "Outline" }, { value: "none", label: "None" }]}
+          onValueChange={(style) => updateSettings({ openMarker: { ...s.openMarker, style } })}
+          disabled={!ready}
+        />
+        {s.openMarker.style === "none" ? null : (
+          <View accessibilityRole="radiogroup" accessibilityLabel="Colour of the open workspace" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, padding: 12 }}>
+            {ICON_COLORS.map((color) => {
+              const selected = s.openMarker.color === color.id;
+              return (
+                <Pressable
+                  key={color.id}
+                  accessibilityRole="radio"
+                  accessibilityLabel={color.id === "default" ? "Theme accent" : color.label}
+                  accessibilityState={{ selected, checked: selected, disabled: !ready }}
+                  disabled={!ready}
+                  onPress={() => updateSettings({ openMarker: { ...s.openMarker, color: color.id } })}
+                  style={{ width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: selected ? c.foreground : "transparent" }}
+                >
+                  <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: color.hex ?? c.accent }} />
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+      </SettingsCard>
+      </>
     ),
     rows: (
       <>
@@ -298,26 +331,29 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   const touch = layout.platform !== "web";
   if (layout.compact) {
     const previewHeight = largePreview ? Math.round(window.height * 0.55) : 190;
+    // The preview sits above the section and stays put while the settings scroll under it.
     return (
       <View style={{ flex: 1, backgroundColor: c.surface0 }}>
         <View style={{ paddingHorizontal: 12, paddingTop: 8, gap: 4 }}>
           {editing}
           {tabs}
         </View>
+        {section === "updates" ? null : (
+          <View style={{ height: previewHeight, marginTop: 8, borderTopWidth: 1, borderBottomWidth: 1, borderColor: c.border, backgroundColor: c.surface1 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", paddingLeft: 12 }}>
+              <Text style={{ flex: 1, color: c.foregroundMuted, fontSize: 12, fontWeight: "600" }}>Preview · sample workspaces</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel={largePreview ? "Smaller preview" : "Larger preview"} onPress={() => setLargePreview((value) => !value)} style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}>
+                <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>{largePreview ? "Smaller" : "Larger"}</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 8 }}>
+              <SettingsPreview theme={theme} profile={edit} touch={touch} />
+            </ScrollView>
+          </View>
+        )}
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 12 }}>
           {body}
         </ScrollView>
-        <View style={{ height: previewHeight, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface1 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", paddingLeft: 12 }}>
-            <Text style={{ flex: 1, color: c.foregroundMuted, fontSize: 12, fontWeight: "600" }}>Preview · sample workspaces</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel={largePreview ? "Smaller preview" : "Larger preview"} onPress={() => setLargePreview((value) => !value)} style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}>
-              <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>{largePreview ? "Smaller" : "Larger"}</Text>
-            </Pressable>
-          </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 8 }}>
-            <SettingsPreview theme={theme} profile={edit} touch={touch} />
-          </ScrollView>
-        </View>
         <Toast theme={theme} toast={toast} onHide={hideToast} />
       </View>
     );

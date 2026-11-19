@@ -335,7 +335,7 @@ export function NavigatorScreen(
       onPickColor={pickColor}
       canOpen={!!navigation}
       dragHandle={canArrange && dragId(item) ? drag.handleFor(index) : undefined}
-      active={!!activeWorkspace && item.type === "workspace" && item.serverId === activeWorkspace.serverId && item.workspace.id === activeWorkspace.workspaceId}
+      active={!layout.compact && !!activeWorkspace && item.type === "workspace" && item.serverId === activeWorkspace.serverId && item.workspace.id === activeWorkspace.workspaceId}
       lifted={dragging?.index === index ? dragging.dy : null}
       onPeek={canPeek ? (show) => peekAt(item, index, show) : undefined}
     />
@@ -362,7 +362,7 @@ export function NavigatorScreen(
     <EmptyState
       theme={theme}
       icon="Search"
-      title={query.trim() ? `No workspaces match "${query.trim()}"` : filter === "pinned" ? "Nothing pinned" : filter === "recent" ? `Nothing active in the last ${settings.recentDays === 1 ? "day" : `${settings.recentDays} days`}` : "Nothing running, new or asking"}
+      title={query.trim() ? `No workspaces match "${query.trim()}"` : filter === "pinned" ? "Nothing pinned" : filter === "recent" ? `Nothing active in the last ${settings.recentDays === 1 ? "day" : `${settings.recentDays} days`}` : "Nothing running"}
       action={{ label: "Show all", onPress: () => { setFilter("all"); closeSearch(); } }}
     />
   ) : null;
@@ -950,9 +950,14 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
   const metaText = words.filter(Boolean).join(", ");
   const tabs = row.tabs && !arranging ? row.tabs : null;
   const swipe = touch && onSwipeAction && !arranging && lifted === null && !row.archiving;
+  // The workspace open in the app, as the profile marks it (desktop only: phones never pass `active`).
+  const marker = active ? profile.settings.openMarker.style : "none";
+  const markerColor = colorHex(profile.settings.openMarker.color, c.accent);
   const body = (
-    <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", backgroundColor: active ? c.surface2 : c.surface0, opacity: row.archiving ? 0.55 : 1, ...liftStyle }}>
-      {active ? <View style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, backgroundColor: c.accent }} /> : null}
+    <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", backgroundColor: c.surface0, opacity: row.archiving ? 0.55 : 1, ...liftStyle }}>
+      {marker === "tint" ? <View style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0, backgroundColor: markerColor, opacity: 0.16 }} /> : null}
+      {marker === "outline" ? <View style={{ position: "absolute", top: 2, bottom: 2, left: 4, right: 4, borderRadius: 8, borderWidth: 1.5, borderColor: markerColor }} /> : null}
+      {marker === "bar" ? <View style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, backgroundColor: markerColor }} /> : null}
       <Pressable
         ref={anchorRef}
         accessibilityRole="button"

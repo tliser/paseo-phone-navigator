@@ -54,6 +54,10 @@ const profileSettingsSchema = z.preprocess(migrateLines, z.object({
     .default({ tabs: true, subagents: true }),
   /** How you pick the host: tabs above the tree, or a host button in the title bar. */
   hostSwitch: z.enum(["tabs", "menu"]).default("tabs"),
+  /** How the workspace open in the app is marked (desktop sidebar only); `color` is an ICON_COLORS id ("default" = theme accent). */
+  openMarker: z
+    .object({ style: z.enum(["bar", "tint", "outline", "none"]).default("bar"), color: z.string().default("default") })
+    .default({ style: "bar", color: "default" }),
   defaultFilter: filterSchema.default("all"),
   hideDone: z.enum(["off", "1d", "7d"]).default("off"),
   /** The Recent filter shows workspaces active within this many days. */

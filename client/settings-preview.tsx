@@ -70,6 +70,7 @@ export function SettingsPreview({ theme, profile, touch }: { theme: PluginTheme;
           onCreate={noop}
           arranging={false}
           lifted={null}
+          active={row.type === "workspace" && row.workspace.id === "tokens"}
         />
       ))}
     </View>

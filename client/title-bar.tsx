@@ -12,7 +12,7 @@ export const VIEW_LABEL: Record<Filter, string> = { all: "All", recent: "Recent"
 const VIEW_HINT: Record<Filter, string> = {
   all: "Everything, read workspaces included",
   recent: "Active lately, plus anything ongoing",
-  active: "Running, unread or asking you",
+  active: "Workspaces with a running agent; what needs you is in the Inbox",
   pinned: "Workspaces you pinned",
 };
 

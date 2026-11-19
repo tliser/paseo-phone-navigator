@@ -1,7 +1,7 @@
-// New project on a host: Paseo adds an existing folder as a project and opens a workspace on it.
-// Plugins cannot create folders, so the folder must already exist on that host.
+// New project: Paseo adds an existing folder on a host as a project and opens a workspace on it. With
+// several online hosts the sheet asks which one. Plugins cannot create folders, so the folder must exist.
 import type { PluginTheme } from "@getpaseo/plugin";
-import { TextInput } from "@getpaseo/plugin/client/ui";
+import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { MONO_FONT } from "./font-scale";
@@ -11,22 +11,23 @@ import { Sheet, type Anchor } from "./sheet";
 export function NewProjectSheet({
   theme,
   compact,
-  serverId,
-  hostLabel,
+  hosts,
   anchor,
   onAdded,
   onClose,
 }: {
   theme: PluginTheme;
   compact: boolean;
-  serverId: string;
-  hostLabel: string;
+  /** Online hosts it can go to; the first is preselected. */
+  hosts: readonly { serverId: string; label: string }[];
   anchor: Anchor | null;
-  onAdded(workspaceId: string): void;
+  onAdded(serverId: string, workspaceId: string): void;
   onClose(): void;
 }) {
   const { store } = useNavigatorStore();
   const c = theme.colors;
+  const [serverId, setServerId] = useState(hosts[0]!.serverId);
+  const hostLabel = hosts.find((host) => host.serverId === serverId)?.label ?? "";
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +38,7 @@ export function NewProjectSheet({
     setError(null);
     store
       .addProject(serverId, path)
-      .then(onAdded)
+      .then((workspaceId) => onAdded(serverId, workspaceId))
       .catch((reason: unknown) => {
         setError(reason instanceof Error ? reason.message : String(reason));
         setBusy(false);
@@ -46,8 +47,28 @@ export function NewProjectSheet({
   const button = { flex: 1, minHeight: 44, borderRadius: 10, alignItems: "center" as const, justifyContent: "center" as const };
 
   return (
-    <Sheet theme={theme} title={`New project on ${hostLabel}`} compact={compact} anchor={anchor} width={340} onClose={() => !busy && onClose()}>
+    <Sheet theme={theme} title={hosts.length > 1 ? "New project" : `New project on ${hostLabel}`} compact={compact} anchor={anchor} width={340} onClose={() => !busy && onClose()}>
       <View style={{ gap: 8, padding: 8 }}>
+        {hosts.length > 1 ? (
+          <View accessibilityRole="radiogroup" accessibilityLabel="Host" style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+            {hosts.map((host) => {
+              const selected = host.serverId === serverId;
+              return (
+                <Pressable
+                  key={host.serverId}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected, checked: selected }}
+                  disabled={busy}
+                  onPress={() => setServerId(host.serverId)}
+                  style={{ minHeight: 36, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, borderRadius: 18, borderWidth: 1, borderColor: selected ? c.foreground : c.border, backgroundColor: selected ? c.surface2 : "transparent" }}
+                >
+                  <Icon name="Server" size={13} color={c.foregroundMuted} />
+                  <Text style={{ color: c.foreground, fontSize: 13, fontWeight: selected ? "700" : "500" }}>{host.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
         <View style={{ minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface0, paddingHorizontal: 12, justifyContent: "center" }}>
           <TextInput
             value={path}

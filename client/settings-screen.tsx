@@ -1,10 +1,10 @@
-// Settings of one profile, in sections: View · Rows · Order · Groups · Profile · Updates. The Rows section
-// previews sample rows with the lines being edited.
+// Settings of one profile, in sections: View · Rows · Order · Groups · Profile · Updates. A preview of
+// sample rows stays in view: beside the controls on desktop, at the bottom on phones (can be made larger).
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { Icon, ScrollView, SettingsAction, SettingsCard, SettingsInput, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useEffect, useState, type ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, useWindowDimensions, View } from "react-native";
 import { bindPlatform, defaultSettings, MAX_LINES, newProfileId, normalizeLines, pruneCollapse, ROW_FIELDS, type Profile, type ProfileSettings, type RowField } from "../shared/profiles";
 import type { Platform } from "../shared/types";
 import { PLATFORM_LABEL } from "./options-menu";
@@ -60,7 +60,9 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   const [name, setName] = useState(edit.name);
   useEffect(() => setName(edit.name), [edit.id, edit.name]);
   const [section, setSection] = useState<Section>("view");
+  const [largePreview, setLargePreview] = useState(false);
   const { toast, show: showToast, hide: hideToast } = useToastState();
+  const window = useWindowDimensions();
   const c = theme.colors;
   const ready = snapshot.profilesReady;
 
@@ -176,7 +178,6 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
             {unused.map((field) => fieldRow(field, null, 0, 1))}
           </SettingsCard>
         ) : null}
-        <SettingsPreview theme={theme} profile={edit} touch={layout.platform !== "web"} />
         <SettingsCard>
           {yesNo(s.show.tabs, (tabs) => updateSettings({ show: { ...s.show, tabs } }), "Tabs", "Status marks of a workspace's chats and terminals; tap them to list the tabs.")}
           {yesNo(s.show.subagents, (subagents) => updateSettings({ show: { ...s.show, subagents } }), "Sub-agents", s.show.tabs ? "Under their parent tab." : "Needs Tabs.", undefined, !s.show.tabs)}
@@ -294,7 +295,9 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   );
   const body = section === "updates" ? sections.updates : <SettingsSection title={SECTIONS.find(([id]) => id === section)![1]}>{sections[section]}</SettingsSection>;
 
+  const touch = layout.platform !== "web";
   if (layout.compact) {
+    const previewHeight = largePreview ? Math.round(window.height * 0.55) : 190;
     return (
       <View style={{ flex: 1, backgroundColor: c.surface0 }}>
         <View style={{ paddingHorizontal: 12, paddingTop: 8, gap: 4 }}>
@@ -304,17 +307,32 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 12 }}>
           {body}
         </ScrollView>
+        <View style={{ height: previewHeight, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface1 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", paddingLeft: 12 }}>
+            <Text style={{ flex: 1, color: c.foregroundMuted, fontSize: 12, fontWeight: "600" }}>Preview · sample workspaces</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel={largePreview ? "Smaller preview" : "Larger preview"} onPress={() => setLargePreview((value) => !value)} style={{ minHeight: 44, paddingHorizontal: 12, justifyContent: "center" }}>
+              <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>{largePreview ? "Smaller" : "Larger"}</Text>
+            </Pressable>
+          </View>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 8 }}>
+            <SettingsPreview theme={theme} profile={edit} touch={touch} />
+          </ScrollView>
+        </View>
         <Toast theme={theme} toast={toast} onHide={hideToast} />
       </View>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: c.surface0 }}>
+    <View style={{ flex: 1, flexDirection: "row", backgroundColor: c.surface0 }}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24, gap: 16, maxWidth: 640 }}>
         {editing}
         {tabs}
         {body}
+      </ScrollView>
+      <ScrollView style={{ width: 380, flexGrow: 0 }} contentContainerStyle={{ padding: 24, paddingLeft: 0, gap: 8 }}>
+        <Text style={{ color: c.foregroundMuted, fontSize: 12, fontWeight: "600" }}>Preview · sample workspaces</Text>
+        <SettingsPreview theme={theme} profile={edit} touch={touch} />
       </ScrollView>
       <Toast theme={theme} toast={toast} onHide={hideToast} />
     </View>

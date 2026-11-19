@@ -16,10 +16,8 @@ export function OptionsMenu({
   profile,
   anyCollapsed,
   unread,
-  newProjectOn,
   onFoldAll,
   onMarkUnreadRead,
-  onNewProject,
   onArrange,
   onSettings,
   onClose,
@@ -31,11 +29,8 @@ export function OptionsMenu({
   profile: Profile;
   anyCollapsed: boolean;
   unread: number;
-  /** The one host on screen (online): New project goes there. Null when host rows carry it. */
-  newProjectOn: string | null;
   onFoldAll(): void;
   onMarkUnreadRead(): void;
-  onNewProject(): void;
   /** Phones: arrange mode. Desktop: switch to manual order. */
   onArrange(): void;
   onSettings(): void;
@@ -54,7 +49,6 @@ export function OptionsMenu({
       <SheetNote theme={theme}>{`${profile.name} profile · ${manual ? "manual order" : "automatic order"}`}</SheetNote>
       <SheetItem theme={theme} compact={compact} icon={anyCollapsed ? "ChevronsUpDown" : "ChevronsDownUp"} label={anyCollapsed ? "Expand all" : "Collapse all"} onPress={then(onFoldAll)} />
       <SheetItem theme={theme} compact={compact} icon="CheckCheck" label={unread ? `Mark ${unread} unread as read` : "No unread chats"} disabled={!unread} onPress={then(onMarkUnreadRead)} />
-      {newProjectOn ? <SheetItem theme={theme} compact={compact} icon="FolderPlus" label={`New project on ${newProjectOn}…`} onPress={then(onNewProject)} /> : null}
       {compact ? (
         <SheetItem theme={theme} compact={compact} icon="GripVertical" label="Arrange order…" onPress={then(onArrange)} />
       ) : manual ? null : (

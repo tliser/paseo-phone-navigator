@@ -32,6 +32,8 @@ export function TitleBar({
   onOptions,
   inboxRef,
   host,
+  onNewProject,
+  onSearch,
 }: {
   theme: PluginTheme;
   /** The Inbox button, so focus can return to it when the Inbox closes. */
@@ -45,12 +47,17 @@ export function TitleBar({
   onOptions(anchor: Anchor | null): void;
   /** The host button (menu mode with several hosts). */
   host?: ReactNode;
+  /** Set while an online host can take a project. */
+  onNewProject?(anchor: Anchor | null): void;
+  /** Phones: the search icon opens the search field under the title bar. */
+  onSearch?(): void;
 }) {
   const c = theme.colors;
   const fs = (size: number) => Math.round(size * scale * 2) / 2;
   const [width, setWidth] = useState(0);
   const narrow = width > 0 && width < NARROW_WIDTH;
   const optionsRef = useRef<View>(null);
+  const newProjectRef = useRef<View>(null);
   const size = compact ? 44 : 40;
   const label = [`Inbox, ${plural(inbox.total, "chat", "chats")}`, inbox.asking ? `${inbox.asking} ask${inbox.asking === 1 ? "s" : ""} you` : "", inbox.error ? `${inbox.error} failed` : ""]
     .filter(Boolean)
@@ -94,6 +101,27 @@ export function TitleBar({
           <Text style={{ color: c.foreground, fontSize: fs(13), fontWeight: "600", fontVariant: ["tabular-nums"] }}>{running}</Text>
         </Pressable>
       ) : null}
+      {onSearch ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Search"
+          onPress={onSearch}
+          style={({ pressed }) => ({ width: size, height: size, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
+        >
+          <Icon name="Search" size={18} color={c.foreground} />
+        </Pressable>
+      ) : null}
+      {onNewProject ? (
+        <Pressable
+          ref={newProjectRef}
+          accessibilityRole="button"
+          accessibilityLabel="New project"
+          onPress={() => measureAnchor(newProjectRef.current, onNewProject)}
+          style={({ pressed }) => ({ width: size, height: size, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
+        >
+          <Icon name="FolderPlus" size={18} color={c.foreground} />
+        </Pressable>
+      ) : null}
       <Pressable
         ref={optionsRef}
         accessibilityRole="button"
@@ -134,13 +162,15 @@ export function ViewsControl({ theme, value, counts, compact, onChange }: { them
   );
 }
 
-export function SearchField({ theme, query, onChange }: { theme: PluginTheme; query: string; onChange(next: string): void }) {
+/** `onClose` (phones): the field was opened from the search icon; it takes focus and its X closes it. */
+export function SearchField({ theme, query, onChange, onClose }: { theme: PluginTheme; query: string; onChange(next: string): void; onClose?(): void }) {
   const c = theme.colors;
   return (
     <View style={{ height: 38, flexDirection: "row", alignItems: "center", gap: 6, marginHorizontal: 8, paddingLeft: 10, borderRadius: 10, backgroundColor: c.surface1, borderWidth: 1, borderColor: c.border }}>
       <Icon name="Search" size={14} color={c.foregroundMuted} />
       <TextInput
         value={query}
+        autoFocus={!!onClose}
         onChangeText={onChange}
         accessibilityLabel="Search workspaces, chats and projects"
         placeholder="Search workspaces, chats, projects"
@@ -150,8 +180,8 @@ export function SearchField({ theme, query, onChange }: { theme: PluginTheme; qu
         returnKeyType="search"
         style={{ flex: 1, color: c.foreground, fontSize: 15, paddingVertical: 0 }}
       />
-      {query ? (
-        <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => onChange("")} hitSlop={3} style={{ width: 38, height: 38, alignItems: "center", justifyContent: "center" }}>
+      {query || onClose ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={onClose ? "Close search" : "Clear search"} onPress={onClose ?? (() => onChange(""))} hitSlop={3} style={{ width: 38, height: 38, alignItems: "center", justifyContent: "center" }}>
           <Icon name="X" size={16} color={c.foregroundMuted} />
         </Pressable>
       ) : null}

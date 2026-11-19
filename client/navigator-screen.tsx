@@ -83,6 +83,8 @@ export function NavigatorScreen(
   };
 
   const [query, setQuery] = useState("");
+  /** Phones: the search field shows only after the search icon is tapped. */
+  const [searchOpen, setSearchOpen] = useState(false);
   /** Open overlay of the title bar and where its button is (desktop popovers hang under it). */
   const [overlay, setOverlay] = useState<{ kind: "inbox" | "options" | "hosts"; anchor: Anchor | null } | null>(() => {
     const reopen = Date.now() < reopenInboxUntil && layout.compact && surface === "screen";
@@ -110,7 +112,7 @@ export function NavigatorScreen(
     row.type === "host"
       ? pickHostColor(row)
       : setColorFor({ key: projectColorKey(row.serverId, row.projectId), title: `Folder colour · ${row.name}`, icon: "Folder", fallback: theme.colors.accent });
-  const [newProjectFor, setNewProjectFor] = useState<{ row: { serverId: string; label: string }; anchor: Anchor | null } | null>(null);
+  const [newProjectFor, setNewProjectFor] = useState<{ hosts: { serverId: string; label: string }[]; anchor: Anchor | null } | null>(null);
 
   // Relative times stay fresh without re-rendering on every data tick.
   useEffect(() => {
@@ -124,9 +126,8 @@ export function NavigatorScreen(
     () => buildTree(hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder, pins, archiving: snapshot.archiving, hostView }),
     [hosts, snapshot.hostOrder, snapshot.reads, snapshot.archiving, profile.order, filter, query, settings, collapse, now, pins, hostView],
   );
-  // With one host on screen there is no host row, so its New project lives in Options.
-  const onlyHost = tree.hostView ?? (tree.hosts.length === 1 ? tree.hosts[0]!.serverId : null);
-  const newProjectHost = tree.hosts.find((host) => host.serverId === onlyHost && host.state === "online") ?? null;
+  // New project goes to the host on screen, or asks which online host when all are shown.
+  const projectHosts = tree.hosts.filter((host) => host.state === "online" && (!tree.hostView || host.serverId === tree.hostView));
   const hostSwitch = tree.hosts.length > 1 ? settings.hostSwitch : null;
   const loading = snapshot.hosts.some((host) => host.loading);
   useEffect(() => {
@@ -211,7 +212,10 @@ export function NavigatorScreen(
       },
     });
   };
-  const closeSearch = () => setQuery("");
+  const closeSearch = () => {
+    setQuery("");
+    setSearchOpen(false);
+  };
   /** Moves an item one place up or down in its manual order group. */
   const step = (group: string, id: string, direction: -1 | 1) => {
     const ids = tree.groups[group] ?? [];
@@ -326,7 +330,6 @@ export function NavigatorScreen(
       }}
       onProjectMenu={(row, anchor) => setProjectFor({ row, anchor })}
       onCreate={setDraftFor}
-      onNewProject={(row, anchor) => setNewProjectFor({ row, anchor })}
       onSwipeAction={(row, action) => (action === "read" ? markWorkspaceRead(store, row, showToast) : toggleRecent(store, snapshot.reads, row, showToast))}
       colors={snapshot.colors}
       onPickColor={pickColor}
@@ -383,9 +386,11 @@ export function NavigatorScreen(
           onRunning={() => setFilter("active")}
           onOptions={(anchor) => setOverlay({ kind: "options", anchor })}
           host={hostSwitch === "menu" ? <HostButton theme={theme} hosts={tree.hosts} value={tree.hostView} compact={layout.compact} colors={snapshot.colors} onOpen={(anchor) => setOverlay({ kind: "hosts", anchor })} /> : null}
+          onNewProject={projectHosts.length && !arranging ? (anchor) => setNewProjectFor({ hosts: projectHosts, anchor }) : undefined}
+          onSearch={layout.compact && !searchOpen ? () => setSearchOpen(true) : undefined}
         />
-        {/* Search sits at the top on desktop and docks at the bottom on phones (thumb reach). */}
-        {layout.compact ? null : <SearchField theme={theme} query={query} onChange={setQuery} />}
+        {/* Desktop: search always under the title bar. Phones: only after the search icon, to save space. */}
+        {!layout.compact ? <SearchField theme={theme} query={query} onChange={setQuery} /> : searchOpen ? <SearchField theme={theme} query={query} onChange={setQuery} onClose={closeSearch} /> : null}
         {hostSwitch === "tabs" ? <HostTabs theme={theme} hosts={tree.hosts} value={tree.hostView} compact={layout.compact} colors={snapshot.colors} onChange={setHostView} onPickColor={pickHostColor} /> : null}
         <ViewsControl theme={theme} value={filter} counts={tree.counts} compact={layout.compact} onChange={setFilter} />
       </View>
@@ -446,11 +451,6 @@ export function NavigatorScreen(
         {peek && canPeek ? <NamesCard theme={theme} peek={peek} scale={scale} now={now} areaHeight={areaHeight} /> : null}
         <Toast theme={theme} toast={toast} onHide={hideToast} />
       </View>
-      {layout.compact ? (
-        <View style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface0 }}>
-          <SearchField theme={theme} query={query} onChange={setQuery} />
-        </View>
-      ) : null}
 
       {colorFor ? (
         <ColorPicker
@@ -482,12 +482,11 @@ export function NavigatorScreen(
         <NewProjectSheet
           theme={theme}
           compact={layout.compact}
-          serverId={newProjectFor.row.serverId}
-          hostLabel={newProjectFor.row.label}
+          hosts={newProjectFor.hosts}
           anchor={newProjectFor.anchor}
-          onAdded={(workspaceId) => {
+          onAdded={(serverId, workspaceId) => {
             setNewProjectFor(null);
-            created(newProjectFor.row.serverId, workspaceId);
+            created(serverId, workspaceId);
           }}
           onClose={() => setNewProjectFor(null)}
         />
@@ -545,10 +544,8 @@ export function NavigatorScreen(
           profile={profile}
           anyCollapsed={anyCollapsed}
           unread={inboxCounts.unread}
-          newProjectOn={newProjectHost?.label ?? null}
           onFoldAll={() => store.setCollapse(profile.id, expandOrCollapseAll(collapse, tree.groupKeys, settings))}
           onMarkUnreadRead={markInboxUnreadRead}
-          onNewProject={() => newProjectHost && setNewProjectFor({ row: newProjectHost, anchor: null })}
           onArrange={startArranging}
           onSettings={openSettings}
           onClose={() => setOverlay(null)}
@@ -629,8 +626,6 @@ interface RowProps {
   /** Hold (phones) or right-click (web) a project's name: its sheet. */
   onProjectMenu?(row: ProjectRow, anchor: Anchor | null): void;
   onCreate(row: ProjectRow): void;
-  /** The folder-plus on an online host: add a project there. */
-  onNewProject?(row: HostRow, anchor: Anchor | null): void;
   /** Colour id per project folder and host icon (`projectColorKey` / `hostColorKey`). */
   colors?: Readonly<Record<string, string>>;
   /** Long-press on a project's folder or a host's icon: choose its colour. */
@@ -684,7 +679,7 @@ const tallyWords = (tally: Tally) =>
 
 const WORKSPACE_MARK: Record<WorkspaceState, MarkKind> = { needs_you: "asking", error: "error", unread: "unread", running: "running", read: "read" };
 
-export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenTab, arranging, onMenu, onTabMenu, onProjectMenu, onCreate, onNewProject, colors, onPickColor, lifted, dragHandle, onPeek, active = false, onSwipeAction }: RowProps) {
+export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenTab, arranging, onMenu, onTabMenu, onProjectMenu, onCreate, colors, onPickColor, lifted, dragHandle, onPeek, active = false, onSwipeAction }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null
@@ -703,7 +698,6 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
     const online = row.state === "online";
     // Offline: name and "offline" stay readable; only the icon and chevron are dimmed.
     const dim = row.state === "offline" ? 0.45 : 1;
-    const newProject = online && !arranging && onNewProject ? () => measureAnchor(anchorRef.current, (anchor) => onNewProject(row, anchor)) : null;
     return (
       // A thin divider, not a band: small caps label on the list background, so it never reads as a project.
       <View style={{ height: hostHeight, flexDirection: "row", alignItems: "center", backgroundColor: c.surface0, ...separator }}>
@@ -718,7 +712,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
           onAccessibilityAction={(event) => (event.nativeEvent.actionName === "colour" ? onPickColor?.(row) : onToggle(row.key))}
           disabled={!online}
           onPress={() => onToggle(row.key)}
-          style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 12, paddingRight: newProject ? 4 : 12 }}
+          style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12 }}
         >
           {/* Paseo's own host icon, in the 18pt left column so host and project names align; "offline"/"loading…" text carries the state.
               Long-press it to choose its colour; a tap still folds the host. */}
@@ -740,18 +734,6 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
           {online && row.collapsed ? <TallyMarks theme={theme} tally={row.tally} size={11} /> : null}
           {online ? <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={12} color={c.foregroundMuted} /> : null}
         </Pressable>
-        {newProject ? (
-          <Pressable
-            ref={anchorRef}
-            accessibilityRole="button"
-            accessibilityLabel={`New project on ${row.label}`}
-            onPress={newProject}
-            hitSlop={{ left: 4, top: 8, bottom: 8 }}
-            style={{ width: buttonWidth, height: hostHeight, alignItems: "center", justifyContent: "center" }}
-          >
-            <Icon name="FolderPlus" size={14} color={c.foregroundMuted} />
-          </Pressable>
-        ) : null}
       </View>
     );
   }

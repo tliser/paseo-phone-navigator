@@ -20,7 +20,7 @@ export function heightsFor(comfortable: boolean, scale = 1, touch = false, lines
   const workspace = (comfortable ? 28 : 24) + lines * (comfortable ? 20 : 16);
   return {
     host: grow(comfortable ? 34 : 30),
-    project: grow(comfortable ? 52 : 44),
+    project: grow(Math.max(comfortable ? 42 : 36, touch ? 40 : 0)),
     workspace: grow(Math.max(workspace, touch ? 44 : 0)),
     note: grow(44),
     tab: grow(comfortable || touch ? 44 : 40),

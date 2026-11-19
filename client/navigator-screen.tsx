@@ -947,6 +947,29 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
   });
   const metaText = words.filter(Boolean).join(", ");
   const tabs = row.tabs && !arranging ? row.tabs : null;
+  // The tab marks end the last line, right-aligned like the values on the title line, instead of a column of their own.
+  if (tabs) {
+    const last = drawn.length - 1;
+    drawn[last] = (
+      <View key={last} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>{drawn[last]}</View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${tabs.open ? "Hide" : "Show"} ${tabs.summary}`}
+          accessibilityState={{ expanded: tabs.open }}
+          onPress={() => onToggle(tabs.key)}
+          hitSlop={{ top: 12, bottom: 12, left: 10, right: 12 }}
+          style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 4, paddingVertical: 2, borderRadius: 6, backgroundColor: pressed ? c.surface2 : "transparent" })}
+        >
+          {tabs.marks.map((kind, index) => <Mark key={index} theme={theme} kind={kind} size={12} />)}
+          {tabs.more ? <Text style={{ color: c.foregroundMuted, fontSize: fs(10.5) }}>{`+${tabs.more}`}</Text> : null}
+          <View style={{ transform: [{ rotate: tabs.open ? "90deg" : "0deg" }] }}>
+            <Icon name="ChevronRight" size={12} color={c.foregroundMuted} />
+          </View>
+        </Pressable>
+      </View>
+    );
+  }
   const swipe = touch && onSwipeAction && !arranging && lifted === null && !row.archiving;
   // The workspace open in the app, as the profile marks it (desktop only: phones never pass `active`).
   const marker = active ? profile.settings.openMarker.style : "none";
@@ -976,7 +999,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         }}
         {...contextMenu(openMenu)}
         {...hoverProps(onPeek, touch)}
-        style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 20, paddingRight: tabs ? 0 : 12, backgroundColor: pressed && lifted === null ? c.surface1 : "transparent" })}
+        style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 20, paddingRight: 12, backgroundColor: pressed && lifted === null ? c.surface1 : "transparent" })}
       >
         <View>
           <Mark theme={theme} kind={glyph} size={16} />
@@ -988,21 +1011,6 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         </View>
         <View style={{ flex: 1, minWidth: 0, gap: comfortable ? 4 : 2 }}>{drawn}</View>
       </Pressable>
-      {tabs ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${tabs.open ? "Hide" : "Show"} ${tabs.summary}`}
-          accessibilityState={{ expanded: tabs.open }}
-          onPress={() => onToggle(tabs.key)}
-          style={({ pressed }) => ({ minWidth: buttonWidth, height: workspaceHeight, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 3, paddingHorizontal: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
-        >
-          {tabs.marks.map((kind, index) => <Mark key={index} theme={theme} kind={kind} size={12} />)}
-          {tabs.more ? <Text style={{ color: c.foregroundMuted, fontSize: fs(10.5) }}>{`+${tabs.more}`}</Text> : null}
-          <View style={{ transform: [{ rotate: tabs.open ? "90deg" : "0deg" }] }}>
-            <Icon name="ChevronRight" size={12} color={c.foregroundMuted} />
-          </View>
-        </Pressable>
-      ) : null}
       {touch ? null : (
         <Pressable
           accessibilityRole="button"

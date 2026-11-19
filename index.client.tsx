@@ -25,7 +25,7 @@ export default function contribute(client: PluginClientContext) {
   const Launcher = (props: PluginSurfaceProps) => <SettingsLauncher {...props} openProfiles={openSettings} />;
   const Screen = (props: PluginScreenProps) => <NavigatorScreen {...props} surface="screen" openSettings={openSettings} />;
   // Paseo 0.16+: the navigator can replace the app's sidebar. Its navigation opens by entity ref.
-  const SidebarView = ({ theme, layout, navigation, active }: PluginSidebarViewProps) => (
+  const SidebarView = ({ theme, layout, navigation, active, dismiss }: PluginSidebarViewProps) => (
     <NavigatorScreen
       surface="sidebar"
       terminals={useTerminalTabs()}
@@ -33,7 +33,12 @@ export default function contribute(client: PluginClientContext) {
       layout={layout}
       host={{ id: active.workspace?.hostId ?? "", label: "" }}
       params={{}}
-      openSettings={openSettings}
+      // As Paseo's own sidebar navigation does: navigate, then dismiss (closes the drawer on phones, or the
+      // settings open behind it).
+      openSettings={() => {
+        openSettings();
+        dismiss();
+      }}
       activeWorkspace={active.workspace ? { serverId: active.workspace.hostId, workspaceId: active.workspace.id } : null}
       navigation={{
         openWorkspace: ({ workspaceId, serverId }) => navigation.openWorkspace(workspaceRef(serverId ?? "", workspaceId)),

@@ -37,7 +37,7 @@ See [OVERVIEW.md](OVERVIEW.md) for more detail.
 
 ## Install
 
-Requires Paseo 0.15 or later. The repository is private, so you need read access to it, and `git` on the daemon host must be able to clone from GitHub.
+Requires Paseo 0.15 or later, and `git` on the daemon host must be able to clone from GitHub.
 
 ```bash
 paseo plugin install git:tliser/paseo-workspace-organizer
@@ -56,7 +56,7 @@ To update, run the install command again (or `paseo plugin reload workspace-orga
 
 ## Privacy
 
-The plugin only reads workspace and agent metadata through the app's existing host connections. It does not read conversations, change workspaces, or contact any outside service.
+The plugin works only through the app's existing host connections. It reads workspace and agent metadata, not conversations, and changes workspaces only when you ask it to (create, rename, archive, add a project). It does not contact any outside service, except GitHub through `paseo plugin update` when automatic updates are on.
 
 ## Development
 
@@ -91,4 +91,4 @@ There are no classes anywhere, because the mobile apps run plugins on Hermes.
 
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).

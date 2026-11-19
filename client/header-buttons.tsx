@@ -8,7 +8,7 @@ import { View } from "react-native";
 import { createHostObserver } from "./host-observer";
 import { ReadStateContent, ReadStateIcon } from "./read-button";
 import { SCREEN_ID, useInboxTally } from "./runtime";
-import { UNREAD_BLUE } from "./colors";
+import { unreadColor } from "./colors";
 
 function WorkspacesIcon({ theme, size, color }: PluginButtonIconProps) {
   const inbox = useInboxTally();
@@ -17,7 +17,7 @@ function WorkspacesIcon({ theme, size, color }: PluginButtonIconProps) {
   // "More actions" menu alike), so the indicator must stay inside it: a dot in the top-right corner,
   // amber when a chat asks you or failed, blue for unread news.
   const dot = Math.max(6, Math.round(size * 0.45));
-  const signal = urgent ? theme.colors.statusWarning : inbox.unread ? UNREAD_BLUE : null;
+  const signal = urgent ? theme.colors.statusWarning : inbox.unread ? unreadColor(theme) : null;
   return (
     <View
       accessible

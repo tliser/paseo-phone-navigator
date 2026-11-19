@@ -4,7 +4,7 @@ import { Icon } from "@getpaseo/plugin/client/ui";
 import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, Platform, Text, View } from "react-native";
 import type { ChatState } from "../shared/types";
-import { RUNNING_VIOLET, UNREAD_BLUE } from "./colors";
+import { runningColor, unreadColor } from "./colors";
 
 export type MarkKind = ChatState | "terminal";
 
@@ -21,8 +21,8 @@ export function markColor(theme: PluginTheme, kind: MarkKind): string {
   const c = theme.colors;
   if (kind === "asking") return c.statusWarning;
   if (kind === "error") return c.statusDanger;
-  if (kind === "unread") return UNREAD_BLUE;
-  if (kind === "running") return RUNNING_VIOLET;
+  if (kind === "unread") return unreadColor(theme);
+  if (kind === "running") return runningColor(theme);
   return c.foregroundMuted;
 }
 

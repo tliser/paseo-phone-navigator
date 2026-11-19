@@ -29,3 +29,20 @@ export const projectColorKey = (serverId: string, projectId: string) => `${serve
 export function projectColorHex(id: string | undefined, accent: string): string {
   return PROJECT_COLORS.find((color) => color.id === id)?.hex ?? accent;
 }
+
+/** Whether a CSS colour (#rgb, #rrggbb, #rrggbbaa, rgb() or rgba()) is light, by relative luminance. Other formats count as dark. */
+export function isLightColor(color: string): boolean {
+  const value = color.trim();
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(value)?.[1];
+  const channels = hex
+    ? hex.length === 3
+      ? [...hex].map((digit) => parseInt(digit + digit, 16))
+      : [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16))
+    : /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(value)?.slice(1, 4).map(Number);
+  if (!channels) return false;
+  const [r, g, b] = channels.map((channel) => {
+    const s = channel / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b! > 0.4;
+}

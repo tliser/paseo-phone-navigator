@@ -22,7 +22,7 @@ import type { Place } from "../shared/order";
 import { SearchField, TitleBar, ViewsControl } from "./title-bar";
 import { Toast, useToastState } from "./toast";
 import { Mark, MARK_LABEL, markColor, TallyMarks, type MarkKind } from "./marks";
-import { UNREAD_BLUE } from "./colors";
+import { unreadColor } from "./colors";
 import { WorkspaceMenu, type MenuTarget } from "./workspace-menu";
 import { ProjectMenu } from "./project-menu";
 import { measureAnchor } from "./sheet";
@@ -706,7 +706,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
     // A section heading: tinted band, folder icon, bold name and a coloured bar, so it never reads as a workspace.
     return (
       <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", paddingRight: row.rootPath || dragHandle ? 0 : 12, backgroundColor: c.surface1, borderTopWidth: 1, borderTopColor: c.border, ...separator, ...liftStyle }}>
-      <View style={{ width: 3, alignSelf: "stretch", backgroundColor: row.tally.asking ? c.statusWarning : row.tally.error ? c.statusDanger : row.tally.unread ? UNREAD_BLUE : folder, opacity: row.tally.asking || row.tally.error || row.tally.unread ? 1 : 0.55 }} />
+      <View style={{ width: 3, alignSelf: "stretch", backgroundColor: row.tally.asking ? c.statusWarning : row.tally.error ? c.statusDanger : row.tally.unread ? unreadColor(theme) : folder, opacity: row.tally.asking || row.tally.error || row.tally.unread ? 1 : 0.55 }} />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Project ${row.name}, ${row.count} workspaces${row.collapsed ? tallyWords(row.tally) : ""}`}

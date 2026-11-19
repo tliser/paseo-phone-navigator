@@ -26,8 +26,8 @@ import { unreadColor } from "./colors";
 import { WorkspaceMenu, type MenuTarget } from "./workspace-menu";
 import { ProjectMenu } from "./project-menu";
 import { measureAnchor } from "./sheet";
-import { ColorPicker } from "./color-picker";
-import { projectColorHex, projectColorKey } from "../shared/colors";
+import { ColorPicker, type ColorTarget } from "./color-picker";
+import { colorHex, hostColorKey, projectColorKey } from "../shared/colors";
 
 /** Filter picked in this session per profile; starts at the profile's default. */
 const sessionFilters = new Map<string, Filter>();
@@ -93,7 +93,13 @@ export function NavigatorScreen(
   const [draftFor, setDraftFor] = useState<ProjectRow | null>(null);
   const [menuFor, setMenuFor] = useState<MenuTarget | null>(null);
   const [projectFor, setProjectFor] = useState<{ row: ProjectRow; anchor: Anchor | null } | null>(null);
-  const [colorFor, setColorFor] = useState<ProjectRow | null>(null);
+  const [colorFor, setColorFor] = useState<ColorTarget | null>(null);
+  const pickColor = (row: ProjectRow | HostRow) =>
+    setColorFor(
+      row.type === "host"
+        ? { key: hostColorKey(row.serverId), title: `Host colour · ${row.label}`, icon: "Server", fallback: theme.colors.foregroundMuted }
+        : { key: projectColorKey(row.serverId, row.projectId), title: `Folder colour · ${row.name}`, icon: "Folder", fallback: theme.colors.accent },
+    );
   const [newProjectFor, setNewProjectFor] = useState<{ row: HostRow; anchor: Anchor | null } | null>(null);
 
   // Relative times stay fresh without re-rendering on every data tick.
@@ -307,8 +313,8 @@ export function NavigatorScreen(
       onProjectMenu={(row, anchor) => setProjectFor({ row, anchor })}
       onCreate={setDraftFor}
       onNewProject={(row, anchor) => setNewProjectFor({ row, anchor })}
-      projectColors={snapshot.projectColors}
-      onPickColor={setColorFor}
+      colors={snapshot.colors}
+      onPickColor={pickColor}
       canOpen={!!navigation}
       dragHandle={canArrange && dragId(item) ? drag.handleFor(index) : undefined}
       active={!!activeWorkspace && item.type === "workspace" && item.serverId === activeWorkspace.serverId && item.workspace.id === activeWorkspace.workspaceId}
@@ -385,7 +391,7 @@ export function NavigatorScreen(
       <View style={{ flex: 1, ...(dragging ? { userSelect: "none" } : null) } as never} {...drag.handlers} onLayout={(event) => setAreaHeight(event.nativeEvent.layout.height)}>
         <FlatList
           data={tree.rows}
-          extraData={[dragging, landing, canPeek, scale, canArrange, arranging, profile, activeWorkspace, snapshot.projectColors, searching]}
+          extraData={[dragging, landing, canPeek, scale, canArrange, arranging, profile, activeWorkspace, snapshot.colors, searching]}
           keyExtractor={(row) => row.key}
           renderItem={renderItem}
           ListFooterComponent={empty}
@@ -432,9 +438,9 @@ export function NavigatorScreen(
       {colorFor ? (
         <ColorPicker
           theme={theme}
-          name={colorFor.name}
-          current={snapshot.projectColors[projectColorKey(colorFor.serverId, colorFor.projectId)] ?? "default"}
-          onPick={(id) => store.setProjectColor(colorFor.serverId, colorFor.projectId, id)}
+          target={colorFor}
+          current={snapshot.colors[colorFor.key] ?? "default"}
+          onPick={(id) => store.setColor(colorFor.key, id)}
           onClose={() => setColorFor(null)}
         />
       ) : null}
@@ -481,7 +487,7 @@ export function NavigatorScreen(
           siblings={tree.groups[projectFor.row.group] ?? []}
           onCreate={() => setDraftFor(projectFor.row)}
           onMove={(direction) => step(projectFor.row.group, projectFor.row.projectId, direction)}
-          onPickColor={() => setColorFor(projectFor.row)}
+          onPickColor={() => pickColor(projectFor.row)}
           onClose={() => setProjectFor(null)}
         />
       ) : null}
@@ -593,10 +599,10 @@ interface RowProps {
   onCreate(row: ProjectRow): void;
   /** The folder-plus on an online host: add a project there. */
   onNewProject?(row: HostRow, anchor: Anchor | null): void;
-  /** Folder colour id per project ("serverId:projectId"). */
-  projectColors?: Readonly<Record<string, string>>;
-  /** Long-press on a project's folder icon: choose its colour. */
-  onPickColor?(row: ProjectRow): void;
+  /** Colour id per project folder and host icon (`projectColorKey` / `hostColorKey`). */
+  colors?: Readonly<Record<string, string>>;
+  /** Long-press on a project's folder or a host's icon: choose its colour. */
+  onPickColor?(row: ProjectRow | HostRow): void;
   /** Set while this row is picked up (any value): it is drawn raised. */
   lifted: number | null;
   /** Set in manual mode: responder handlers for the grip at the row's end. */
@@ -644,7 +650,7 @@ const tallyWords = (tally: Tally) =>
 
 const WORKSPACE_MARK: Record<WorkspaceState, MarkKind> = { needs_you: "asking", error: "error", unread: "unread", running: "running", read: "read" };
 
-export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenTab, arranging, onMenu, onTabMenu, onProjectMenu, onCreate, onNewProject, projectColors, onPickColor, lifted, dragHandle, onPeek, active = false }: RowProps) {
+export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenTab, arranging, onMenu, onTabMenu, onProjectMenu, onCreate, onNewProject, colors, onPickColor, lifted, dragHandle, onPeek, active = false }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null
@@ -670,14 +676,29 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
           accessibilityRole="button"
           accessibilityLabel={`${row.label}${online ? `, ${row.count} workspaces${row.collapsed ? tallyWords(row.tally) : ""}` : row.state === "offline" ? ", offline" : ", loading"}`}
           accessibilityState={online ? { expanded: !row.collapsed } : { disabled: true }}
+          accessibilityActions={[
+            { name: "activate", label: row.collapsed ? "Expand" : "Collapse" },
+            ...(onPickColor ? [{ name: "colour", label: "Host colour" }] : []),
+          ]}
+          onAccessibilityAction={(event) => (event.nativeEvent.actionName === "colour" ? onPickColor?.(row) : onToggle(row.key))}
           disabled={!online}
           onPress={() => onToggle(row.key)}
           style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: newProject ? 4 : 12 }}
         >
-          {/* Paseo's own host icon, in the 18pt left column so host and project names align; "offline"/"loading…" text carries the state. */}
-          <View style={{ width: 18, alignItems: "center", opacity: dim }}>
-            <Icon name="Server" size={15} color={c.foregroundMuted} />
-          </View>
+          {/* Paseo's own host icon, in the 18pt left column so host and project names align; "offline"/"loading…" text carries the state.
+              Long-press it to choose its colour; a tap still folds the host. */}
+          <Pressable
+            accessibilityLabel={`Host colour of ${row.label}`}
+            accessibilityRole="button"
+            onPress={() => onToggle(row.key)}
+            onLongPress={onPickColor ? () => onPickColor(row) : undefined}
+            {...contextMenu(() => onPickColor?.(row))}
+            delayLongPress={400}
+            hitSlop={13}
+            style={{ width: 18, alignItems: "center", opacity: dim }}
+          >
+            <Icon name="Server" size={15} color={colorHex(colors?.[hostColorKey(row.serverId)], c.foregroundMuted)} />
+          </Pressable>
           <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>{row.label}</Text>
           {online ? <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.count}</Text> : <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.state === "offline" ? "offline" : "loading…"}</Text>}
           {online && row.collapsed ? <TallyMarks theme={theme} tally={row.tally} /> : null}
@@ -701,7 +722,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
 
   if (row.type === "project") {
     const openProjectMenu = () => measureAnchor(anchorRef.current, (anchor) => onProjectMenu?.(row, anchor));
-    const folder = projectColorHex(projectColors?.[projectColorKey(row.serverId, row.projectId)], c.accent);
+    const folder = colorHex(colors?.[projectColorKey(row.serverId, row.projectId)], c.accent);
     // A section heading: tinted band, folder icon, bold name and a coloured bar, so it never reads as a workspace.
     return (
       <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", paddingRight: row.rootPath || dragHandle ? 0 : 12, backgroundColor: c.surface1, borderTopWidth: 1, borderTopColor: c.border, ...separator, ...liftStyle }}>

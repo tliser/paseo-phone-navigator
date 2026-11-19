@@ -22,7 +22,6 @@ import { hasDeviceStorage, readDeviceCollapse, readDevicePins, readDeviceProfile
 import { createHostObserver, type HostDirectory, type HostObserver } from "./host-observer";
 import type { PaseoApi } from "./paseo";
 import { createSyncedDoc } from "./synced-doc";
-import { projectColorKey } from "../shared/colors";
 
 const EMIT_DELAY_MS = 250;
 const RECONCILE_MS = 15_000;
@@ -48,8 +47,8 @@ export interface StoreSnapshot {
   collapseFor(profileId: string): CollapseMap;
   /** Pinned workspaces ("serverId:workspaceId") of a profile, shared by every device using it. */
   pinsFor(profileId: string): ReadonlySet<string>;
-  /** Folder colour id per project ("serverId:projectId"), shared by every profile and device. */
-  projectColors: Readonly<Record<string, string>>;
+  /** Colour id per project folder (`projectColorKey`) and host icon (`hostColorKey`), shared by every profile and device. */
+  colors: Readonly<Record<string, string>>;
   /** When you marked each chat ("serverId:agent:agentId") or chat-less workspace ("serverId:workspaceId") read. */
   reads: ReadMap;
   savingError: string | null;
@@ -69,8 +68,8 @@ export interface Store {
   setCollapse(profileId: string, map: CollapseMap): void;
   /** Pins or unpins a workspace at the top of its project, in the profile. */
   setPinned(profileId: string, serverId: string, workspaceId: string, pinned: boolean): void;
-  /** Gives a project's folder a colour (a PROJECT_COLORS id). */
-  setProjectColor(serverId: string, projectId: string, color: string): void;
+  /** Gives a project folder or host icon (`projectColorKey` / `hostColorKey`) a colour (an ICON_COLORS id). */
+  setColor(key: string, color: string): void;
   /** Renames a workspace on its host. */
   renameWorkspace(serverId: string, workspaceId: string, title: string): Promise<void>;
   /** Applies a change to the profiles list and saves it. */
@@ -287,7 +286,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
         return new Set(profiles.find((profile) => profile.id === profileId)?.pins ?? []);
       },
       reads: currentReads(),
-      projectColors: Object.fromEntries(Object.entries(profilesDoc.value().projectColors).map(([key, entry]) => [key, entry.color])),
+      colors: Object.fromEntries(Object.entries(profilesDoc.value().projectColors).map(([key, entry]) => [key, entry.color])),
       savingError: profilesDoc.error() ?? readsDoc.error(),
       archiving: new Set(archiving),
       errors: hostInputs.flatMap((host) => (host.error ? [`${host.label}: ${host.error}`] : [])),
@@ -577,8 +576,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     selectProfile,
     setCollapse,
     setPinned,
-    setProjectColor(serverId, projectId, color) {
-      const key = projectColorKey(serverId, projectId);
+    setColor(key, color) {
       const at = Date.now();
       profilesDoc.edit((doc) => ({ ...doc, projectColors: { ...doc.projectColors, [key]: { color, at } } }));
     },

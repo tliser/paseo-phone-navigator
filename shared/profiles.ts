@@ -70,8 +70,9 @@ export const profilesDocumentSchema = z.object({
   /** Deleted profiles (id -> when), so a host that still has one does not bring it back when hosts sync. */
   deleted: z.record(z.string(), z.number()).default({}),
   /**
-   * Folder colour per project ("serverId:projectId"), for every profile and device. Set by long-pressing
-   * the folder icon; `color` is a PROJECT_COLORS id ("default" = theme accent). `at` lets the newest win.
+   * Colour per project folder ("serverId:projectId") and host icon ("host:serverId"), for every profile and
+   * device. Set by long-pressing the icon; `color` is an ICON_COLORS id ("default" = the icon's default).
+   * `at` lets the newest win. The name predates host colours and stays: it is synced between versions.
    */
   projectColors: z.record(z.string(), z.object({ color: z.string(), at: z.number() })).default({}),
 });

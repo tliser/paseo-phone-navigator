@@ -1,14 +1,14 @@
-// Folder colours a project can be given (long-press its folder icon). Chosen to stay apart from the
+// Colours a project folder or a host icon can be given (long-press the icon). Chosen to stay apart from the
 // status colours: no amber (asking you), no light blue (unread), no violet (running). Readable on dark
-// and light themes. Ids are stored; changing a hex here recolours every project using it.
-export interface ProjectColor {
+// and light themes. Ids are stored; changing a hex here recolours every project and host using it.
+export interface IconColor {
   id: string;
   label: string;
-  /** null: the theme's accent colour. */
+  /** null: the default for that icon (a project's accent, a host's muted grey). */
   hex: string | null;
 }
 
-export const PROJECT_COLORS: readonly ProjectColor[] = [
+export const ICON_COLORS: readonly IconColor[] = [
   { id: "default", label: "Default", hex: null },
   { id: "red", label: "Red", hex: "#EF4444" },
   { id: "orange", label: "Orange", hex: "#F97316" },
@@ -24,10 +24,15 @@ export const PROJECT_COLORS: readonly ProjectColor[] = [
 ];
 
 export const projectColorKey = (serverId: string, projectId: string) => `${serverId}:${projectId}`;
+/**
+ * Host colours live in the same synced map as project colours (the profiles document's `projectColors`):
+ * older plugin versions keep unknown keys there, while a new field would be dropped by their schema.
+ */
+export const hostColorKey = (serverId: string) => `host:${serverId}`;
 
-/** The hex for a stored colour id; the accent for "default" or an id this version does not know. */
-export function projectColorHex(id: string | undefined, accent: string): string {
-  return PROJECT_COLORS.find((color) => color.id === id)?.hex ?? accent;
+/** The hex for a stored colour id; `fallback` for "default" or an id this version does not know. */
+export function colorHex(id: string | undefined, fallback: string): string {
+  return ICON_COLORS.find((color) => color.id === id)?.hex ?? fallback;
 }
 
 /** Whether a CSS colour (#rgb, #rrggbb, #rrggbbaa, rgb() or rgba()) is light, by relative luminance. Other formats count as dark. */

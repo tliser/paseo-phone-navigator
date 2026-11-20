@@ -672,17 +672,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     move,
     markRead: (serverId, workspaceIds) => void markKeysRead(workspaceIds.map((id) => readKey(serverId, id))),
     markUnread: (serverId, workspaceId) => markKeyUnread(readKey(serverId, workspaceId)),
-    markChatsRead(serverId, agentIds) {
-      // The news time comes from the host's clock: a mark must cover it even when this device's clock is behind.
-      const now = Date.now();
-      const reads = currentReads();
-      const agents = snapshot.hosts.find((host) => host.serverId === serverId)?.workspaces.flatMap((workspace) => workspace.agents ?? []) ?? [];
-      const marks = agentIds.map((id) => {
-        const news = Math.max(agents.find((agent) => agent.id === id)?.unreadAt ?? 0, reads[newsKey(serverId, id)] ?? 0);
-        return [readAgentKey(serverId, id), Math.max(now, news + 1)] as const;
-      });
-      return writeReads(Object.fromEntries(marks));
-    },
+    markChatsRead: (serverId, agentIds) => markKeysRead(agentIds.map((id) => readAgentKey(serverId, id))),
     markChatUnread: (serverId, agentId) => markKeyUnread(readAgentKey(serverId, agentId)),
     undoReads: (changes) => void writeReads(undoReads(currentReads(), changes, Date.now())),
     setInRecent: (serverId, workspaceId, inRecent) => (inRecent ? markKeyUnread(recentKey(serverId, workspaceId)) : markKeysRead([recentKey(serverId, workspaceId)])),

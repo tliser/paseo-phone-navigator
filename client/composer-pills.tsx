@@ -1,8 +1,7 @@
 // Pills under every chat's message field, for the chats of the host serving this copy of the plugin:
 // - "Inbox" with what waits for you on every host; it opens the Inbox (answer from there, open a chat) with
 //   back and forward through the chats you visited.
-// - "Mark read" on an unread chat, "Mark unread" on a read one: marks the chat and turns into the other, and
-//   the Inbox updates; you stay on the chat.
+// - "Read": its icon shows whether the chat is unread or read; a tap marks it the other way.
 // - "Catch up": where the chat left off and what comes next, in two short lines. Pressing it writes a new one
 //   unless the stored one is still current.
 // Pills are registered per chat, so this follows the host's chat list and adds or removes them.
@@ -15,7 +14,7 @@ import { timeAgo } from "../shared/format";
 import { buildInbox, inboxTally, type Inbox, type InboxTally } from "../shared/inbox";
 import { chatState } from "../shared/tree";
 import type { AgentInput, ChatState } from "../shared/types";
-import { chatKey, currentChat, historyStep, reportShownChat, splitChatKey, subscribeChatNav, travelTo, useHistorySteps, type ShownChat } from "./chat-nav";
+import { chatKey, currentChat, historyStep, reportShownChat, splitChatKey, travelTo, useHistorySteps, type ShownChat } from "./chat-nav";
 import { unreadColor } from "./colors";
 import { createHostObserver } from "./host-observer";
 import { hostsNote, InboxList, inboxSummary } from "./inbox-sheet";
@@ -75,8 +74,20 @@ function InboxPillIcon({ theme, size, color, host, ...context }: PluginButtonIco
   );
 }
 
-const ReadIcon = ({ size, color }: PluginButtonIconProps) => <Icon name="Check" size={size} color={color} />;
-const UnreadIcon = ({ size, color }: PluginButtonIconProps) => <Icon name="CircleDot" size={size} color={color} />;
+/**
+ * The Read pill's icon follows the chat: an empty circle while unread (tap: mark read), a ticked one once read
+ * (tap: mark unread), a dash while it asks you, failed or runs (tap does nothing).
+ */
+function ReadToggleIcon({ theme, size, color, host, ...context }: PluginButtonIconProps) {
+  const { snapshot } = useNavigatorStore();
+  const agentId = context.context === "agent" ? context.agentId : "";
+  const agent = chatOf(snapshot, host.id, agentId);
+  const workspaceId = context.workspaceId;
+  const state = agent ? chatState(agent, host.id, workspaceId, snapshot.reads, Date.now()) : null;
+  if (state === "unread") return <Icon name="Circle" size={size} color={unreadColor(theme)} />;
+  if (state === "read") return <Icon name="CircleCheck" size={size} color={color} />;
+  return <Icon name="CircleMinus" size={size} color={theme.colors.foregroundMuted} />;
+}
 const CatchUpIcon = ({ size, color }: PluginButtonIconProps) => <Icon name="History" size={size} color={color} />;
 
 /** The Inbox pill's popover: back and forward through visited chats, then the Inbox. */
@@ -249,7 +260,7 @@ function stateOf(serverId: string, agentId: string): ChatState | null {
 
 export function registerComposerPills(client: PluginClientContext): () => void {
   if (typeof client.addComposerPill !== "function") return () => undefined;
-  const pills = new Map<string, { inbox: PluginButtonRegistration; label: string; read: PluginButtonRegistration; unread: PluginButtonRegistration; catchUp: PluginButtonRegistration; state: ChatState | null }>();
+  const pills = new Map<string, { inbox: PluginButtonRegistration; read: PluginButtonRegistration; catchUp: PluginButtonRegistration }>();
   const openSettings = () => client.openScreen({ screenId: PROFILES_SCREEN_ID, params: { section: "inbox" } });
   const CatchUpContent = (props: PluginButtonContentProps) => (
     <CatchUpPopover
@@ -261,7 +272,7 @@ export function registerComposerPills(client: PluginClientContext): () => void {
     />
   );
   let inboxLabel = INBOX_TITLE;
-  // The host serving this copy: the chats that get its pills. Their states show once it is known.
+  // The host serving this copy: the chats that get its pills.
   let selfId: string | null = null;
   let stopped = false;
   void client.paseo.hosts
@@ -272,45 +283,23 @@ export function registerComposerPills(client: PluginClientContext): () => void {
     })
     .catch(() => undefined);
 
-  /**
-   * Flips the pill at once, then marks the chat on the next tick. The mark re-renders every surface that
-   * follows the store (the tree, the Inbox), which on a phone can hold the pill's own update back.
-   */
-  const mark = (agentId: string, read: boolean) => {
-    const serverId = selfId;
-    const entry = pills.get(agentId);
-    if (!serverId || !entry) return;
-    entry.state = read ? "read" : "unread";
-    entry.read.update({ visible: !read });
-    entry.unread.update({ visible: read });
-    setTimeout(() => {
-      if (read) getStore().markChatsRead(serverId, [agentId]);
-      else getStore().markChatUnread(serverId, agentId);
-    }, 0);
-  };
-
-  /**
-   * Mark read on unread chats, Mark unread on read ones (not while asking, failing or running), and the Inbox
-   * count on the pill of the chat on screen. Every pill update makes Paseo redraw the pill bars of all open
-   * chats, so the count is not pushed to every chat's pill: a chat gets it when it comes on screen.
-   */
-  function refresh() {
+  /** Marks an unread chat read and a read one unread; questions, errors and running chats stay as they are. */
+  const toggle = (agentId: string) => {
     const serverId = selfId;
     if (!serverId) return;
+    const state = stateOf(serverId, agentId);
+    if (state === "unread") getStore().markChatsRead(serverId, [agentId]);
+    else if (state === "read") getStore().markChatUnread(serverId, agentId);
+  };
+
+  /** The Inbox count on every Inbox pill. */
+  function refresh() {
+    if (!selfId) return;
     const total = inboxOf(getStore().getSnapshot()).tally.total;
-    inboxLabel = total ? `${INBOX_TITLE} ${total}` : INBOX_TITLE;
-    const shown = currentChat();
-    for (const [agentId, entry] of pills) {
-      if (entry.label !== inboxLabel && shown === chatKey(serverId, agentId)) {
-        entry.label = inboxLabel;
-        entry.inbox.update({ label: inboxLabel });
-      }
-      const state = stateOf(serverId, agentId);
-      if (state === entry.state) continue;
-      entry.state = state;
-      entry.read.update({ visible: state === "unread" });
-      entry.unread.update({ visible: state === "read" });
-    }
+    const label = total ? `${INBOX_TITLE} ${total}` : INBOX_TITLE;
+    if (label === inboxLabel) return;
+    inboxLabel = label;
+    for (const entry of pills.values()) entry.inbox.update({ label });
   }
 
   const observer = createHostObserver(
@@ -323,38 +312,31 @@ export function registerComposerPills(client: PluginClientContext): () => void {
         live.add(agent.id);
         if (pills.has(agent.id)) continue;
         const target = { workspaceId: agent.workspaceId, agentId: agent.id };
-        // Registered with the right visibility, so no update (and no redraw of every pill bar) follows at once.
-        const state = selfId ? stateOf(selfId, agent.id) : null;
         pills.set(agent.id, {
           inbox: client.addComposerPill({
             id: "inbox",
             ...target,
             button: { title: INBOX_TITLE, label: inboxLabel, icon: InboxPillIcon, behavior: { kind: "popover", Content: InboxPopover } },
           }),
-          label: inboxLabel,
+          // Always shown, fixed label: Paseo redraws a pill bar only when the chat screen re-renders, so a
+          // changed label or visibility could show late. The icon is the plugin's own component and shows the
+          // state at once.
           read: client.addComposerPill({
-            id: "mark-read",
+            id: "read-state",
             ...target,
-            button: { title: "Mark this chat read", label: "Mark read", icon: ReadIcon, visible: state === "unread", behavior: { kind: "action", onPress: () => mark(agent.id, true) } },
-          }),
-          unread: client.addComposerPill({
-            id: "mark-unread",
-            ...target,
-            button: { title: "Put this chat back in the Inbox", label: "Mark unread", icon: UnreadIcon, visible: state === "read", behavior: { kind: "action", onPress: () => mark(agent.id, false) } },
+            button: { title: "Mark read or unread", label: "Read", icon: ReadToggleIcon, behavior: { kind: "action", onPress: () => toggle(agent.id) } },
           }),
           catchUp: client.addComposerPill({
             id: "catch-up",
             ...target,
             button: { title: "Where this chat left off and what comes next", label: "Catch up", icon: CatchUpIcon, behavior: { kind: "popover", Content: CatchUpContent } },
           }),
-          state,
         });
       }
       for (const [id, entry] of pills) {
         if (live.has(id)) continue;
         entry.inbox.remove();
         entry.read.remove();
-        entry.unread.remove();
         entry.catchUp.remove();
         pills.delete(id);
       }
@@ -364,16 +346,13 @@ export function registerComposerPills(client: PluginClientContext): () => void {
   );
   observer.start();
   const unsubscribe = getStore().subscribe(refresh);
-  const unsubscribeNav = subscribeChatNav(refresh);
   return () => {
     stopped = true;
     unsubscribe();
-    unsubscribeNav();
     observer.stop();
     for (const entry of pills.values()) {
       entry.inbox.remove();
       entry.read.remove();
-      entry.unread.remove();
       entry.catchUp.remove();
     }
     pills.clear();

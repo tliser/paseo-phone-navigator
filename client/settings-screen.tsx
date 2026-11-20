@@ -9,8 +9,8 @@ import { PanResponder, Pressable, Text, View } from "react-native";
 import { bindPlatform, defaultSettings, INBOX_LINES, newProfileId, pruneCollapse, ROW_LINES, type Profile, type ProfileSettings, type ProfilesDocument } from "../shared/profiles";
 import { INBOX_FIELD_LABEL, LineEditor, ROW_FIELD_LABEL } from "./line-editor";
 import { InboxPreview } from "./inbox-preview";
-import { ModelPickerSheet } from "./model-picker-sheet";
-import type { Store } from "./store";
+import { PickerSheet } from "./picker-sheet";
+import type { ProviderListState, Store } from "./store";
 import { ICON_COLORS } from "../shared/colors";
 import type { Platform } from "../shared/types";
 import { PLATFORM_LABEL } from "./options-menu";
@@ -189,7 +189,7 @@ export function SettingsScreen({ theme, layout, host, params }: PluginScreenProp
             <LineEditor theme={theme} kind={INBOX_LINES} labels={INBOX_FIELD_LABEL} lines={s.inboxLines} disabled={!ready} onChange={(inboxLines) => updateSettings({ inboxLines })} />
           </View>
         </SettingsCard>
-        <CatchUpSettings theme={theme} compact={layout.compact} store={store} hosts={snapshot.hosts} catchUp={snapshot.catchUp} disabled={!ready} />
+        <CatchUpSettings theme={theme} compact={layout.compact} store={store} hosts={snapshot.hosts} selfId={host.id} catchUp={snapshot.catchUp} disabled={!ready} />
       </>
     ),
     order: (
@@ -383,45 +383,88 @@ export function SettingsScreen({ theme, layout, host, params }: PluginScreenProp
 }
 
 /**
- * Which model writes catch-ups on each host (hosts offer different models), for every profile and device, and
- * whether catch-ups rename chats. A catch-up runs on its chat's host with that host's model.
+ * Which model writes catch-ups on each host (hosts offer different models), one tab per host, for every
+ * profile and device; and whether catch-ups rename chats. A catch-up runs on its chat's host with that host's
+ * model. Provider first, then one of its models, each from a searchable list.
  */
-function CatchUpSettings({ theme, compact, store, hosts, catchUp, disabled }: { theme: PluginTheme; compact: boolean; store: Store; hosts: readonly { serverId: string; label: string; status: string }[]; catchUp: ProfilesDocument["catchUp"]; disabled: boolean }) {
-  const [picking, setPicking] = useState<{ serverId: string; label: string } | null>(null);
+function CatchUpSettings({ theme, compact, store, hosts, selfId, catchUp, disabled }: { theme: PluginTheme; compact: boolean; store: Store; hosts: readonly { serverId: string; label: string; status: string }[]; selfId: string; catchUp: ProfilesDocument["catchUp"]; disabled: boolean }) {
+  const c = theme.colors;
+  const [tab, setTab] = useState(selfId);
+  const host = hosts.find((entry) => entry.serverId === tab) ?? hosts.find((entry) => entry.serverId === selfId) ?? hosts[0];
+  const online = host?.status === "online";
+  const [providers, setProviders] = useState<ProviderListState | null>(null);
+  useEffect(() => {
+    setProviders(null);
+    if (!host || !online) return;
+    return store.watchProviders(host.serverId, "~", setProviders);
+  }, [store, host?.serverId, online]);
+  const [picking, setPicking] = useState<"provider" | "model" | null>(null);
+
+  // Stored as Paseo's `provider/model`; provider ids have no slash, model ids may.
+  const chosen = host ? (catchUp.models[host.serverId]?.model ?? null) : null;
+  const cut = chosen?.indexOf("/") ?? -1;
+  const providerId = chosen && cut > 0 ? chosen.slice(0, cut) : null;
+  const modelId = chosen && cut > 0 ? chosen.slice(cut + 1) : null;
+  const ready = providers?.ready ?? [];
+  const provider = ready.find((entry) => entry.id === providerId) ?? null;
+  const model = provider?.models.find((entry) => entry.id === modelId) ?? null;
+  const loading = online && (!providers || (!ready.length && providers.loading.length > 0));
+  const pickProvider = (id: string) => {
+    if (!host || id === providerId) return;
+    const next = ready.find((entry) => entry.id === id);
+    const first = next?.models.find((entry) => entry.isDefault) ?? next?.models[0];
+    if (first) store.setCatchUpModel(host.serverId, `${id}/${first.id}`);
+  };
+
   return (
+    <>
     <SettingsCard>
-      {hosts.map((host) => {
-        const model = catchUp.models[host.serverId]?.model ?? null;
-        return (
-          <SettingsAction
-            key={host.serverId}
-            label={hosts.length > 1 ? `Catch-up model on ${host.label}` : "Catch-up model"}
-            hint={model ?? (host.status === "online" ? "Not chosen yet. A small, fast model is enough." : "Not chosen yet. The host is offline.")}
-            actionLabel={model ? "Change" : "Choose"}
-            disabled={disabled || host.status !== "online"}
-            onPress={() => setPicking(host)}
-          />
-        );
-      })}
-      <SettingsSwitch
-        label="Name chats from the catch-up"
-        hint="Replaces the start of your first prompt with a short topic. Names you gave a chat yourself stay."
-        value={catchUp.rename}
-        onValueChange={(rename) => store.setCatchUpRename(rename)}
-        disabled={disabled}
+      {hosts.length > 1 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityRole="tablist" contentContainerStyle={{ gap: 6, padding: 12, paddingBottom: 4 }}>
+          {hosts.map((entry) => (
+            <Chip key={entry.serverId} theme={theme} label={entry.label} selected={entry.serverId === host?.serverId} onPress={() => setTab(entry.serverId)} />
+          ))}
+        </ScrollView>
+      ) : null}
+      {!online ? <Text style={{ color: c.foregroundMuted, fontSize: 13, paddingHorizontal: 16, paddingVertical: 12 }}>{`${host?.label ?? "This host"} is offline; its models show when it is back.`}</Text> : null}
+      <SettingsAction
+        label="Catch-up provider"
+        hint={providers?.error ? `Could not list providers: ${providers.error}` : (provider?.label ?? providerId ?? "Not chosen yet.")}
+        actionLabel={providerId ? "Change" : "Choose"}
+        disabled={disabled || !online}
+        onPress={() => setPicking("provider")}
       />
-      {picking ? (
-        <ModelPickerSheet
+      <SettingsAction
+        label="Catch-up model"
+        hint={model?.label ?? modelId ?? (providerId ? "Not chosen yet." : "Choose a provider first.") + " A small, fast model is enough."}
+        actionLabel={modelId ? "Change" : "Choose"}
+        disabled={disabled || !online || !providerId}
+        onPress={() => setPicking("model")}
+      />
+      {picking && host ? (
+        <PickerSheet
           theme={theme}
           compact={compact}
-          title={hosts.length > 1 ? `Catch-up model on ${picking.label}` : "Catch-up model"}
-          serverId={picking.serverId}
-          selected={catchUp.models[picking.serverId]?.model ?? null}
-          onPick={(model) => store.setCatchUpModel(picking.serverId, model)}
+          title={`${picking === "provider" ? "Provider" : (provider?.label ?? "Model")}${hosts.length > 1 ? ` on ${host.label}` : ""}`}
+          items={picking === "provider" ? ready.map((entry) => ({ value: entry.id, label: entry.label })) : (provider?.models ?? []).map((entry) => ({ value: entry.id, label: entry.label, detail: entry.id }))}
+          selected={picking === "provider" ? providerId : modelId}
+          loading={loading}
+          error={providers?.error ?? null}
+          onPick={(value) => (picking === "provider" ? pickProvider(value) : providerId && store.setCatchUpModel(host.serverId, `${providerId}/${value}`))}
           onClose={() => setPicking(null)}
         />
       ) : null}
     </SettingsCard>
+    <SettingsCard>
+      <SettingsSwitch
+        label="Name chats from the catch-up"
+        hint="Replaces the start of your first prompt with a short topic, on every host. Names you gave a chat yourself stay."
+        value={catchUp.rename}
+        onValueChange={(rename) => store.setCatchUpRename(rename)}
+        disabled={disabled}
+      />
+    </SettingsCard>
+    </>
   );
 }
 

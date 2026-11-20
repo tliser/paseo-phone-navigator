@@ -10,7 +10,7 @@ Under each chat's message field are three pills: Inbox, with the count, opens th
 
 ## Catch-up
 
-Catch up writes a new note unless the stored one is newer than the chat's last prompt and finished turn; "Again" writes one anyway. The chat's own host does the work: a hidden helper agent on the model chosen for that host (Settings → Inbox, one searchable model list per host, for every profile and device) reads the chat's last turns and is deleted afterwards. The note is stored on the chat, so every device and the Inbox show it; an outdated one is shown in italics. By default the catch-up also names the chat with a short topic, replacing Paseo's default name (the start of your first prompt). A name you gave the chat yourself is never replaced, and the switch "Name chats from the catch-up" turns renaming off. The chat's host must run this plugin.
+Catch up writes a new note unless the stored one is newer than the chat's last prompt and finished turn; "Again" writes one anyway. The chat's own host does the work: a hidden helper agent on the model chosen for that host (Settings → Inbox: a tab per host, provider then model, each from a searchable list; for every profile and device) reads the chat's last turns and is deleted afterwards. The note is stored on the chat, so every device and the Inbox show it; an outdated one is shown in italics. By default the catch-up also names the chat with a short topic, replacing Paseo's default name (the start of your first prompt). A name you gave the chat yourself is never replaced, and the switch "Name chats from the catch-up" turns renaming off. The chat's host must run this plugin.
 
 ## Rows
 

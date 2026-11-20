@@ -1,5 +1,5 @@
-// Settings of one profile, in sections: View · Rows · Order · Groups · Profile · Updates. Section tabs and a
-// preview of sample rows stay at the top; only the settings below them scroll.
+// Settings of one profile, in sections: View · Rows · Order · Groups · Profile, plus this plugin's Updates.
+// Section tabs and a preview of sample rows stay at the top; only the settings below them scroll.
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { ScrollView, SettingsAction, SettingsCard, SettingsInput, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
@@ -15,9 +15,10 @@ import { SettingsPreview } from "./settings-preview";
 import { VIEW_LABEL } from "./title-bar";
 import { Toast, useToastState } from "./toast";
 import { ownScreenOpen } from "./chat-nav";
+import { UpdatesSection } from "./updates-section";
 
 type PlatformChoice = Platform | "none";
-type Section = "view" | "rows" | "order" | "groups" | "profile";
+type Section = "view" | "rows" | "order" | "groups" | "profile" | "updates";
 
 const SECTIONS: readonly [Section, string][] = [
   ["view", "View"],
@@ -25,6 +26,7 @@ const SECTIONS: readonly [Section, string][] = [
   ["order", "Order"],
   ["groups", "Groups"],
   ["profile", "Profile"],
+  ["updates", "Updates"],
 ];
 const RECENT_DAYS = [1, 2, 3, 7, 14, 30];
 
@@ -263,6 +265,8 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
         {snapshot.savingError ? <Text style={{ color: c.statusDanger, fontSize: 12 }}>{snapshot.savingError}</Text> : null}
       </>
     ),
+    // Not per profile: the installed version and the auto-update switch apply to every host.
+    updates: <UpdatesSection />,
   };
 
   // Underlined text tabs: one slim line instead of a row of buttons.
@@ -287,7 +291,8 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
       </ScrollView>
     </View>
   );
-  const body = <SettingsSection title={SECTIONS.find(([id]) => id === section)![1]}>{sections[section]}</SettingsSection>;
+  // Updates brings its own section (title and explanation).
+  const body = section === "updates" ? sections.updates : <SettingsSection title={SECTIONS.find(([id]) => id === section)![1]}>{sections[section]}</SettingsSection>;
 
   const touch = layout.platform !== "web";
   const link = { hitSlop: { top: 10, bottom: 10, left: 6, right: 6 }, style: { paddingHorizontal: 6, justifyContent: "center" as const } };
@@ -322,8 +327,8 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface0 }} onLayout={(event) => setAreaHeight(event.nativeEvent.layout.height)}>
       {tabs}
-      {/* Every tab except Profile changes what the navigator shows, so only Profile has no preview. */}
-      {section === "profile" ? null : (
+      {/* Profile and Updates do not change what the navigator shows, so they have no preview. */}
+      {section === "profile" || section === "updates" ? null : (
         <View style={{ paddingHorizontal: pad, paddingTop: 10, width: "100%", maxWidth: 760, alignSelf: "center" }}>
           <View style={{ height: previewHeight, borderRadius: 12, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface1, overflow: "hidden" }}>
             <View style={{ height: 34, flexDirection: "row", alignItems: "center", paddingLeft: 12, paddingRight: 4, borderBottomWidth: 1, borderBottomColor: c.border }}>

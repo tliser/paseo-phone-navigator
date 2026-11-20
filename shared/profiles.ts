@@ -115,8 +115,17 @@ export const profilesDocumentSchema = z.object({
    * `at` lets the newest win. The name predates host colours and stays: it is synced between versions.
    */
   projectColors: z.record(z.string(), z.object({ color: z.string(), at: z.number() })).default({}),
-  /** Catch-up for every profile and device: the model (`provider/model`, null = not chosen) and whether it renames chats. `at` lets the newest win. */
-  catchUp: z.object({ model: z.string().nullable().default(null), rename: z.boolean().default(true), at: z.number().default(0) }).default({ model: null, rename: true, at: 0 }),
+  /**
+   * Catch-up for every profile and device: the model per host (`provider/model`, as each host offers its own),
+   * and whether catch-ups rename chats. Each `at` lets the newest change win when hosts sync.
+   */
+  catchUp: z
+    .object({
+      models: z.record(z.string(), z.object({ model: z.string(), at: z.number() })).default({}),
+      rename: z.boolean().default(true),
+      at: z.number().default(0),
+    })
+    .default({ models: {}, rename: true, at: 0 }),
 });
 export type ProfilesDocument = z.output<typeof profilesDocumentSchema>;
 
@@ -158,7 +167,7 @@ export function normalizeDocument(raw: unknown): ProfilesDocument {
   const profiles = parsed.success ? parsed.data.profiles : [];
   const deleted = parsed.success ? parsed.data.deleted : {};
   const projectColors = parsed.success ? parsed.data.projectColors : {};
-  const catchUp = parsed.success ? parsed.data.catchUp : { model: null, rename: true, at: 0 };
+  const catchUp = parsed.success ? parsed.data.catchUp : { models: {}, rename: true, at: 0 };
   return { profiles: profiles.length ? dedupe(profiles) : builtinProfiles(0), deleted, projectColors, catchUp };
 }
 

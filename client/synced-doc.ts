@@ -28,6 +28,10 @@ export function createSyncedDoc<Doc>(options: {
   let pending: ((doc: Doc) => Doc)[] = [];
   let writing = false;
   let error: string | null = null;
+  /** Saves so far: a read that started before a save brings an older copy and must not replace it. */
+  let saves = 0;
+  /** A change was announced while a save ran: read again once it is done. */
+  let missed = false;
   const describe = (failure: unknown) => `${options.label}: ${failure instanceof Error ? failure.message : String(failure)}`;
 
   async function fetch(): Promise<{ revision: string; doc: Doc }> {
@@ -36,9 +40,20 @@ export function createSyncedDoc<Doc>(options: {
   }
 
   async function read(): Promise<void> {
-    if (writing) return;
+    if (writing) {
+      missed = true;
+      return;
+    }
+    const before = saves;
     try {
-      remote = await fetch();
+      const fresh = await fetch();
+      // A save finished meanwhile: its copy is newer than this one. Read again (after the save, if one runs).
+      if (writing) {
+        missed = true;
+        return;
+      }
+      if (saves !== before) return read();
+      remote = fresh;
       ready = true;
       error = null;
     } catch (failure) {
@@ -63,6 +78,7 @@ export function createSyncedDoc<Doc>(options: {
           const result = await options.rpc(contracts.write, { revision: remote.revision, values: values as never });
           if (result.status === "saved") {
             remote = { revision: result.revision, doc: options.normalize(result.values) };
+            saves++;
             saved = true;
           } else if (result.status === "conflict") {
             remote = null; // another client saved first: re-read and replay
@@ -82,6 +98,11 @@ export function createSyncedDoc<Doc>(options: {
       options.changed();
     } finally {
       writing = false;
+    }
+    // A change announced during the save may be newer than what the save returned.
+    if (missed) {
+      missed = false;
+      void read();
     }
   }
 

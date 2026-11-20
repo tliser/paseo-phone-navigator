@@ -107,8 +107,10 @@ export interface Store {
   archiveWorkspace(serverId: string, workspaceId: string): Promise<void>;
   /** Answers what an agent waits for (allow/deny, with answers for questions). Rejects when the host refuses. */
   respondToPermission(serverId: string, agentId: string, requestId: string, response: PermissionResponse): Promise<void>;
-  /** Changes the catch-up settings for every profile and device. */
-  setCatchUpSettings(patch: { model?: string | null; rename?: boolean }): void;
+  /** Sets the model (`provider/model`) that writes catch-ups for chats on this host, for every profile and device. */
+  setCatchUpModel(serverId: string, model: string): void;
+  /** Turns renaming chats from their catch-up on or off, for every profile and device. */
+  setCatchUpRename(rename: boolean): void;
   /** Has the chat's host write its catch-up with the chosen model. Rejects when no model is chosen, the host lacks this plugin, or the model fails. */
   writeCatchUp(serverId: string, agentId: string): Promise<CatchUp>;
   dispose(): void;
@@ -626,7 +628,17 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     move,
     markRead: (serverId, workspaceIds) => void markKeysRead(workspaceIds.map((id) => readKey(serverId, id))),
     markUnread: (serverId, workspaceId) => markKeyUnread(readKey(serverId, workspaceId)),
-    markChatsRead: (serverId, agentIds) => markKeysRead(agentIds.map((id) => readAgentKey(serverId, id))),
+    markChatsRead(serverId, agentIds) {
+      // The news time comes from the host's clock: a mark must cover it even when this device's clock is behind.
+      const now = Date.now();
+      const reads = currentReads();
+      const agents = snapshot.hosts.find((host) => host.serverId === serverId)?.workspaces.flatMap((workspace) => workspace.agents ?? []) ?? [];
+      const marks = agentIds.map((id) => {
+        const news = Math.max(agents.find((agent) => agent.id === id)?.unreadAt ?? 0, reads[newsKey(serverId, id)] ?? 0);
+        return [readAgentKey(serverId, id), Math.max(now, news + 1)] as const;
+      });
+      return writeReads(Object.fromEntries(marks));
+    },
     markChatUnread: (serverId, agentId) => markKeyUnread(readAgentKey(serverId, agentId)),
     undoReads: (changes) => void writeReads(undoReads(currentReads(), changes, Date.now())),
     setInRecent: (serverId, workspaceId, inRecent) => (inRecent ? markKeyUnread(recentKey(serverId, workspaceId)) : markKeysRead([recentKey(serverId, workspaceId)])),
@@ -723,12 +735,16 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     async respondToPermission(serverId, agentId, requestId, response) {
       await apiFor(serverId).agents.ref(agentId).respondToPermission({ requestId, response });
     },
-    setCatchUpSettings(patch) {
-      profilesDoc.edit((doc) => ({ ...doc, catchUp: { ...doc.catchUp, ...patch, at: Date.now() } }));
+    setCatchUpModel(serverId, model) {
+      profilesDoc.edit((doc) => ({ ...doc, catchUp: { ...doc.catchUp, models: { ...doc.catchUp.models, [serverId]: { model, at: Date.now() } } } }));
+    },
+    setCatchUpRename(rename) {
+      profilesDoc.edit((doc) => ({ ...doc, catchUp: { ...doc.catchUp, rename, at: Date.now() } }));
     },
     async writeCatchUp(serverId, agentId) {
-      const { model, rename } = profilesDoc.value().catchUp;
-      if (!model) throw new Error("Choose a model for catch-ups in the settings first");
+      const { models, rename } = profilesDoc.value().catchUp;
+      const model = models[serverId]?.model;
+      if (!model) throw new Error("Choose a model for catch-ups on this host in the settings first");
       // The chat's own host writes it; every host with this plugin registers its RPC in the directory.
       const peer = directory.list().find((entry) => entry.serverId === serverId);
       if (!peer) throw new Error("This host does not run Workspace Organizer, so it cannot write catch-ups");

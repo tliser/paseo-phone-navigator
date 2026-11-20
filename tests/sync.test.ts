@@ -3,7 +3,7 @@ import { builtinProfiles, normalizeDocument, type Profile } from "../shared/prof
 import { mergeProfileDocs, mergeReadDocs, mergeUpdateDocs, sameDoc } from "../shared/sync";
 
 const profile = (id: string, updatedAt: number, name = id): Profile => ({ ...builtinProfiles(0)[0]!, id, name, updatedAt });
-const noCatchUp = { model: null, rename: true, at: 0 };
+const noCatchUp = { models: {}, rename: true, at: 0 };
 
 describe("mergeProfileDocs", () => {
   it("takes the newest copy of each profile and keeps every profile", () => {
@@ -26,10 +26,15 @@ describe("mergeProfileDocs", () => {
     expect(once.profiles.map((p) => p.name)).toEqual(["Mine"]);
     expect(sameDoc(mergeProfileDocs([once, edited, fresh]), mergeProfileDocs([once]))).toBe(true);
   });
-  it("keeps the newest catch-up settings; a host that never set them does not reset them", () => {
-    const chosen = { profiles: [profile("phone", 1)], deleted: {}, projectColors: {}, catchUp: { model: "omp/haiku", rename: false, at: 5 } };
-    const older = { ...chosen, catchUp: { model: "codex/mini", rename: true, at: 2 } };
-    expect(mergeProfileDocs([normalizeDocument(undefined), older, chosen]).catchUp).toEqual(chosen.catchUp);
+  it("keeps the newest rename switch and, per host, the newest model; a host that never set them resets nothing", () => {
+    const base = { profiles: [profile("phone", 1)], deleted: {}, projectColors: {} };
+    const phone = { ...base, catchUp: { models: { tardis: { model: "omp/haiku", at: 5 }, mac: { model: "codex/mini", at: 1 } }, rename: false, at: 5 } };
+    const desktop = { ...base, catchUp: { models: { tardis: { model: "omp/old", at: 2 }, mac: { model: "claude/haiku", at: 3 } }, rename: true, at: 2 } };
+    expect(mergeProfileDocs([normalizeDocument(undefined), desktop, phone]).catchUp).toEqual({
+      models: { tardis: { model: "omp/haiku", at: 5 }, mac: { model: "claude/haiku", at: 3 } },
+      rename: false,
+      at: 5,
+    });
   });
 });
 

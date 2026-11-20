@@ -6,10 +6,11 @@ import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { ScrollView, SettingsAction, SettingsCard, SettingsInput, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PanResponder, Pressable, Text, View } from "react-native";
-import { bindPlatform, defaultSettings, INBOX_LINES, newProfileId, pruneCollapse, ROW_LINES, type Profile, type ProfileSettings } from "../shared/profiles";
+import { bindPlatform, defaultSettings, INBOX_LINES, newProfileId, pruneCollapse, ROW_LINES, type Profile, type ProfileSettings, type ProfilesDocument } from "../shared/profiles";
 import { INBOX_FIELD_LABEL, LineEditor, ROW_FIELD_LABEL } from "./line-editor";
 import { InboxPreview } from "./inbox-preview";
-import type { ProviderListState, Store } from "./store";
+import { ModelPickerSheet } from "./model-picker-sheet";
+import type { Store } from "./store";
 import { ICON_COLORS } from "../shared/colors";
 import type { Platform } from "../shared/types";
 import { PLATFORM_LABEL } from "./options-menu";
@@ -188,7 +189,7 @@ export function SettingsScreen({ theme, layout, host, params }: PluginScreenProp
             <LineEditor theme={theme} kind={INBOX_LINES} labels={INBOX_FIELD_LABEL} lines={s.inboxLines} disabled={!ready} onChange={(inboxLines) => updateSettings({ inboxLines })} />
           </View>
         </SettingsCard>
-        <CatchUpSettings store={store} serverId={host.id} catchUp={snapshot.catchUp} disabled={!ready} />
+        <CatchUpSettings theme={theme} compact={layout.compact} store={store} hosts={snapshot.hosts} catchUp={snapshot.catchUp} disabled={!ready} />
       </>
     ),
     order: (
@@ -382,53 +383,44 @@ export function SettingsScreen({ theme, layout, host, params }: PluginScreenProp
 }
 
 /**
- * Which model writes catch-ups, for every profile and device, and whether they rename chats. The models are
- * the ones this host offers; a catch-up runs on its chat's host, which must offer the same model.
+ * Which model writes catch-ups on each host (hosts offer different models), for every profile and device, and
+ * whether catch-ups rename chats. A catch-up runs on its chat's host with that host's model.
  */
-function CatchUpSettings({ store, serverId, catchUp, disabled }: { store: Store; serverId: string; catchUp: { model: string | null; rename: boolean }; disabled: boolean }) {
-  const [providers, setProviders] = useState<ProviderListState | null>(null);
-  useEffect(() => store.watchProviders(serverId, "~", setProviders), [store, serverId]);
-  // Stored as Paseo's `provider/model`; provider ids have no slash, model ids may.
-  const cut = catchUp.model?.indexOf("/") ?? -1;
-  const providerId = catchUp.model && cut > 0 ? catchUp.model.slice(0, cut) : null;
-  const modelId = catchUp.model && cut > 0 ? catchUp.model.slice(cut + 1) : null;
-  const ready = providers?.ready ?? [];
-  const provider = ready.find((entry) => entry.id === providerId) ?? null;
-  const loading = !providers || (!ready.length && providers.loading.length > 0);
-  // A stored choice the host does not list (yet) stays selectable, so it is never shown as something else.
-  const providerOptions = [...ready.map((entry) => ({ value: entry.id, label: entry.label })), ...(providerId && !provider ? [{ value: providerId, label: providerId }] : [])];
-  const models = provider?.models ?? [];
-  const modelOptions = [...models.map((entry) => ({ value: entry.id, label: entry.label })), ...(modelId && !models.some((entry) => entry.id === modelId) ? [{ value: modelId, label: modelId }] : [])];
-  const pickProvider = (id: string) => {
-    const next = ready.find((entry) => entry.id === id);
-    const model = next?.models.find((entry) => entry.isDefault) ?? next?.models[0];
-    if (model) store.setCatchUpSettings({ model: `${id}/${model.id}` });
-  };
+function CatchUpSettings({ theme, compact, store, hosts, catchUp, disabled }: { theme: PluginTheme; compact: boolean; store: Store; hosts: readonly { serverId: string; label: string; status: string }[]; catchUp: ProfilesDocument["catchUp"]; disabled: boolean }) {
+  const [picking, setPicking] = useState<{ serverId: string; label: string } | null>(null);
   return (
     <SettingsCard>
-      <SettingsSelect
-        label="Catch-up provider"
-        hint={providers?.error ? `Could not list providers: ${providers.error}` : loading ? "Loading providers…" : "Catch up under a chat writes where it left off and what comes next."}
-        value={providerId ?? ""}
-        options={providerId ? providerOptions : [{ value: "", label: "Choose…" }, ...providerOptions]}
-        onValueChange={pickProvider}
-        disabled={disabled || !providerOptions.length}
-      />
-      <SettingsSelect
-        label="Catch-up model"
-        hint="A small, fast model is enough."
-        value={modelId ?? ""}
-        options={modelId ? modelOptions : [{ value: "", label: "Choose a provider first" }]}
-        onValueChange={(id) => providerId && store.setCatchUpSettings({ model: `${providerId}/${id}` })}
-        disabled={disabled || !modelOptions.length}
-      />
+      {hosts.map((host) => {
+        const model = catchUp.models[host.serverId]?.model ?? null;
+        return (
+          <SettingsAction
+            key={host.serverId}
+            label={hosts.length > 1 ? `Catch-up model on ${host.label}` : "Catch-up model"}
+            hint={model ?? (host.status === "online" ? "Not chosen yet. A small, fast model is enough." : "Not chosen yet. The host is offline.")}
+            actionLabel={model ? "Change" : "Choose"}
+            disabled={disabled || host.status !== "online"}
+            onPress={() => setPicking(host)}
+          />
+        );
+      })}
       <SettingsSwitch
         label="Name chats from the catch-up"
         hint="Replaces the start of your first prompt with a short topic. Names you gave a chat yourself stay."
         value={catchUp.rename}
-        onValueChange={(rename) => store.setCatchUpSettings({ rename })}
+        onValueChange={(rename) => store.setCatchUpRename(rename)}
         disabled={disabled}
       />
+      {picking ? (
+        <ModelPickerSheet
+          theme={theme}
+          compact={compact}
+          title={hosts.length > 1 ? `Catch-up model on ${picking.label}` : "Catch-up model"}
+          serverId={picking.serverId}
+          selected={catchUp.models[picking.serverId]?.model ?? null}
+          onPick={(model) => store.setCatchUpModel(picking.serverId, model)}
+          onClose={() => setPicking(null)}
+        />
+      ) : null}
     </SettingsCard>
   );
 }

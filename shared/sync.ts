@@ -30,9 +30,15 @@ export function mergeProfileDocs(docs: readonly ProfilesDocument[]): ProfilesDoc
       if (!known || entry.at > known.at) projectColors[key] = entry;
     }
   }
-  // Newest change wins; a copy from a version without catch-up has none.
-  let catchUp: ProfilesDocument["catchUp"] = { model: null, rename: true, at: 0 };
-  for (const doc of docs) if (doc.catchUp && doc.catchUp.at > catchUp.at) catchUp = doc.catchUp;
+  // Newest change wins: the rename switch as a whole, each host's model on its own.
+  let catchUp: ProfilesDocument["catchUp"] = { models: {}, rename: true, at: 0 };
+  const models: ProfilesDocument["catchUp"]["models"] = {};
+  for (const doc of docs) {
+    if (!doc.catchUp) continue;
+    if (doc.catchUp.at > catchUp.at) catchUp = doc.catchUp;
+    for (const [serverId, entry] of Object.entries(doc.catchUp.models ?? {})) if (entry.at > (models[serverId]?.at ?? -1)) models[serverId] = entry;
+  }
+  catchUp = { ...catchUp, models };
   return { profiles: profiles.length ? profiles : builtinProfiles(0), deleted, projectColors, catchUp };
 }
 

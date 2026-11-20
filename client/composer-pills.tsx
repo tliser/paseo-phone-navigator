@@ -1,8 +1,8 @@
 // Pills under every chat's message field, for the chats of the host serving this copy of the plugin:
 // - "Inbox" with what waits for you on every host; it opens the Inbox (answer from there, open a chat) with
 //   back and forward through the chats you visited.
-// - "Mark read" on an unread chat, "Mark unread" on a read one: either marks the chat and opens the next chat
-//   in the Inbox, so you can work through it without going back to the tree.
+// - "Mark read" on an unread chat, "Mark unread" on a read one: marks the chat and turns into the other, and
+//   the Inbox updates; you stay on the chat.
 // - "Catch up": where the chat left off and what comes next, in two short lines. Pressing it writes a new one
 //   unless the stored one is still current.
 // Pills are registered per chat, so this follows the host's chat list and adds or removes them.
@@ -160,7 +160,7 @@ function CatchUpPopover({ theme, host, openSettings, ...context }: PluginButtonC
   // The one just written wins until the host's copy of the chat catches up.
   const shown = written && (!stored || written.at >= stored.at) ? written : stored;
   const current = !!shown && !!chat && chat.status !== "running" && shown.at >= Math.max(chat.promptAt ?? 0, chat.unreadAt);
-  const model = snapshot.catchUp.model;
+  const model = snapshot.catchUp.models[host.id]?.model ?? null;
 
   const write = () => {
     if (busy || !agentId) return;
@@ -184,7 +184,7 @@ function CatchUpPopover({ theme, host, openSettings, ...context }: PluginButtonC
   if (snapshot.profilesReady && !model) {
     return (
       <View style={{ gap: 8 }}>
-        <Text style={{ color: c.foreground, fontSize: 13 }}>Choose the model that writes catch-ups first.</Text>
+        <Text style={{ color: c.foreground, fontSize: 13 }}>{`Choose the model that writes catch-ups on ${snapshot.hosts.find((entry) => entry.serverId === host.id)?.label || "this host"} first.`}</Text>
         <Pressable accessibilityRole="button" onPress={openSettings} style={({ pressed }) => ({ minHeight: 36, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: pressed ? c.surface2 : c.surface1 })}>
           <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>Open settings → Inbox</Text>
         </Pressable>
@@ -239,12 +239,6 @@ function stateOf(serverId: string, agentId: string): ChatState | null {
   return null;
 }
 
-/** Opens the first chat in the Inbox other than `except`; nothing when the Inbox has no other chat. */
-function openNext(except: string) {
-  const next = inboxOf(getStore().getSnapshot()).inbox.entries.find((entry) => chatKey(entry.serverId, entry.agentId) !== except);
-  if (next) openChat(next.serverId, next.agentId);
-}
-
 export function registerComposerPills(client: PluginClientContext): () => void {
   if (typeof client.addComposerPill !== "function") return () => undefined;
   const pills = new Map<string, { inbox: PluginButtonRegistration; read: PluginButtonRegistration; unread: PluginButtonRegistration; catchUp: PluginButtonRegistration; state: ChatState | null }>();
@@ -270,13 +264,11 @@ export function registerComposerPills(client: PluginClientContext): () => void {
     })
     .catch(() => undefined);
 
-  const markAndNext = (agentId: string, read: boolean) => {
+  const mark = (agentId: string, read: boolean) => {
     const serverId = selfId;
     if (!serverId) return;
-    const store = getStore();
-    if (read) store.markChatsRead(serverId, [agentId]);
-    else store.markChatUnread(serverId, agentId);
-    openNext(chatKey(serverId, agentId));
+    if (read) getStore().markChatsRead(serverId, [agentId]);
+    else getStore().markChatUnread(serverId, agentId);
   };
 
   /** Inbox count on every pill; Mark read on unread chats, Mark unread on read ones (not while asking, failing or running). */
@@ -316,12 +308,12 @@ export function registerComposerPills(client: PluginClientContext): () => void {
           read: client.addComposerPill({
             id: "mark-read",
             ...target,
-            button: { title: "Mark read and open the next chat", label: "Mark read", icon: ReadIcon, visible: false, behavior: { kind: "action", onPress: () => markAndNext(agent.id, true) } },
+            button: { title: "Mark this chat read", label: "Mark read", icon: ReadIcon, visible: false, behavior: { kind: "action", onPress: () => mark(agent.id, true) } },
           }),
           unread: client.addComposerPill({
             id: "mark-unread",
             ...target,
-            button: { title: "Mark unread and open the next chat", label: "Mark unread", icon: UnreadIcon, visible: false, behavior: { kind: "action", onPress: () => markAndNext(agent.id, false) } },
+            button: { title: "Put this chat back in the Inbox", label: "Mark unread", icon: UnreadIcon, visible: false, behavior: { kind: "action", onPress: () => mark(agent.id, false) } },
           }),
           catchUp: client.addComposerPill({
             id: "catch-up",

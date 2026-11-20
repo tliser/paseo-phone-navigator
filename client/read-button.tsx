@@ -67,7 +67,21 @@ export function ReadStateContent(props: PluginButtonContentProps) {
   if (props.context === "agent") {
     const open = chats.find((chat) => chat.agent.id === props.agentId);
     if (!open) body = note("This chat is not loaded yet.");
-    else if (markable(open)) body = button(open, true);
+    else if (open.state === "unread") body = button(open, true);
+    else if (open.state === "read")
+      // Already read: say so. Mark unread stays available but small, so a tap meant for "Mark read" cannot
+      // put the chat back in the Inbox.
+      body = (
+        <View style={{ gap: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Mark theme={props.theme} kind="read" size={16} />
+            {note("This chat is read. It is not in your Inbox.")}
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Mark "${open.agent.title}" unread`} onPress={() => act(open)} hitSlop={{ top: 6, bottom: 6 }} style={{ alignSelf: "flex-start" }}>
+            <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>Mark unread</Text>
+          </Pressable>
+        </View>
+      );
     else body = (
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Mark theme={props.theme} kind={open.state} size={16} />

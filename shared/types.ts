@@ -44,6 +44,8 @@ export interface AgentInput {
   errorText?: string;
   /** Its catch-up, when one was written. */
   catchUp?: CatchUp;
+  /** The opening of its last reply (see `replySummary`), stored by its host when a turn ends. */
+  lastReply?: string;
 }
 
 /** One answer button of a permission request. */

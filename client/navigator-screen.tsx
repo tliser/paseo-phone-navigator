@@ -879,7 +879,8 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
 
   const { workspace } = row;
   const openMenu = () => measureAnchor(anchorRef.current, (anchor) => onMenu(row, anchor));
-  const glyph = WORKSPACE_MARK[row.state];
+  // A workspace with only terminals has no chat state to show: it shows the terminal glyph instead.
+  const glyph: MarkKind = row.state === "read" && !workspace.agents?.length && workspace.terminals?.length ? "terminal" : WORKSPACE_MARK[row.state];
   const metaSize = fs(comfortable ? 13 : 12);
   const urgent = row.state === "needs_you" || row.state === "error" || row.state === "unread";
   const muted = { color: c.foregroundMuted, fontSize: metaSize };

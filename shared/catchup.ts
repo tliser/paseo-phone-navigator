@@ -37,7 +37,7 @@ export const catchUpRpc = defineRpc({
     model: z.string().min(1),
     rename: z.boolean(),
   }),
-  output: z.object({ catchUp: catchUpSchema, renamed: z.boolean() }),
+  output: catchUpSchema,
 });
 
 /** Turns of the chat the model reads, and how much of their text (the newest is kept). */

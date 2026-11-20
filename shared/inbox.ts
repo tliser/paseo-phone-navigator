@@ -52,10 +52,9 @@ const urgent = (state: InboxState) => (state === "unread" ? 1 : 0);
 
 /**
  * Covers every host, hidden ones included: one Inbox you can trust. Asking and errors first, then unread;
- * newest first. `now` lets news older than KEEP_DAYS drop out (see `isAgentUnread`). `replies` holds the
- * last reply of chats fetched so far, by `serverId:agentId`.
+ * newest first. `now` lets news older than KEEP_DAYS drop out (see `isAgentUnread`).
  */
-export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: number, replies?: ReadonlyMap<string, string>): Inbox {
+export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: number): Inbox {
   const entries: InboxEntry[] = [];
   const offlineHosts: string[] = [];
   const loadingHosts: string[] = [];
@@ -76,7 +75,6 @@ export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: nu
       for (const agent of chats) {
         const state = chatState(agent, host.serverId, workspace.id, reads, now);
         if (state !== "asking" && state !== "error" && state !== "unread") continue;
-        const lastReply = replies?.get(`${host.serverId}:${agent.id}`);
         entries.push({
           serverId: host.serverId,
           hostLabel: host.label,
@@ -93,7 +91,7 @@ export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: nu
           ...(state === "asking" && agent.request ? { request: agent.request } : {}),
           ...(state === "error" && agent.errorText ? { errorText: agent.errorText } : {}),
           ...(agent.catchUp ? { catchUp: agent.catchUp, catchUpStale: agent.catchUp.at < Math.max(agent.promptAt ?? 0, agent.unreadAt) } : {}),
-          ...(lastReply ? { lastReply } : {}),
+          ...(agent.lastReply ? { lastReply: agent.lastReply } : {}),
         });
       }
     }

@@ -35,8 +35,8 @@ let cachedInbox: { snapshot: StoreSnapshot; inbox: Inbox; tally: InboxTally } | 
 /** The Inbox of a store snapshot, built once for every pill rather than per chat. */
 function inboxOf(snapshot: StoreSnapshot): { inbox: Inbox; tally: InboxTally } {
   const cached = cachedInbox;
-  if (cached && cached.snapshot.hosts === snapshot.hosts && cached.snapshot.reads === snapshot.reads && cached.snapshot.replies === snapshot.replies) return cached;
-  const inbox = buildInbox(snapshot.hosts, snapshot.reads, Date.now(), snapshot.replies);
+  if (cached && cached.snapshot.hosts === snapshot.hosts && cached.snapshot.reads === snapshot.reads) return cached;
+  const inbox = buildInbox(snapshot.hosts, snapshot.reads, Date.now());
   cachedInbox = { snapshot, inbox, tally: inboxTally(inbox.entries) };
   return cachedInbox;
 }
@@ -191,9 +191,17 @@ function CatchUpPopover({ theme, host, openSettings, ...context }: PluginButtonC
       </View>
     );
   }
+  // While the model works (several seconds), the opening of the agent's last reply is something to read now.
+  const lastReply = busy && !current ? chat?.lastReply : undefined;
   return (
     <View style={{ gap: 8, minWidth: 240 }}>
-      {shown ? (
+      {lastReply ? (
+        <View accessible accessibilityLabel={`Last reply: ${lastReply}`} style={{ gap: 4 }}>
+          <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>Last reply</Text>
+          <Text style={{ color: c.foreground, fontSize: 14 }}>{lastReply}</Text>
+        </View>
+      ) : null}
+      {shown && !lastReply ? (
         <View accessible accessibilityLabel={`${shown.title}. Left off: ${shown.left}. Next: ${shown.next}`} style={{ gap: 4, opacity: busy ? 0.5 : 1 }}>
           <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: 12 }}>
             {`${shown.title} · ${timeAgo(shown.at, Date.now()) || "now"}${current ? "" : " · older"}`}

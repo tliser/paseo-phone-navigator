@@ -1,5 +1,16 @@
 // The opening of an agent's last reply as plain text, for the Inbox when no current catch-up exists. Free:
-// no model reads it. Headings, code, tables and rules are skipped; markdown marks are dropped. Pure.
+// no model reads it. The chat's host stores it on the agent (metadata) when a turn ends, while the agent is
+// still loaded: reading a closed agent's history would start it again. Headings, code, tables and rules are
+// skipped; markdown marks are dropped. Pure.
+
+/** Agent metadata key the reply opening is stored under. */
+export const REPLY_KEY = "workspace-organizer.reply";
+
+/** The stored reply opening, or "" when there is none. */
+export function readReply(metadata: unknown): string {
+  const raw = metadata && typeof metadata === "object" ? (metadata as Record<string, unknown>)[REPLY_KEY] : undefined;
+  return typeof raw === "string" ? raw : "";
+}
 
 /** Longest text kept, in characters (about two Inbox lines). */
 export const REPLY_MAX = 160;

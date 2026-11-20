@@ -13,14 +13,12 @@ import {
 import { moveRelative, type Place } from "../shared/order";
 import { KEEP_DAYS, markSeen, newsKey, normalizeReads, readAgentKey, readKey, recentKey, undoReads, type ReadChange, type ReadMap, type ReadsDocument } from "../shared/reads";
 import { profilesSettings, readsSettings } from "../shared/settings";
-import { buildInbox } from "../shared/inbox";
-import { replySummary } from "../shared/reply";
 import { mergeProfileDocs, mergeReadDocs, mergeUpdateDocs, sameDoc } from "../shared/sync";
 import { checkForUpdateRpc, installedVersionRpc, updatesDocumentSchema, updatesSettings, type InstalledVersion, type UpdatesDocument } from "../shared/updates";
 import { catchUpRpc, type CatchUp } from "../shared/catchup";
 import { createHostSync, type HostSync, type SyncedKind } from "./host-sync";
 import { createPeerDirectory, type Peer, type PeerDirectory } from "./peers";
-import type { HostInput, ProjectKind } from "../shared/types";
+import type { HostInput, ProjectKind, TerminalInput } from "../shared/types";
 import { hasDeviceStorage, readDeviceCollapse, readDevicePins, readDeviceProfileId, writeDeviceCollapse, writeDevicePins, writeDeviceProfileId } from "./device";
 import { createHostObserver, type HostDirectory, type HostObserver } from "./host-observer";
 import type { PaseoApi, PermissionResponse } from "./paseo";
@@ -54,8 +52,6 @@ export interface StoreSnapshot {
   colors: Readonly<Record<string, string>>;
   /** Catch-up settings, shared by every profile and device. */
   catchUp: ProfilesDocument["catchUp"];
-  /** The opening of the last reply of Inbox chats ("serverId:agentId"), once fetched. */
-  replies: ReadonlyMap<string, string>;
   /** When you marked each chat ("serverId:agent:agentId") or chat-less workspace ("serverId:workspaceId") read. */
   reads: ReadMap;
   savingError: string | null;
@@ -244,16 +240,16 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   /** Phone collapse edits waiting for the debounced save, per profile. */
   const unsavedCollapse = new Map<string, CollapseMap>();
 
-  const derivedCache = new Map<string, { source: HostDirectory; workspaces: HostInput["workspaces"] }>();
+  const derivedCache = new Map<string, { source: HostDirectory; terminals: ReadonlyMap<string, TerminalInput[]>; workspaces: HostInput["workspaces"] }>();
+  /** Each host's workspace ids as last seen, to list terminals again only when workspaces come or go. */
+  const workspaceIds = new Map<string, string>();
   /** Archive requested ("serverId:workspaceId"); shown dimmed. */
   const archiving = new Set<string>();
   /** Of those, the ones the host confirmed: dropped (with their pins) once the host no longer lists them. */
   const archived = new Set<string>();
-  /** Last reply openings of Inbox chats ("serverId:agentId"); a new map on every change. */
-  let replies: ReadonlyMap<string, string> = new Map();
-  /** The Inbox time each reply was fetched for, so it is fetched again only after the chat moved on. */
-  const replyTimes = new Map<string, number>();
-  const fetchingReplies = new Set<string>();
+  /** Terminal tabs per "serverId:workspaceId"; a new map on every change. */
+  let terminals: ReadonlyMap<string, TerminalInput[]> = new Map();
+  const listingTerminals = new Set<string>();
   let snapshot = build();
 
   function currentProfiles(): Profile[] {
@@ -271,10 +267,13 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       let workspaces: HostInput["workspaces"] = [];
       if (directory) {
         const cached = derivedCache.get(host.serverId);
-        if (cached?.source === directory) workspaces = cached.workspaces;
+        if (cached?.source === directory && cached.terminals === terminals) workspaces = cached.workspaces;
         else {
-          workspaces = deriveWorkspaces(directory.workspaces as unknown as WorkspaceLike[], directory.agents as unknown as AgentLike[]);
-          derivedCache.set(host.serverId, { source: directory, workspaces });
+          workspaces = deriveWorkspaces(directory.workspaces as unknown as WorkspaceLike[], directory.agents as unknown as AgentLike[]).map((workspace) => {
+            const list = terminals.get(`${host.serverId}:${workspace.id}`);
+            return list ? { ...workspace, terminals: list } : workspace;
+          });
+          derivedCache.set(host.serverId, { source: directory, terminals, workspaces });
         }
       }
       return {
@@ -312,7 +311,6 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       reads: currentReads(),
       colors: Object.fromEntries(Object.entries(profilesDoc.value().projectColors).map(([key, entry]) => [key, entry.color])),
       catchUp: profilesDoc.value().catchUp,
-      replies,
       savingError: profilesDoc.error() ?? readsDoc.error(),
       archiving: new Set(archiving),
       errors: hostInputs.flatMap((host) => (host.error ? [`${host.label}: ${host.error}`] : [])),
@@ -327,38 +325,34 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     snapshot = build();
     dropArchived();
     rememberNews();
-    fetchReplies();
     for (const listener of [...listeners]) listener();
   }
 
   /**
-   * The opening of the last reply of every Inbox chat, for its second line when it has no current catch-up.
-   * Fetched again only when the chat's Inbox time moves (a new turn or prompt); one request at a time per chat.
+   * Every terminal of an online host, by workspace. Paseo's terminal hooks only work in the sidebar view, so the
+   * store lists them itself: when a host's workspaces change and on every reconcile. Listing is cheap and
+   * starts nothing on the host.
    */
-  function fetchReplies() {
-    if (!started) return;
-    for (const entry of buildInbox(snapshot.hosts, snapshot.reads).entries) {
-      const key = `${entry.serverId}:${entry.agentId}`;
-      if (replyTimes.get(key) === entry.at || fetchingReplies.has(key)) continue;
-      fetchingReplies.add(key);
-      apiFor(entry.serverId)
-        .agents.ref(entry.agentId)
-        .timeline.refetch({ direction: "tail", limit: 1, wholeTurns: true, projection: "projected" })
-        .then((page) => {
-          const last = page.entries.map(({ item }) => item).filter((item) => item.type === "assistant_message").pop();
-          const text = last && "text" in last ? replySummary(last.text) : "";
-          replyTimes.set(key, entry.at);
-          if (text === (replies.get(key) ?? "")) return;
-          const next = new Map(replies);
-          if (text) next.set(key, text);
-          else next.delete(key);
-          replies = next;
-          emitSoon();
-        })
-        // Unreachable now: the entry keeps its other line until the chat changes again.
-        .catch(() => replyTimes.set(key, entry.at))
-        .finally(() => fetchingReplies.delete(key));
-    }
+  function listTerminals(serverId: string) {
+    if (listingTerminals.has(serverId)) return;
+    listingTerminals.add(serverId);
+    // Inside the promise, so a host without a terminal list (older or unreachable) fails like a rejected call.
+    Promise.resolve()
+      .then(() => apiFor(serverId).terminals.list())
+      .then(({ entries }) => {
+        const next = new Map([...terminals].filter(([key]) => !key.startsWith(`${serverId}:`)));
+        for (const terminal of entries) {
+          if (!terminal.workspaceId) continue;
+          const key = `${serverId}:${terminal.workspaceId}`;
+          next.set(key, [...(next.get(key) ?? []), { id: terminal.id, title: terminal.name || "Terminal" }]);
+        }
+        if (sameDoc(Object.fromEntries(next), Object.fromEntries(terminals))) return;
+        terminals = next;
+        emitSoon();
+      })
+      // An older host or a dropped connection: the next reconcile asks again.
+      .catch(() => undefined)
+      .finally(() => listingTerminals.delete(serverId));
   }
 
   /**
@@ -419,6 +413,12 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       existing?.observer.stop();
       const observer = createHostObserver(api, (directory) => {
         if (observers.get(serverId)?.observer !== observer) return;
+        // A workspace came or went (a new terminal workspace, say): list the terminals again.
+        const ids = directory.workspaces.map((workspace) => workspace.id).join(",");
+        if (ids !== workspaceIds.get(serverId)) {
+          workspaceIds.set(serverId, ids);
+          listTerminals(serverId);
+        }
         directories.set(serverId, directory);
         emitSoon();
       });
@@ -440,7 +440,10 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       }
     }
     for (const host of hosts) {
-      if (host.status === "online") observe(host.serverId);
+      if (host.status === "online") {
+        observe(host.serverId);
+        listTerminals(host.serverId);
+      }
       else connectErrors.delete(host.serverId);
     }
     emitNow();
@@ -789,7 +792,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       // The chat's own host writes it; every host with this plugin registers its RPC in the directory.
       const peer = directory.list().find((entry) => entry.serverId === serverId);
       if (!peer) throw new Error("This host does not run Workspace Organizer, so it cannot write catch-ups");
-      return (await peer.rpc(catchUpRpc, { agentId, model, rename })).catchUp;
+      return peer.rpc(catchUpRpc, { agentId, model, rename });
     },
     dispose() {
       if (timers.stop !== undefined) clearTimeout(timers.stop);

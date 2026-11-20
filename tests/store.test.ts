@@ -210,6 +210,25 @@ describe("store hosts", () => {
     store.dispose();
   });
 
+  it("gives workspaces their terminals from the host's terminal list, outside the sidebar view too", async () => {
+    const base = emptyApi();
+    const workspace = { id: "w1", projectId: "p", projectDisplayName: "P", name: "main", title: "Shell", status: "done" };
+    const workspaces = {
+      list: async () => {
+        const result = { entries: [workspace], pageInfo: { nextCursor: null, hasMore: false } };
+        return { ...result, subscription: { release: async () => undefined, subscribe: (observer: { snapshot(value: unknown): void }) => (observer.snapshot(result), () => undefined) } };
+      },
+    };
+    clients.set("a", { ...base, workspaces, terminals: { list: async () => ({ entries: [{ id: "t1", workspaceId: "w1", cwd: "/x", name: "Terminal 1" }], requestId: "r" }) } });
+    const store = createStore(rpcFor(fakeHost()) as never, () => () => undefined);
+    store.retain();
+    store.setHosts([{ serverId: "a", label: "A", status: "online" }]);
+    await flush();
+    vi.advanceTimersByTime(300);
+    expect(store.getSnapshot().hosts[0]?.workspaces[0]?.terminals).toEqual([{ id: "t1", title: "Terminal 1" }]);
+    store.dispose();
+  });
+
   it("stops observing after the last consumer leaves", async () => {
     const counters = { subscribed: 0, released: 0 };
     clients.set("a", emptyApi(counters));

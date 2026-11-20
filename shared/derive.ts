@@ -1,6 +1,7 @@
 // Turns the daemon's workspace and agent payloads into WorkspaceInput. Pure; structural types only,
 // so it neither depends on the SDK's generated types nor breaks when fields are added.
 import { readCatchUp } from "./catchup";
+import { readReply } from "./reply";
 import { epoch } from "./format";
 import type { AgentInput, AgentRequest, ProjectKind, RequestAction, RequestQuestion, WorkspaceInput, WorkspaceStatus } from "./types";
 
@@ -155,6 +156,7 @@ function agentInput(agent: AgentLike, index: number): AgentInput {
   const request = status === "asking" && agent.pendingPermissions?.length ? requestOf(agent.pendingPermissions[0]) : undefined;
   const errorText = status === "error" ? text(agent.lastError) : "";
   const catchUp = readCatchUp(agent.metadata);
+  const lastReply = readReply(agent.metadata);
   return {
     id: agent.id,
     title: agent.title?.trim() || `Agent ${index + 1}`,
@@ -167,6 +169,7 @@ function agentInput(agent: AgentLike, index: number): AgentInput {
     ...(request ? { request } : {}),
     ...(errorText ? { errorText } : {}),
     ...(catchUp ? { catchUp } : {}),
+    ...(lastReply ? { lastReply } : {}),
   };
 }
 

@@ -1,6 +1,6 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { installedVersion, updateIfBehind } from "./server/auto-update";
-import { generateCatchUp } from "./server/catchup";
+import { generateCatchUp, storeLastReply } from "./server/catchup";
 import { catchUpRpc } from "./shared/catchup";
 import { profilesSettings, readsSettings } from "./shared/settings";
 import { checkForUpdateRpc, installedVersionRpc, updatesSettings, type InstalledVersion } from "./shared/updates";
@@ -9,12 +9,17 @@ import { checkForUpdateRpc, installedVersionRpc, updatesSettings, type Installed
 const FIRST_CHECK_MS = 2 * 60_000;
 const CHECK_EVERY_MS = 6 * 60 * 60_000;
 
-// Storage for profiles and read state, and the update check that keeps a Git install current.
+// Storage for profiles and read state, catch-ups and last replies, and the update check that keeps a Git
+// install current.
 export default function contribute(server: PluginServerContext) {
   server.registerSettings(profilesSettings);
   server.registerSettings(readsSettings);
   const updates = server.registerSettings(updatesSettings);
   server.handle(catchUpRpc, (input, { paseo }) => generateCatchUp(paseo, input));
+  const stopReplies = server.addHook("agent.turn.after", async ({ agent, turnId, outcome }, { paseo }) => {
+    if (outcome.kind !== "completed") return;
+    await storeLastReply(paseo, agent, turnId).catch((error: unknown) => console.error("Workspace Organizer: storing the last reply failed", error));
+  });
 
   let checking = false;
   const check = async (reason: string, force = false) => {
@@ -64,5 +69,6 @@ export default function contribute(server: PluginServerContext) {
     clearTimeout(first);
     clearInterval(every);
     unsubscribe();
+    stopReplies();
   };
 }

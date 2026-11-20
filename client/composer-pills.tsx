@@ -272,11 +272,21 @@ export function registerComposerPills(client: PluginClientContext): () => void {
     })
     .catch(() => undefined);
 
+  /**
+   * Flips the pill at once, then marks the chat on the next tick. The mark re-renders every surface that
+   * follows the store (the tree, the Inbox), which on a phone can hold the pill's own update back.
+   */
   const mark = (agentId: string, read: boolean) => {
     const serverId = selfId;
-    if (!serverId) return;
-    if (read) getStore().markChatsRead(serverId, [agentId]);
-    else getStore().markChatUnread(serverId, agentId);
+    const entry = pills.get(agentId);
+    if (!serverId || !entry) return;
+    entry.state = read ? "read" : "unread";
+    entry.read.update({ visible: !read });
+    entry.unread.update({ visible: read });
+    setTimeout(() => {
+      if (read) getStore().markChatsRead(serverId, [agentId]);
+      else getStore().markChatUnread(serverId, agentId);
+    }, 0);
   };
 
   /** Inbox count on every pill; Mark read on unread chats, Mark unread on read ones (not while asking, failing or running). */

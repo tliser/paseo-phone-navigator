@@ -1,12 +1,13 @@
-// The navigator's top: Inbox and Running indicators, Options, the views control, and the search field.
+// The navigator's top: the Inbox, host button, search (phones), New project, Options, the views control and the search field.
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
-import { useRef, useState, type RefObject } from "react";
+import { useRef, type ReactNode, type RefObject } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { InboxTally } from "../shared/inbox";
 import { FILTERS, type Filter } from "../shared/types";
-import { Mark } from "./marks";
+import { TallyMarks } from "./marks";
 import { measureAnchor, type Anchor } from "./sheet";
+import { useOwnField } from "./chat-nav";
 
 export const VIEW_LABEL: Record<Filter, string> = { all: "All", recent: "Recent", active: "Active", pinned: "Pinned" };
 const VIEW_HINT: Record<Filter, string> = {
@@ -16,78 +17,95 @@ const VIEW_HINT: Record<Filter, string> = {
   pinned: "Workspaces you pinned",
 };
 
-/** Below this width the Inbox indicator drops the words and keeps glyphs and numbers. */
-const NARROW_WIDTH = 310;
-
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 export function TitleBar({
   theme,
   compact,
   inbox,
-  running,
   scale,
   onInbox,
-  onRunning,
   onOptions,
   inboxRef,
+  host,
+  onNewProject,
+  onSearch,
 }: {
   theme: PluginTheme;
   /** The Inbox button, so focus can return to it when the Inbox closes. */
   inboxRef: RefObject<View | null>;
   compact: boolean;
   inbox: InboxTally;
-  running: number;
   scale: number;
   onInbox(anchor: Anchor | null): void;
-  onRunning(): void;
   onOptions(anchor: Anchor | null): void;
+  /** The host button (menu mode with several hosts). */
+  host?: ReactNode;
+  /** Set while an online host can take a project. */
+  onNewProject?(anchor: Anchor | null): void;
+  /** Phones: the search icon opens the search field under the title bar. */
+  onSearch?(): void;
 }) {
   const c = theme.colors;
   const fs = (size: number) => Math.round(size * scale * 2) / 2;
-  const [width, setWidth] = useState(0);
-  const narrow = width > 0 && width < NARROW_WIDTH;
   const optionsRef = useRef<View>(null);
-  const size = compact ? 44 : 40;
-  const label = [`Inbox, ${plural(inbox.total, "chat", "chats")}`, inbox.asking ? `${inbox.asking} ask${inbox.asking === 1 ? "s" : ""} you` : "", inbox.error ? `${inbox.error} failed` : ""]
+  const newProjectRef = useRef<View>(null);
+  // Same height as the host tabs and the views control below it; taps reach a little past the edges.
+  const size = compact ? 36 : 32;
+  const slop = { top: 4, bottom: 4 };
+  const label = [
+    `Inbox, ${plural(inbox.total, "chat", "chats")}`,
+    inbox.asking ? `${inbox.asking} ask${inbox.asking === 1 ? "s" : ""} you` : "",
+    inbox.error ? `${inbox.error} failed` : "",
+    inbox.unread ? `${inbox.unread} unread` : "",
+  ]
     .filter(Boolean)
     .join(", ");
   return (
-    <View onLayout={(event) => setWidth(event.nativeEvent.layout.width)} style={{ flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 4 }}>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 4 }}>
       <Text accessibilityRole="header" style={{ position: "absolute", width: 1, height: 1, opacity: 0 }}>Workspaces</Text>
       <Pressable
         ref={inboxRef}
         accessibilityRole="button"
         accessibilityLabel={`${label}. Open the list`}
         onPress={() => measureAnchor(inboxRef.current, onInbox)}
-        style={({ pressed }) => ({ minHeight: size, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8, borderRadius: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
+        hitSlop={slop}
+        style={({ pressed }) => ({ minHeight: size, flexShrink: 1, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, borderRadius: 8, backgroundColor: pressed ? c.surface1 : "transparent" })}
       >
-        <Icon name="Inbox" size={18} color={c.foreground} />
-        <Text style={{ color: c.foreground, fontSize: fs(15), fontWeight: "700" }}>Inbox</Text>
-        <Text style={{ color: c.foreground, fontSize: fs(13), fontWeight: "600", fontVariant: ["tabular-nums"] }}>{inbox.total}</Text>
-        {inbox.asking ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 4 }}>
-            <Mark theme={theme} kind="asking" size={14} />
-            <Text numberOfLines={1} style={{ color: c.statusWarning, fontSize: fs(12.5), fontWeight: "600" }}>{narrow ? inbox.asking : `${inbox.asking} ask${inbox.asking === 1 ? "s" : ""} you`}</Text>
+        <Icon name="Inbox" size={16} color={c.foreground} />
+        <Text style={{ color: c.foreground, fontSize: fs(13.5), fontWeight: "600" }}>Inbox</Text>
+        {/* The same glyph-and-number marks as folded groups: asks you, failed, unread, each in its colour. */}
+        {inbox.total ? (
+          <View style={{ marginLeft: 4 }}>
+            <TallyMarks theme={theme} tally={inbox} size={12} />
           </View>
-        ) : null}
-        {inbox.error ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 4 }}>
-            <Mark theme={theme} kind="error" size={14} />
-            <Text numberOfLines={1} style={{ color: c.statusDanger, fontSize: fs(12.5), fontWeight: "600" }}>{narrow ? inbox.error : `${inbox.error} failed`}</Text>
-          </View>
-        ) : null}
+        ) : (
+          <Text style={{ color: c.foregroundMuted, fontSize: fs(12.5) }}>0</Text>
+        )}
       </Pressable>
       <View style={{ flex: 1 }} />
-      {running ? (
+      {host}
+      {onSearch ? (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`${running} running. Show Active`}
-          onPress={onRunning}
-          style={({ pressed }) => ({ minWidth: size, height: size, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 8, borderRadius: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
+          accessibilityLabel="Search"
+          onPress={onSearch}
+          hitSlop={slop}
+          style={({ pressed }) => ({ width: size, height: size, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: pressed ? c.surface1 : "transparent" })}
         >
-          <Mark theme={theme} kind="running" size={16} />
-          <Text style={{ color: c.foreground, fontSize: fs(13), fontWeight: "600", fontVariant: ["tabular-nums"] }}>{running}</Text>
+          <Icon name="Search" size={16} color={c.foreground} />
+        </Pressable>
+      ) : null}
+      {onNewProject ? (
+        <Pressable
+          ref={newProjectRef}
+          accessibilityRole="button"
+          accessibilityLabel="New project"
+          onPress={() => measureAnchor(newProjectRef.current, onNewProject)}
+          hitSlop={slop}
+          style={({ pressed }) => ({ width: size, height: size, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: pressed ? c.surface1 : "transparent" })}
+        >
+          <Icon name="FolderPlus" size={16} color={c.foreground} />
         </Pressable>
       ) : null}
       <Pressable
@@ -95,9 +113,10 @@ export function TitleBar({
         accessibilityRole="button"
         accessibilityLabel="Options"
         onPress={() => measureAnchor(optionsRef.current, onOptions)}
-        style={({ pressed }) => ({ width: size, height: size, alignItems: "center", justifyContent: "center", borderRadius: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
+        hitSlop={slop}
+        style={({ pressed }) => ({ width: size, height: size, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: pressed ? c.surface1 : "transparent" })}
       >
-        <Icon name="SlidersHorizontal" size={18} color={c.foreground} />
+        <Icon name="SlidersHorizontal" size={16} color={c.foreground} />
       </Pressable>
     </View>
   );
@@ -130,13 +149,17 @@ export function ViewsControl({ theme, value, counts, compact, onChange }: { them
   );
 }
 
-export function SearchField({ theme, query, onChange }: { theme: PluginTheme; query: string; onChange(next: string): void }) {
+/** `onClose` (phones): the field was opened from the search icon; it takes focus and its X closes it. */
+export function SearchField({ theme, query, onChange, onClose }: { theme: PluginTheme; query: string; onChange(next: string): void; onClose?(): void }) {
   const c = theme.colors;
+  const field = useOwnField();
   return (
     <View style={{ height: 38, flexDirection: "row", alignItems: "center", gap: 6, marginHorizontal: 8, paddingLeft: 10, borderRadius: 10, backgroundColor: c.surface1, borderWidth: 1, borderColor: c.border }}>
       <Icon name="Search" size={14} color={c.foregroundMuted} />
       <TextInput
+        {...field}
         value={query}
+        autoFocus={!!onClose}
         onChangeText={onChange}
         accessibilityLabel="Search workspaces, chats and projects"
         placeholder="Search workspaces, chats, projects"
@@ -146,8 +169,8 @@ export function SearchField({ theme, query, onChange }: { theme: PluginTheme; qu
         returnKeyType="search"
         style={{ flex: 1, color: c.foreground, fontSize: 15, paddingVertical: 0 }}
       />
-      {query ? (
-        <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => onChange("")} hitSlop={3} style={{ width: 38, height: 38, alignItems: "center", justifyContent: "center" }}>
+      {query || onClose ? (
+        <Pressable accessibilityRole="button" accessibilityLabel={onClose ? "Close search" : "Clear search"} onPress={onClose ?? (() => onChange(""))} hitSlop={3} style={{ width: 38, height: 38, alignItems: "center", justifyContent: "center" }}>
           <Icon name="X" size={16} color={c.foregroundMuted} />
         </Pressable>
       ) : null}

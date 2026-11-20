@@ -5,6 +5,7 @@ import { resolveProfile, type Profile } from "../shared/profiles";
 import { buildInbox, inboxTally, type Inbox, type InboxTally } from "../shared/inbox";
 import type { HostInput, Platform, TerminalInput } from "../shared/types";
 import type { Store, StoreSnapshot } from "./store";
+import { chatOpener } from "./chat-nav";
 
 let current: Store | null = null;
 
@@ -15,6 +16,18 @@ export function setStore(store: Store | null): void {
 export function getStore(): Store {
   if (!current) throw new Error("Workspace Organizer is not loaded");
   return current;
+}
+
+let goScreen: ((serverId: string, agentId: string) => void) | null = null;
+
+/** How this installation opens a chat when no surface with navigation is at hand (the go screen). */
+export function setGoScreen(open: ((serverId: string, agentId: string) => void) | null): void {
+  goScreen = open;
+}
+
+/** Opens a chat from anywhere: through Paseo's own sidebar navigation when it is shown, else the go screen. */
+export function openChat(serverId: string, agentId: string): void {
+  (chatOpener() ?? goScreen)?.(serverId, agentId);
 }
 
 /** Subscribes the calling surface to the store and keeps the host list current. */
@@ -29,7 +42,7 @@ export function useNavigatorStore(): { store: Store; snapshot: StoreSnapshot } {
 
 /** The Inbox over every online host. */
 export function useInbox(snapshot: StoreSnapshot): Inbox {
-  return useMemo(() => buildInbox(snapshot.hosts, snapshot.reads), [snapshot.hosts, snapshot.reads]);
+  return useMemo(() => buildInbox(snapshot.hosts, snapshot.reads, Date.now()), [snapshot.hosts, snapshot.reads]);
 }
 
 /** Chats that ask you, failed or are unread, for the badges. */
@@ -54,6 +67,8 @@ export function useActiveProfile(snapshot: StoreSnapshot, platform: Platform, co
 
 export const SCREEN_ID = "navigator";
 export const SETTINGS_ID = "settings";
+/** The full profile settings screen (Paseo's settings page links to it). */
+export const PROFILES_SCREEN_ID = "profiles";
 
 export interface TerminalTabs {
   byWorkspace: ReadonlyMap<string, TerminalInput[]>;

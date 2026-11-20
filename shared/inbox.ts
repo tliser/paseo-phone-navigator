@@ -1,7 +1,8 @@
-// The Inbox: every chat that asks you, errored or has unread news, on every online host. Pure.
+// The Inbox: every top-level chat that asks you, errored or has unread news, on every online host. Sub-agents
+// are left out: they belong to their parent's work, which the Inbox already lists. Pure.
 import type { ReadMap } from "./reads";
-import { chatState } from "./tree";
-import type { HostInput } from "./types";
+import { chatState, topLevelChats } from "./tree";
+import type { AgentRequest, HostInput } from "./types";
 
 type InboxState = "asking" | "error" | "unread";
 
@@ -16,13 +17,18 @@ export interface InboxEntry {
   state: InboxState;
   /** When it started waiting, or its last activity; epoch ms. */
   at: number;
+  /** What it asks (asking only): the question or the permission it waits for, answerable from the Inbox. */
+  request?: AgentRequest;
+  /** Why it stopped (error only): the agent's last error message. */
+  errorText?: string;
 }
 
 export interface Inbox {
   entries: InboxEntry[];
-  /** Labels of hosts whose chats are not checked: offline, or still loading. */
+  /** Labels of hosts whose chats are not checked: offline, still loading, or failing to load. */
   offlineHosts: string[];
   loadingHosts: string[];
+  failedHosts: string[];
 }
 
 export interface InboxTally {
@@ -34,11 +40,15 @@ export interface InboxTally {
 
 const urgent = (state: InboxState) => (state === "unread" ? 1 : 0);
 
-/** Covers every host, hidden ones included: one Inbox you can trust. Asking and errors first, then unread; newest first. */
-export function buildInbox(hosts: readonly HostInput[], reads: ReadMap): Inbox {
+/**
+ * Covers every host, hidden ones included: one Inbox you can trust. Asking and errors first, then unread;
+ * newest first. `now` lets news older than KEEP_DAYS drop out (see `isAgentUnread`).
+ */
+export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: number): Inbox {
   const entries: InboxEntry[] = [];
   const offlineHosts: string[] = [];
   const loadingHosts: string[] = [];
+  const failedHosts: string[] = [];
   for (const host of hosts) {
     if (host.status !== "online") {
       offlineHosts.push(host.label);
@@ -48,9 +58,11 @@ export function buildInbox(hosts: readonly HostInput[], reads: ReadMap): Inbox {
       loadingHosts.push(host.label);
       continue;
     }
+    // A failed load keeps the last complete list (possibly none), so its chats may be missing or stale.
+    if (host.error) failedHosts.push(host.label);
     for (const workspace of host.workspaces) {
-      for (const agent of workspace.agents ?? []) {
-        const state = chatState(agent, host.serverId, workspace.id, reads);
+      for (const agent of topLevelChats(workspace.agents ?? [])) {
+        const state = chatState(agent, host.serverId, workspace.id, reads, now);
         if (state !== "asking" && state !== "error" && state !== "unread") continue;
         entries.push({
           serverId: host.serverId,
@@ -62,12 +74,14 @@ export function buildInbox(hosts: readonly HostInput[], reads: ReadMap): Inbox {
           chatTitle: agent.title,
           state,
           at: (state === "unread" && agent.unreadAt) || agent.activityAt,
+          ...(state === "asking" && agent.request ? { request: agent.request } : {}),
+          ...(state === "error" && agent.errorText ? { errorText: agent.errorText } : {}),
         });
       }
     }
   }
   entries.sort((a, b) => urgent(a.state) - urgent(b.state) || b.at - a.at || a.agentId.localeCompare(b.agentId));
-  return { entries, offlineHosts, loadingHosts };
+  return { entries, offlineHosts, loadingHosts, failedHosts };
 }
 
 export function inboxTally(entries: readonly InboxEntry[]): InboxTally {

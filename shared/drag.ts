@@ -3,20 +3,33 @@ import type { Place } from "./order";
 import type { TreeRow } from "./tree";
 
 export interface RowHeights {
-  group: number;
+  /** Host divider: a thin label line, not a band. */
+  host: number;
+  project: number;
   workspace: number;
   note: number;
   tab: number;
 }
 
-/** Row heights for the density, grown with the interface font size (`scale`, 1 = Paseo's default). */
-export function heightsFor(comfortable: boolean, scale = 1, touch = false): RowHeights {
+/**
+ * Row heights for the density and the workspace row's line count (1–3), grown with the interface font
+ * size (`scale`, 1 = Paseo's default). Touch screens keep one-line rows at 44 pt.
+ */
+export function heightsFor(comfortable: boolean, scale = 1, touch = false, lines = 2): RowHeights {
   const grow = (px: number) => Math.round(px * Math.max(1, scale));
-  return { group: grow(comfortable ? 52 : 44), workspace: grow(comfortable ? 68 : 56), note: grow(44), tab: grow(comfortable || touch ? 44 : 40) };
+  const workspace = (comfortable ? 28 : 24) + lines * (comfortable ? 20 : 16);
+  return {
+    host: grow(comfortable ? 34 : 30),
+    project: grow(Math.max(comfortable ? 42 : 36, touch ? 40 : 0)),
+    workspace: grow(Math.max(workspace, touch ? 44 : 0)),
+    note: grow(44),
+    tab: grow(comfortable || touch ? 44 : 40),
+  };
 }
 
 function rowHeight(row: TreeRow, heights: RowHeights): number {
-  if (row.type === "host" || row.type === "project") return heights.group;
+  if (row.type === "host") return heights.host;
+  if (row.type === "project") return heights.project;
   if (row.type === "workspace" || row.type === "skeleton") return heights.workspace;
   if (row.type === "tab") return heights.tab;
   return heights.note;
@@ -138,25 +151,25 @@ export interface StickyHeaders {
 
 /**
  * Which headers stick at scroll offset `scrollY`: the host whose section is under the top edge, and below
- * it the project whose section is under the host header. The next header of the same level pushes the
- * pinned one up, so they hand over instead of overlapping.
+ * it the project whose section is under the host header (under the top edge when the tree has no host
+ * rows). The next header of the same level pushes the pinned one up, so they hand over instead of overlapping.
  */
-export function stickyHeaders(rows: readonly TreeRow[], offsets: readonly number[], scrollY: number, groupHeight: number): StickyHeaders {
-  const none: StickyHeaders = { host: null, hostShift: 0, project: null, projectShift: 0 };
-  if (scrollY <= 0) return none;
+export function stickyHeaders(rows: readonly TreeRow[], offsets: readonly number[], scrollY: number, heights: Pick<RowHeights, "host" | "project">): StickyHeaders {
+  const result: StickyHeaders = { host: null, hostShift: 0, project: null, projectShift: 0 };
+  if (scrollY <= 0) return result;
   const top = (index: number) => offsets[index] ?? 0;
-  let host: number | null = null;
-  for (let index = 0; index < rows.length && top(index) < scrollY; index++) if (rows[index]!.type === "host") host = index;
-  if (host === null) return none;
+  for (let index = 0; index < rows.length && top(index) < scrollY; index++) if (rows[index]!.type === "host") result.host = index;
+  const hasHosts = rows.some((row) => row.type === "host");
+  if (hasHosts && result.host === null) return result;
+  const start = result.host ?? -1;
   let nextHost = rows.length;
-  for (let index = host + 1; index < rows.length; index++) if (rows[index]!.type === "host") { nextHost = index; break; }
-  const hostShift = nextHost < rows.length ? Math.min(0, top(nextHost) - scrollY - groupHeight) : 0;
-  const result: StickyHeaders = { host, hostShift, project: null, projectShift: 0 };
-  const line = scrollY + groupHeight;
-  for (let index = host + 1; index < nextHost && top(index) < line; index++) if (rows[index]!.type === "project") result.project = index;
+  for (let index = start + 1; index < rows.length; index++) if (rows[index]!.type === "host") { nextHost = index; break; }
+  if (result.host !== null) result.hostShift = nextHost < rows.length ? Math.min(0, top(nextHost) - scrollY - heights.host) : 0;
+  const line = scrollY + (result.host !== null ? heights.host : 0);
+  for (let index = start + 1; index < nextHost && top(index) < line; index++) if (rows[index]!.type === "project") result.project = index;
   if (result.project === null) return result;
   let next = nextHost;
   for (let index = result.project + 1; index < nextHost; index++) if (rows[index]!.type === "project") { next = index; break; }
-  result.projectShift = next < rows.length ? Math.min(0, top(next) - line - groupHeight) : 0;
+  result.projectShift = next < rows.length ? Math.min(0, top(next) - line - heights.project) : 0;
   return result;
 }

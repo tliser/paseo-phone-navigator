@@ -4,13 +4,13 @@ import { FlatList, Icon } from "@getpaseo/plugin/client/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AccessibilityInfo, Animated, Easing, findNodeHandle, Platform, Pressable, Text, View, type GestureResponderHandlers } from "react-native";
 import { timeAgo } from "../shared/format";
-import { expandForAttention, expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile } from "../shared/profiles";
+import { expandForAttention, expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile, type RowField } from "../shared/profiles";
 import { blockEnd, dragId, dragShift, heightsFor, rowOffsets, stickyHeaders, type DropTarget, type StickyHeaders } from "../shared/drag";
 import { inboxTally, type InboxEntry } from "../shared/inbox";
 import { buildTree, workspaceState, type HostRow, type ProjectRow, type TabRow, type Tally, type TreeRow, type WorkspaceRow } from "../shared/tree";
 import type { Filter, WorkspaceState } from "../shared/types";
 import { GLIDE_MS, useDragController } from "./drag-controller";
-import { MONO_FONT, useFontScale } from "./font-scale";
+import { layoutScale, MONO_FONT, useFontScale } from "./font-scale";
 import { NamesCard, type Peek } from "./names-card";
 import { NewProjectSheet } from "./new-project-sheet";
 import { NewWorkspaceSheet } from "./new-workspace-sheet";
@@ -20,17 +20,21 @@ import { useActiveProfile, useInbox, useNavigatorStore, withTerminals, type Term
 import type { Anchor } from "./sheet";
 import type { Place } from "../shared/order";
 import { SearchField, TitleBar, ViewsControl } from "./title-bar";
+import { HostButton, HostMenu, HostTabs } from "./host-switch";
 import { Toast, useToastState } from "./toast";
 import { Mark, MARK_LABEL, markColor, TallyMarks, type MarkKind } from "./marks";
 import { unreadColor } from "./colors";
-import { WorkspaceMenu, type MenuTarget } from "./workspace-menu";
+import { canMarkWorkspaceRead, markWorkspaceRead, toggleRecent, WorkspaceMenu, type MenuTarget } from "./workspace-menu";
+import { SwipeRow } from "./swipe-row";
 import { ProjectMenu } from "./project-menu";
 import { measureAnchor } from "./sheet";
 import { ColorPicker, type ColorTarget } from "./color-picker";
 import { colorHex, hostColorKey, projectColorKey } from "../shared/colors";
+import { ownScreenOpen } from "./chat-nav";
 
-/** Filter picked in this session per profile; starts at the profile's default. */
+/** Filter and host picked in this session per profile; the filter starts at the profile's default, the host at all. */
 const sessionFilters = new Map<string, Filter>();
+const sessionHosts = new Map<string, string | null>();
 
 /**
  * A chat was opened from the Inbox on the phone screen: coming back to the screen reopens the Inbox.
@@ -57,6 +61,8 @@ export function NavigatorScreen(
   },
 ) {
   const { theme, layout, navigation, openSettings, activeWorkspace, surface } = props;
+  // The full screen sits over a chat on phones: typing in its fields is not typing in that chat.
+  useEffect(() => (surface === "screen" ? ownScreenOpen() : undefined), [surface]);
   const { store, snapshot } = useNavigatorStore();
   const profile = useActiveProfile(snapshot, layout.platform, layout.compact);
   const settings = profile.settings;
@@ -72,9 +78,18 @@ export function NavigatorScreen(
     setFilterState(next);
   };
 
+  const [hostView, setHostViewState] = useState<string | null>(() => sessionHosts.get(profile.id) ?? null);
+  useEffect(() => setHostViewState(sessionHosts.get(profile.id) ?? null), [profile.id]);
+  const setHostView = (next: string | null) => {
+    sessionHosts.set(profile.id, next);
+    setHostViewState(next);
+  };
+
   const [query, setQuery] = useState("");
+  /** Phones: the search field shows only after the search icon is tapped. */
+  const [searchOpen, setSearchOpen] = useState(false);
   /** Open overlay of the title bar and where its button is (desktop popovers hang under it). */
-  const [overlay, setOverlay] = useState<{ kind: "inbox" | "options"; anchor: Anchor | null } | null>(() => {
+  const [overlay, setOverlay] = useState<{ kind: "inbox" | "options" | "hosts"; anchor: Anchor | null } | null>(() => {
     const reopen = Date.now() < reopenInboxUntil && layout.compact && surface === "screen";
     reopenInboxUntil = 0;
     return reopen ? { kind: "inbox", anchor: null } : null;
@@ -94,13 +109,13 @@ export function NavigatorScreen(
   const [menuFor, setMenuFor] = useState<MenuTarget | null>(null);
   const [projectFor, setProjectFor] = useState<{ row: ProjectRow; anchor: Anchor | null } | null>(null);
   const [colorFor, setColorFor] = useState<ColorTarget | null>(null);
+  const pickHostColor = (host: { serverId: string; label: string }) =>
+    setColorFor({ key: hostColorKey(host.serverId), title: `Host colour · ${host.label}`, icon: "Server", fallback: theme.colors.foregroundMuted });
   const pickColor = (row: ProjectRow | HostRow) =>
-    setColorFor(
-      row.type === "host"
-        ? { key: hostColorKey(row.serverId), title: `Host colour · ${row.label}`, icon: "Server", fallback: theme.colors.foregroundMuted }
-        : { key: projectColorKey(row.serverId, row.projectId), title: `Folder colour · ${row.name}`, icon: "Folder", fallback: theme.colors.accent },
-    );
-  const [newProjectFor, setNewProjectFor] = useState<{ row: HostRow; anchor: Anchor | null } | null>(null);
+    row.type === "host"
+      ? pickHostColor(row)
+      : setColorFor({ key: projectColorKey(row.serverId, row.projectId), title: `Folder colour · ${row.name}`, icon: "Folder", fallback: theme.colors.accent });
+  const [newProjectFor, setNewProjectFor] = useState<{ hosts: { serverId: string; label: string }[]; anchor: Anchor | null } | null>(null);
 
   // Relative times stay fresh without re-rendering on every data tick.
   useEffect(() => {
@@ -111,9 +126,12 @@ export function NavigatorScreen(
   const terminals = props.terminals ?? NO_TERMINALS;
   const hosts = useMemo(() => withTerminals(snapshot.hosts, terminals.byWorkspace), [snapshot.hosts, terminals]);
   const tree = useMemo(
-    () => buildTree(hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder, pins, archiving: snapshot.archiving }),
-    [hosts, snapshot.hostOrder, snapshot.reads, snapshot.archiving, profile.order, filter, query, settings, collapse, now, pins],
+    () => buildTree(hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder, pins, archiving: snapshot.archiving, hostView }),
+    [hosts, snapshot.hostOrder, snapshot.reads, snapshot.archiving, profile.order, filter, query, settings, collapse, now, pins, hostView],
   );
+  // New project goes to the host on screen, or asks which online host when all are shown.
+  const projectHosts = tree.hosts.filter((host) => host.state === "online" && (!tree.hostView || host.serverId === tree.hostView));
+  const hostSwitch = tree.hosts.length > 1 ? settings.hostSwitch : null;
   const loading = snapshot.hosts.some((host) => host.loading);
   useEffect(() => {
     if (refreshing && !loading) setRefreshing(false);
@@ -129,7 +147,7 @@ export function NavigatorScreen(
     for (const host of snapshot.hosts) {
       if (host.status !== "online") continue;
       for (const workspace of host.workspaces) {
-        const state = workspaceState(workspace, host.serverId, snapshot.reads);
+        const state = workspaceState(workspace, host.serverId, snapshot.reads, Date.now());
         if (state === "needs_you" || state === "error") now.set(`${host.serverId}:${workspace.id}`, { serverId: host.serverId, projectId: workspace.projectId });
       }
     }
@@ -197,7 +215,10 @@ export function NavigatorScreen(
       },
     });
   };
-  const closeSearch = () => setQuery("");
+  const closeSearch = () => {
+    setQuery("");
+    setSearchOpen(false);
+  };
   /** Moves an item one place up or down in its manual order group. */
   const step = (group: string, id: string, direction: -1 | 1) => {
     const ids = tree.groups[group] ?? [];
@@ -221,7 +242,7 @@ export function NavigatorScreen(
   const arranging = layout.compact && arrangeMode;
   const canArrange = settings.sort === "manual" && !searching && (!layout.compact || arranging);
   const touch = layout.platform !== "web";
-  const heights = useMemo(() => heightsFor(comfortable, scale, touch), [comfortable, scale, touch]);
+  const heights = useMemo(() => heightsFor(comfortable, layoutScale(scale), touch, settings.lines.length), [comfortable, scale, touch, settings.lines.length]);
 
   const drop = useCallback(
     (row: TreeRow, target: DropTarget) => {
@@ -280,12 +301,12 @@ export function NavigatorScreen(
   const [sticky, setSticky] = useState<StickyHeaders | null>(null);
   const updateSticky = useCallback(
     (scrollY: number) => {
-      const next = stickyHeaders(tree.rows, offsets, scrollY, heights.group);
+      const next = stickyHeaders(tree.rows, offsets, scrollY, heights);
       setSticky((current) =>
         current && current.host === next.host && current.project === next.project && current.hostShift === next.hostShift && current.projectShift === next.projectShift ? current : next,
       );
     },
-    [tree.rows, offsets, heights.group],
+    [tree.rows, offsets, heights],
   );
   // Rows changed (folding, data): re-check against the current scroll position.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -312,12 +333,12 @@ export function NavigatorScreen(
       }}
       onProjectMenu={(row, anchor) => setProjectFor({ row, anchor })}
       onCreate={setDraftFor}
-      onNewProject={(row, anchor) => setNewProjectFor({ row, anchor })}
+      onSwipeAction={(row, action) => (action === "read" ? markWorkspaceRead(store, row, showToast) : toggleRecent(store, snapshot.reads, row, showToast))}
       colors={snapshot.colors}
       onPickColor={pickColor}
       canOpen={!!navigation}
       dragHandle={canArrange && dragId(item) ? drag.handleFor(index) : undefined}
-      active={!!activeWorkspace && item.type === "workspace" && item.serverId === activeWorkspace.serverId && item.workspace.id === activeWorkspace.workspaceId}
+      active={!layout.compact && !!activeWorkspace && item.type === "workspace" && item.serverId === activeWorkspace.serverId && item.workspace.id === activeWorkspace.workspaceId}
       lifted={dragging?.index === index ? dragging.dy : null}
       onPeek={canPeek ? (show) => peekAt(item, index, show) : undefined}
     />
@@ -344,7 +365,7 @@ export function NavigatorScreen(
     <EmptyState
       theme={theme}
       icon="Search"
-      title={query.trim() ? `No workspaces match "${query.trim()}"` : filter === "pinned" ? "Nothing pinned" : filter === "recent" ? `Nothing active in the last ${settings.recentDays === 1 ? "day" : `${settings.recentDays} days`}` : "Nothing running, new or asking"}
+      title={query.trim() ? `No workspaces match "${query.trim()}"` : filter === "pinned" ? "Nothing pinned" : filter === "recent" ? `Nothing active in the last ${settings.recentDays === 1 ? "day" : `${settings.recentDays} days`}` : "Nothing running, unread or asking"}
       action={{ label: "Show all", onPress: () => { setFilter("all"); closeSearch(); } }}
     />
   ) : null;
@@ -362,14 +383,16 @@ export function NavigatorScreen(
           theme={theme}
           compact={layout.compact}
           inbox={inboxCounts}
-          running={tree.running}
           scale={scale}
           onInbox={(anchor) => setOverlay({ kind: "inbox", anchor })}
-          onRunning={() => setFilter("active")}
           onOptions={(anchor) => setOverlay({ kind: "options", anchor })}
+          host={hostSwitch === "menu" ? <HostButton theme={theme} hosts={tree.hosts} value={tree.hostView} compact={layout.compact} colors={snapshot.colors} onOpen={(anchor) => setOverlay({ kind: "hosts", anchor })} /> : null}
+          onNewProject={projectHosts.length && !arranging ? (anchor) => setNewProjectFor({ hosts: projectHosts, anchor }) : undefined}
+          onSearch={layout.compact && !searchOpen ? () => setSearchOpen(true) : undefined}
         />
-        {/* Search sits at the top on desktop and docks at the bottom on phones (thumb reach). */}
-        {layout.compact ? null : <SearchField theme={theme} query={query} onChange={setQuery} />}
+        {/* Desktop: search always under the title bar. Phones: only after the search icon, to save space. */}
+        {!layout.compact ? <SearchField theme={theme} query={query} onChange={setQuery} /> : searchOpen ? <SearchField theme={theme} query={query} onChange={setQuery} onClose={closeSearch} /> : null}
+        {hostSwitch === "tabs" ? <HostTabs theme={theme} hosts={tree.hosts} value={tree.hostView} compact={layout.compact} colors={snapshot.colors} onChange={setHostView} onPickColor={pickHostColor} /> : null}
         <ViewsControl theme={theme} value={filter} counts={tree.counts} compact={layout.compact} onChange={setFilter} />
       </View>
       {arranging ? (
@@ -417,9 +440,9 @@ export function NavigatorScreen(
           }}
         />
         {sticky && !dragging && (sticky.host !== null || sticky.project !== null) ? (
-          <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, top: 0, height: heights.group * 2, overflow: "hidden", zIndex: 30, elevation: 6 }}>
+          <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, top: 0, height: heights.host + heights.project, overflow: "hidden", zIndex: 30, elevation: 6 }}>
             {sticky.project !== null && tree.rows[sticky.project] ? (
-              <View style={{ position: "absolute", left: 0, right: 0, top: heights.group + sticky.hostShift + sticky.projectShift }}>{rowFor(tree.rows[sticky.project]!, sticky.project)}</View>
+              <View style={{ position: "absolute", left: 0, right: 0, top: (sticky.host !== null ? heights.host + sticky.hostShift : 0) + sticky.projectShift }}>{rowFor(tree.rows[sticky.project]!, sticky.project)}</View>
             ) : null}
             {sticky.host !== null && tree.rows[sticky.host] ? (
               <View style={{ position: "absolute", left: 0, right: 0, top: sticky.hostShift }}>{rowFor(tree.rows[sticky.host]!, sticky.host)}</View>
@@ -429,11 +452,6 @@ export function NavigatorScreen(
         {peek && canPeek ? <NamesCard theme={theme} peek={peek} scale={scale} now={now} areaHeight={areaHeight} /> : null}
         <Toast theme={theme} toast={toast} onHide={hideToast} />
       </View>
-      {layout.compact ? (
-        <View style={{ paddingVertical: 8, borderTopWidth: 1, borderTopColor: c.border, backgroundColor: c.surface0 }}>
-          <SearchField theme={theme} query={query} onChange={setQuery} />
-        </View>
-      ) : null}
 
       {colorFor ? (
         <ColorPicker
@@ -465,12 +483,11 @@ export function NavigatorScreen(
         <NewProjectSheet
           theme={theme}
           compact={layout.compact}
-          serverId={newProjectFor.row.serverId}
-          hostLabel={newProjectFor.row.label}
+          hosts={newProjectFor.hosts}
           anchor={newProjectFor.anchor}
-          onAdded={(workspaceId) => {
+          onAdded={(serverId, workspaceId) => {
             setNewProjectFor(null);
-            created(newProjectFor.row.serverId, workspaceId);
+            created(serverId, workspaceId);
           }}
           onClose={() => setNewProjectFor(null)}
         />
@@ -504,6 +521,19 @@ export function NavigatorScreen(
             markInboxUnreadRead();
           }}
           onClose={closeInbox}
+        />
+      ) : null}
+      {overlay?.kind === "hosts" ? (
+        <HostMenu
+          theme={theme}
+          hosts={tree.hosts}
+          value={tree.hostView}
+          compact={layout.compact}
+          anchor={overlay.anchor}
+          colors={snapshot.colors}
+          onChange={setHostView}
+          onPickColor={pickHostColor}
+          onClose={() => setOverlay(null)}
         />
       ) : null}
       {overlay?.kind === "options" ? (
@@ -597,8 +627,6 @@ interface RowProps {
   /** Hold (phones) or right-click (web) a project's name: its sheet. */
   onProjectMenu?(row: ProjectRow, anchor: Anchor | null): void;
   onCreate(row: ProjectRow): void;
-  /** The folder-plus on an online host: add a project there. */
-  onNewProject?(row: HostRow, anchor: Anchor | null): void;
   /** Colour id per project folder and host icon (`projectColorKey` / `hostColorKey`). */
   colors?: Readonly<Record<string, string>>;
   /** Long-press on a project's folder or a host's icon: choose its colour. */
@@ -611,6 +639,8 @@ interface RowProps {
   onPeek?: (show: boolean) => void;
   /** The workspace open in the app (sidebar view): drawn highlighted. */
   active?: boolean;
+  /** Phones: swipe a workspace row left to mark it read ("read"), right to remove it from Recent or put it back. */
+  onSwipeAction?(row: WorkspaceRow, action: "read" | "recent"): void;
 }
 
 function Grip({ theme, handlers, height, label, wide }: { theme: PluginTheme; handlers: GestureResponderHandlers; height: number; label: string; wide: boolean }) {
@@ -650,14 +680,14 @@ const tallyWords = (tally: Tally) =>
 
 const WORKSPACE_MARK: Record<WorkspaceState, MarkKind> = { needs_you: "asking", error: "error", unread: "unread", running: "running", read: "read" };
 
-export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenTab, arranging, onMenu, onTabMenu, onProjectMenu, onCreate, onNewProject, colors, onPickColor, lifted, dragHandle, onPeek, active = false }: RowProps) {
+export function Row({ row, theme, profile, comfortable, scale = 1, touch = false, searching, now, canOpen, onToggle, onOpen, onOpenTab, arranging, onMenu, onTabMenu, onProjectMenu, onCreate, colors, onPickColor, lifted, dragHandle, onPeek, active = false, onSwipeAction }: RowProps) {
   const c = theme.colors;
   const liftStyle =
     lifted !== null
       ? { opacity: 0.95, backgroundColor: c.surface2, borderRadius: 8, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }
       : null;
-  const { group: groupHeight, workspace: workspaceHeight, note: noteHeight, tab: tabHeight } = heightsFor(comfortable, scale, touch);
-  const [metaWidth, setMetaWidth] = useState(0);
+  const lines = profile.settings.lines;
+  const { host: hostHeight, project: groupHeight, workspace: workspaceHeight, note: noteHeight, tab: tabHeight } = heightsFor(comfortable, layoutScale(scale), touch, lines.length);
   const anchorRef = useRef<View>(null);
   const menuRef = useRef<View>(null);
   const fs = (size: number) => Math.round(size * scale * 2) / 2;
@@ -669,9 +699,9 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
     const online = row.state === "online";
     // Offline: name and "offline" stay readable; only the icon and chevron are dimmed.
     const dim = row.state === "offline" ? 0.45 : 1;
-    const newProject = online && !arranging && onNewProject ? () => measureAnchor(anchorRef.current, (anchor) => onNewProject(row, anchor)) : null;
     return (
-      <View style={{ height: groupHeight, flexDirection: "row", alignItems: "center", backgroundColor: c.surface1, ...separator }}>
+      // A thin divider, not a band: small caps label on the list background, so it never reads as a project.
+      <View style={{ height: hostHeight, flexDirection: "row", alignItems: "center", backgroundColor: c.surface0, ...separator }}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${row.label}${online ? `, ${row.count} workspaces${row.collapsed ? tallyWords(row.tally) : ""}` : row.state === "offline" ? ", offline" : ", loading"}`}
@@ -683,7 +713,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
           onAccessibilityAction={(event) => (event.nativeEvent.actionName === "colour" ? onPickColor?.(row) : onToggle(row.key))}
           disabled={!online}
           onPress={() => onToggle(row.key)}
-          style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: newProject ? 4 : 12 }}
+          style={{ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12 }}
         >
           {/* Paseo's own host icon, in the 18pt left column so host and project names align; "offline"/"loading…" text carries the state.
               Long-press it to choose its colour; a tap still folds the host. */}
@@ -697,25 +727,14 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
             hitSlop={13}
             style={{ width: 18, alignItems: "center", opacity: dim }}
           >
-            <Icon name="Server" size={15} color={colorHex(colors?.[hostColorKey(row.serverId)], c.foregroundMuted)} />
+            <Icon name="Server" size={12} color={colorHex(colors?.[hostColorKey(row.serverId)], c.foregroundMuted)} />
           </Pressable>
-          <Text numberOfLines={1} style={{ flex: 1, color: c.foreground, fontWeight: "600", fontSize }}>{row.label}</Text>
-          {online ? <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.count}</Text> : <Text style={{ color: c.foregroundMuted, fontSize: fs(12) }}>{row.state === "offline" ? "offline" : "loading…"}</Text>}
-          {online && row.collapsed ? <TallyMarks theme={theme} tally={row.tally} /> : null}
-          {online ? <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={14} color={c.foregroundMuted} /> : null}
+          <Text numberOfLines={1} style={{ flexShrink: 1, color: c.foregroundMuted, fontWeight: "700", fontSize: fs(11), letterSpacing: 0.8, textTransform: "uppercase" }}>{row.label}</Text>
+          <Text style={{ color: c.foregroundMuted, fontSize: fs(11) }}>{online ? row.count : row.state === "offline" ? "offline" : "loading…"}</Text>
+          <View style={{ flex: 1 }} />
+          {online && row.collapsed ? <TallyMarks theme={theme} tally={row.tally} size={11} /> : null}
+          {online ? <Icon name={row.collapsed ? "ChevronRight" : "ChevronDown"} size={12} color={c.foregroundMuted} /> : null}
         </Pressable>
-        {newProject ? (
-          <Pressable
-            ref={anchorRef}
-            accessibilityRole="button"
-            accessibilityLabel={`New project on ${row.label}`}
-            onPress={newProject}
-            hitSlop={{ left: 4 }}
-            style={{ width: buttonWidth, height: groupHeight, alignItems: "center", justifyContent: "center" }}
-          >
-            <Icon name="FolderPlus" size={16} color={c.foregroundMuted} />
-          </Pressable>
-        ) : null}
       </View>
     );
   }
@@ -859,62 +878,110 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
 
   const { workspace } = row;
   const openMenu = () => measureAnchor(anchorRef.current, (anchor) => onMenu(row, anchor));
-  const settings = profile.settings;
-  const show = settings.show;
   const glyph = WORKSPACE_MARK[row.state];
   const metaSize = fs(comfortable ? 13 : 12);
-  const ago = show.time ? timeAgo(workspace.activityAt, now) : "";
-  // The second line: why search found it, else why it needs you, else the profile's values in its order.
-  let meta: ReactNode = null;
-  let metaText = "";
-  if (row.archiving) {
-    metaText = "Archiving…";
-    meta = <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: metaSize, fontStyle: "italic" }}>{metaText}</Text>;
-  } else if (row.matchedTab) {
-    metaText = `Matches ${row.matchedTab.kind} "${row.matchedTab.title}"`;
-    meta = <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: metaSize, fontStyle: "italic" }}>{metaText}</Text>;
-  } else if (settings.statusLine && row.reason) {
-    metaText = `${MARK_LABEL[row.reason.state]} · ${row.reason.title}`;
-    meta = <Text numberOfLines={1} style={{ color: markColor(theme, row.reason.state), fontSize: metaSize, fontWeight: "600" }}>{metaText}</Text>;
-  } else {
-    const branch = show.branch && workspace.branch ? workspace.branch : "";
-    // Narrow rows drop the model rather than cut it to a stub; the branch shows in full.
-    const charWidth = metaSize * 0.58;
-    const modelFits = !metaWidth || metaWidth - (branch.length + 3) * charWidth >= 7 * charWidth;
-    const pieces: ReactNode[] = [];
-    const words: string[] = [];
-    for (const field of settings.fieldOrder) {
-      if (field === "branch" && branch) {
-        pieces.push(<Text key="branch" style={{ fontFamily: MONO_FONT, fontSize: fs(comfortable ? 12 : 11) }}>{branch}</Text>);
-        words.push(branch);
-      } else if (field === "model" && show.model && row.modelShort && modelFits) {
-        pieces.push(<Text key="model">{row.modelShort}</Text>);
-        words.push(row.modelShort);
-      } else if (field === "diff" && show.diff && (workspace.additions || workspace.deletions)) {
-        pieces.push(
-          <Text key="diff" style={{ fontVariant: ["tabular-nums"] }}>
-            {workspace.additions ? <Text style={{ color: c.statusSuccess }}>{`+${workspace.additions}`}</Text> : null}
-            {workspace.additions && workspace.deletions ? " " : ""}
-            {workspace.deletions ? <Text style={{ color: c.statusDanger }}>{`−${workspace.deletions}`}</Text> : null}
-          </Text>,
-        );
-        words.push(`${workspace.additions} added, ${workspace.deletions} removed`);
+  const urgent = row.state === "needs_you" || row.state === "error" || row.state === "unread";
+  const muted = { color: c.foregroundMuted, fontSize: metaSize };
+  /** One field's text (for screen readers) and how it is drawn; null when the row has no value for it. */
+  const field = (name: RowField): { words: string; node: ReactNode } | null => {
+    switch (name) {
+      case "title":
+        return { words: "", node: <Text key="title" numberOfLines={1} style={{ flexShrink: 1, color: c.foreground, fontSize, fontWeight: urgent ? "700" : "500" }}>{workspace.title}</Text> };
+      case "time": {
+        const ago = timeAgo(workspace.activityAt, now);
+        return ago ? { words: ago, node: <Text key="time" style={{ fontVariant: ["tabular-nums"] }}>{ago}</Text> } : null;
       }
+      case "branch":
+        return workspace.branch ? { words: workspace.branch, node: <Text key="branch" style={{ fontFamily: MONO_FONT, fontSize: fs(comfortable ? 12 : 11) }}>{workspace.branch}</Text> } : null;
+      case "model":
+        return row.modelShort ? { words: row.modelShort, node: <Text key="model">{row.modelShort}</Text> } : null;
+      case "diff":
+        if (!workspace.additions && !workspace.deletions) return null;
+        return {
+          words: `${workspace.additions} added, ${workspace.deletions} removed`,
+          node: (
+            <Text key="diff" style={{ fontVariant: ["tabular-nums"] }}>
+              {workspace.additions ? <Text style={{ color: c.statusSuccess }}>{`+${workspace.additions}`}</Text> : null}
+              {workspace.additions && workspace.deletions ? " " : ""}
+              {workspace.deletions ? <Text style={{ color: c.statusDanger }}>{`−${workspace.deletions}`}</Text> : null}
+            </Text>
+          ),
+        };
+      case "reason":
+        if (!row.reason) return null;
+        return {
+          words: `${MARK_LABEL[row.reason.state]}: ${row.reason.title}`,
+          node: <Text key="reason" style={{ color: markColor(theme, row.reason.state), fontWeight: "600" }}>{`${MARK_LABEL[row.reason.state]} · ${row.reason.title}`}</Text>,
+        };
+      case "project":
+        return { words: workspace.projectName, node: <Text key="project">{workspace.projectName}</Text> };
+      case "host":
+        return { words: row.hostLabel, node: <Text key="host">{row.hostLabel}</Text> };
     }
-    if (searching) words.unshift(row.hostLabel);
-    metaText = words.join(", ");
-    meta = pieces.length ? (
-      <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: metaSize }}>
-        {searching ? `${row.hostLabel} · ` : ""}
-        {pieces.flatMap((piece, index) => (index ? [" · ", piece] : [piece]))}
+  };
+  // Archiving or a search hit through a tab replaces the first line without the title (or the values beside it).
+  const notice = row.archiving ? "Archiving…" : row.matchedTab ? `Matches ${row.matchedTab.kind} "${row.matchedTab.title}"` : "";
+  const noticeLine = notice ? Math.max(0, lines.findIndex((line) => !line.includes("title"))) : -1;
+  // In search results the host is named unless a line shows it already.
+  const hostFirst = searching && !lines.some((line) => line.includes("host"));
+  const words: string[] = [];
+  const drawn = lines.map((line, index) => {
+    const hasTitle = line.includes("title");
+    let pieces = line.flatMap((name) => (name === "title" ? [] : [field(name)])).filter((piece) => piece !== null);
+    if (index === noticeLine) pieces = [{ words: notice, node: <Text key="notice" style={{ fontStyle: "italic" }}>{notice}</Text> }];
+    else if (hostFirst && index === (lines.length > 1 ? 1 : 0)) pieces.unshift({ words: row.hostLabel, node: <Text key="host">{row.hostLabel}</Text> });
+    words.push(...pieces.map((piece) => piece.words));
+    const rest = pieces.length ? (
+      <Text key={index} numberOfLines={1} style={{ ...muted, ...(hasTitle ? { flexShrink: 0, maxWidth: "60%" } : null) }}>
+        {pieces.flatMap((piece, at) => (at ? [" · ", piece.node] : [piece.node]))}
       </Text>
     ) : null;
-  }
+    if (!hasTitle) return rest ?? <Text key={index} style={muted}> </Text>;
+    // The title fills the line; values after it sit at the right end, values before it stay in front.
+    const before = line.indexOf("title") > 0 && rest;
+    return (
+      <View key={index} style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
+        {before ? rest : null}
+        {field("title")!.node}
+        <View style={{ flex: 1 }} />
+        {before ? null : rest}
+      </View>
+    );
+  });
+  const metaText = words.filter(Boolean).join(", ");
   const tabs = row.tabs && !arranging ? row.tabs : null;
-  const urgent = row.state === "needs_you" || row.state === "error" || row.state === "unread";
-  return (
-    <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", backgroundColor: active ? c.surface2 : c.surface0, opacity: row.archiving ? 0.55 : 1, ...liftStyle }}>
-      {active ? <View style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, backgroundColor: c.accent }} /> : null}
+  // The tab marks end the last line, right-aligned like the values on the title line, instead of a column of their own.
+  if (tabs) {
+    const last = drawn.length - 1;
+    drawn[last] = (
+      <View key={last} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>{drawn[last]}</View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${tabs.open ? "Hide" : "Show"} ${tabs.summary}`}
+          accessibilityState={{ expanded: tabs.open }}
+          onPress={() => onToggle(tabs.key)}
+          hitSlop={{ top: 12, bottom: 12, left: 10, right: 12 }}
+          style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 4, paddingVertical: 2, borderRadius: 6, backgroundColor: pressed ? c.surface2 : "transparent" })}
+        >
+          {tabs.marks.map((kind, index) => <Mark key={index} theme={theme} kind={kind} size={12} />)}
+          {tabs.more ? <Text style={{ color: c.foregroundMuted, fontSize: fs(10.5) }}>{`+${tabs.more}`}</Text> : null}
+          <View style={{ transform: [{ rotate: tabs.open ? "90deg" : "0deg" }] }}>
+            <Icon name="ChevronRight" size={12} color={c.foregroundMuted} />
+          </View>
+        </Pressable>
+      </View>
+    );
+  }
+  const swipe = touch && onSwipeAction && !arranging && lifted === null && !row.archiving;
+  // The workspace open in the app, as the profile marks it (desktop only: phones never pass `active`).
+  const marker = active ? profile.settings.openMarker.style : "none";
+  const markerColor = colorHex(profile.settings.openMarker.color, c.accent);
+  const body = (
+    <View style={{ height: workspaceHeight, flexDirection: "row", alignItems: "center", backgroundColor: c.surface0, opacity: row.archiving ? 0.55 : 1, ...liftStyle }}>
+      {marker === "tint" ? <View style={{ position: "absolute", top: 0, bottom: 0, left: 0, right: 0, backgroundColor: markerColor, opacity: 0.16 }} /> : null}
+      {marker === "outline" ? <View style={{ position: "absolute", top: 2, bottom: 2, left: 4, right: 4, borderRadius: 8, borderWidth: 1.5, borderColor: markerColor }} /> : null}
+      {marker === "bar" ? <View style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, backgroundColor: markerColor }} /> : null}
       <Pressable
         ref={anchorRef}
         accessibilityRole="button"
@@ -924,11 +991,18 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
         onPress={() => canOpen && onOpen(row)}
         onLongPress={openMenu}
         delayLongPress={400}
-        accessibilityActions={[{ name: "longpress", label: "Actions" }]}
-        onAccessibilityAction={() => openMenu()}
+        accessibilityActions={[
+          { name: "longpress", label: "Actions" },
+          ...(swipe ? [{ name: "read", label: "Mark read" }, { name: "recent", label: "Remove from or back to Recent" }] : []),
+        ]}
+        onAccessibilityAction={(event) => {
+          const action = event.nativeEvent.actionName;
+          if (swipe && (action === "read" || action === "recent")) onSwipeAction(row, action);
+          else openMenu();
+        }}
         {...contextMenu(openMenu)}
         {...hoverProps(onPeek, touch)}
-        style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 20, paddingRight: 4, backgroundColor: pressed && lifted === null ? c.surface1 : "transparent" })}
+        style={({ pressed }) => ({ flex: 1, height: "100%", flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 20, paddingRight: 12, backgroundColor: pressed && lifted === null ? c.surface1 : "transparent" })}
       >
         <View>
           <Mark theme={theme} kind={glyph} size={16} />
@@ -938,31 +1012,8 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
             </View>
           ) : null}
         </View>
-        <View style={{ flex: 1, minWidth: 0, gap: comfortable ? 4 : 2 }} onLayout={(event) => setMetaWidth(Math.round(event.nativeEvent.layout.width))}>
-          <Text numberOfLines={1} style={{ color: c.foreground, fontSize, fontWeight: urgent ? "700" : "500" }}>{workspace.title}</Text>
-          {meta}
-        </View>
+        <View style={{ flex: 1, minWidth: 0, gap: comfortable ? 4 : 2 }}>{drawn}</View>
       </Pressable>
-      {tabs ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${tabs.open ? "Hide" : "Show"} ${tabs.summary}`}
-          accessibilityState={{ expanded: tabs.open }}
-          onPress={() => onToggle(tabs.key)}
-          style={({ pressed }) => ({ minWidth: buttonWidth, height: workspaceHeight, alignItems: "flex-end", justifyContent: "center", gap: 4, paddingHorizontal: 10, backgroundColor: pressed ? c.surface1 : "transparent" })}
-        >
-          {ago ? <Text style={{ color: c.foregroundMuted, fontSize: fs(11.5), fontVariant: ["tabular-nums"] }}>{ago}</Text> : null}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-            {tabs.marks.map((kind, index) => <Mark key={index} theme={theme} kind={kind} size={12} />)}
-            {tabs.more ? <Text style={{ color: c.foregroundMuted, fontSize: fs(10.5) }}>{`+${tabs.more}`}</Text> : null}
-            <View style={{ transform: [{ rotate: tabs.open ? "90deg" : "0deg" }] }}>
-              <Icon name="ChevronRight" size={12} color={c.foregroundMuted} />
-            </View>
-          </View>
-        </Pressable>
-      ) : ago && !arranging ? (
-        <Text style={{ paddingHorizontal: 10, color: c.foregroundMuted, fontSize: fs(11.5), fontVariant: ["tabular-nums"] }}>{ago}</Text>
-      ) : null}
       {touch ? null : (
         <Pressable
           accessibilityRole="button"
@@ -976,5 +1027,16 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
       )}
       {dragHandle ? <Grip theme={theme} handlers={dragHandle} height={workspaceHeight} label={workspace.title} wide={touch} /> : null}
     </View>
+  );
+  if (!swipe) return body;
+  return (
+    <SwipeRow
+      theme={theme}
+      height={workspaceHeight}
+      swipeLeft={canMarkWorkspaceRead(row) ? { icon: "CheckCheck", label: "Mark read", color: unreadColor(theme), onFire: () => onSwipeAction(row, "read") } : null}
+      swipeRight={{ icon: "EyeOff", label: "Recent", color: c.foregroundMuted, onFire: () => onSwipeAction(row, "recent") }}
+    >
+      {body}
+    </SwipeRow>
   );
 }

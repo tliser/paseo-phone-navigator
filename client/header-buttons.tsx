@@ -1,5 +1,6 @@
-// Header buttons on every workspace of the host serving the plugin: "Workspaces" opens the navigator,
-// "Done" marks the open chat read. Header buttons are registered per workspace, so this follows that
+// Header buttons on every workspace of the host serving the plugin: "Workspaces" opens the navigator (with a
+// dot for what waits), "Mark read" marks the open chat read or unread. Workspaces comes first: phones show
+// only the first plugin button inline. Header buttons are registered per workspace, so this follows that
 // host's workspace list and adds or removes buttons.
 // Workspaces of other hosts only get it where the plugin is installed on that host as well.
 import type { PluginButtonIconProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
@@ -59,14 +60,14 @@ export function registerHeaderButtons(client: PluginClientContext): () => void {
         if (buttons.has(workspace.id)) continue;
         buttons.set(workspace.id, [
           client.addHeaderButton({
-            id: "read-state",
-            workspaceId: workspace.id,
-            button: { title: "Done", label: "Done", icon: ReadStateIcon, behavior: { kind: "popover", Content: ReadStateContent } },
-          }),
-          client.addHeaderButton({
             id: "workspaces",
             workspaceId: workspace.id,
             button: { title: "Workspaces", icon: WorkspacesIcon, behavior: { kind: "action", onPress: open } },
+          }),
+          client.addHeaderButton({
+            id: "read-state",
+            workspaceId: workspace.id,
+            button: { title: "Mark read", label: "Mark read", icon: ReadStateIcon, behavior: { kind: "popover", Content: ReadStateContent } },
           }),
         ]);
       }

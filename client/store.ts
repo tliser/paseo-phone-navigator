@@ -11,7 +11,7 @@ import {
   type ProfilesDocument,
 } from "../shared/profiles";
 import { moveRelative, type Place } from "../shared/order";
-import { markSeen, normalizeReads, readAgentKey, readKey, recentKey, undoReads, type ReadChange, type ReadMap, type ReadsDocument } from "../shared/reads";
+import { KEEP_DAYS, markSeen, newsKey, normalizeReads, readAgentKey, readKey, recentKey, undoReads, type ReadChange, type ReadMap, type ReadsDocument } from "../shared/reads";
 import { profilesSettings, readsSettings } from "../shared/settings";
 import { mergeProfileDocs, mergeReadDocs, mergeUpdateDocs, sameDoc } from "../shared/sync";
 import { checkForUpdateRpc, installedVersionRpc, updatesDocumentSchema, updatesSettings, type InstalledVersion, type UpdatesDocument } from "../shared/updates";
@@ -20,7 +20,7 @@ import { createPeerDirectory, type Peer, type PeerDirectory } from "./peers";
 import type { HostInput, ProjectKind } from "../shared/types";
 import { hasDeviceStorage, readDeviceCollapse, readDevicePins, readDeviceProfileId, writeDeviceCollapse, writeDevicePins, writeDeviceProfileId } from "./device";
 import { createHostObserver, type HostDirectory, type HostObserver } from "./host-observer";
-import type { PaseoApi } from "./paseo";
+import type { PaseoApi, PermissionResponse } from "./paseo";
 import { createSyncedDoc } from "./synced-doc";
 
 const EMIT_DELAY_MS = 250;
@@ -102,6 +102,8 @@ export interface Store {
   addProject(serverId: string, path: string): Promise<string>;
   /** Archives on the host. The row stays (archiving) until the host drops it; then its pins go. Rejects on failure. */
   archiveWorkspace(serverId: string, workspaceId: string): Promise<void>;
+  /** Answers what an agent waits for (allow/deny, with answers for questions). Rejects when the host refuses. */
+  respondToPermission(serverId: string, agentId: string, requestId: string, response: PermissionResponse): Promise<void>;
   dispose(): void;
 }
 
@@ -220,6 +222,8 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   void joinPeers();
   /** Reads changed on this device and not handed to the document yet (batched). */
   let unsavedReads: Record<string, number> = {};
+  /** News times already written this session: a value the document drops again (trimmed) is not rewritten. */
+  const writtenNews = new Map<string, number>();
   /** "Mark unread" stores the key as -now until you view it again. */
   let sessionProfileId: string | null = null;
   let deviceProfileId = readDeviceProfileId();
@@ -302,7 +306,32 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     migrateDevicePins();
     snapshot = build();
     dropArchived();
+    rememberNews();
     for (const listener of [...listeners]) listener();
+  }
+
+  /**
+   * Paseo drops a chat's "finished" flag as soon as the chat is on screen, in any client. Each news time
+   * the hosts report is kept in the reads document, so a chat stays unread until you mark it read, type
+   * in it or send it a prompt.
+   */
+  function rememberNews() {
+    const reads = snapshot.reads;
+    // markSeen drops entries older than KEEP_DAYS, so writing older news would repeat on every emit.
+    const cutoff = Date.now() - KEEP_DAYS * 86_400_000;
+    const fresh: Record<string, number> = {};
+    for (const host of snapshot.hosts)
+      for (const workspace of host.workspaces)
+        for (const agent of workspace.agents ?? []) {
+          const key = newsKey(host.serverId, agent.id);
+          if (agent.unreadAt < cutoff || agent.unreadAt <= (reads[key] ?? 0) || writtenNews.get(key) === agent.unreadAt) continue;
+          fresh[key] = agent.unreadAt;
+          writtenNews.set(key, agent.unreadAt);
+        }
+    if (!Object.keys(fresh).length) return;
+    Object.assign(unsavedReads, fresh);
+    if (timers.reads === undefined) timers.reads = setTimeout(flushReads, READ_SAVE_DELAY_MS);
+    snapshot = build();
   }
 
   /** Workspaces the host no longer lists after an archive: forget them and drop their pins in every profile. */
@@ -682,6 +711,9 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       }
       archived.add(key);
       emitNow();
+    },
+    async respondToPermission(serverId, agentId, requestId, response) {
+      await apiFor(serverId).agents.ref(agentId).respondToPermission({ requestId, response });
     },
     dispose() {
       if (timers.stop !== undefined) clearTimeout(timers.stop);

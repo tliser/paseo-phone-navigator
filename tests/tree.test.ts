@@ -69,10 +69,12 @@ describe("sorting", () => {
 });
 
 describe("filters and search", () => {
-  it("active = running, new or asking", () => {
+  it("active = running, unread or needing you", () => {
     expect(passesFilter(item(ws("1", "p", "done", 1)), "active", settings, NOW)).toBe(false);
     expect(passesFilter(item(ws("1", "p", "running", 1)), "active", settings, NOW)).toBe(true);
+    expect(passesFilter(item(ws("1", "p", "attention", 1, { news: 5 })), "active", settings, NOW)).toBe(true);
     expect(passesFilter(item(ws("1", "p", "attention", 1, { news: 5 }), { [readKey("h", "1")]: NOW }), "active", settings, NOW)).toBe(false);
+    expect(passesFilter(item(ws("1", "p", "needs_input", 1)), "active", settings, NOW)).toBe(true);
   });
   it("recent = active within the configured days, plus anything running, new or asking", () => {
     const day = 60 * 24;
@@ -109,42 +111,57 @@ describe("filters and search", () => {
     expect(matchesSearch(w, "tardis", "sidebar nope")).toBe(false);
   });
   it("search expands collapsed groups without changing the map and keeps structure", () => {
-    const collapse = { "host:h": true };
+    const collapse = { "proj:h:p": true };
     const tree = buildTree([host("h", [ws("1", "p", "done", 1, { title: "alpha" }), ws("2", "q", "done", 1, { title: "beta" })])], opts({ query: "alpha", collapse }));
-    expect(types(tree.rows)).toEqual(["host", "project", "workspace"]);
-    expect(collapse).toEqual({ "host:h": true });
+    expect(types(tree.rows)).toEqual(["project", "workspace"]);
+    expect(collapse).toEqual({ "proj:h:p": true });
   });
   it("drops hosts without matches and offline hosts while searching", () => {
     const tree = buildTree([host("a", [ws("1", "p", "done", 1, { title: "alpha" })]), host("b", [ws("2", "p", "done", 1)]), host("off", [], { status: "offline" })], opts({ query: "alpha" }));
     expect(tree.rows.filter((r) => r.type === "host")).toHaveLength(1);
   });
   it("counts per filter honor the search", () => {
-    const tree = buildTree([host("h", [ws("1", "p", "done", 1, { title: "x" }), ws("2", "p", "failed", 1, { title: "x", news: 1 }), ws("3", "p", "running", 1, { title: "y" })])], opts({ query: "x" }));
-    expect(tree.counts).toEqual({ all: 2, recent: 2, active: 1, pinned: 0 });
+    const tree = buildTree([host("h", [ws("1", "p", "running", 1, { title: "x" }), ws("2", "p", "failed", 1, { title: "x", news: 1 }), ws("3", "p", "running", 1, { title: "y" })])], opts({ query: "x" }));
+    expect(tree.counts).toEqual({ all: 2, recent: 2, active: 2, pinned: 0 });
   });
   it("reports empty because filtered", () => {
     const tree = buildTree([host("h", [ws("1", "p", "done", 1)])], opts({ filter: "active" }));
     expect(tree.emptyBecauseFiltered).toBe(true);
-    expect(types(tree.rows)).toEqual(["host", "note"]);
+    expect(types(tree.rows)).toEqual(["note"]);
   });
 });
 
 describe("tree shape", () => {
   it("respects collapse and defaults", () => {
     const tree = buildTree([host("h", [ws("1", "p", "running", 1)])], opts({ settings: defaultSettings() }));
-    expect(types(tree.rows)).toEqual(["host", "project"]);
-    expect(types(buildTree([host("h", [ws("1", "p", "running", 1)])], opts({ collapse: { "host:h": true } })).rows)).toEqual(["host"]);
+    expect(types(tree.rows)).toEqual(["project"]);
+    const two = [host("h", [ws("1", "p", "running", 1)]), host("k", [ws("2", "p", "running", 1)])];
+    expect(types(buildTree(two, opts({ collapse: { "host:h": true } })).rows)).toEqual(["host", "host", "project", "workspace"]);
   });
   it("tallies asking and unread per project and host", () => {
     const tree = buildTree([host("h", [ws("1", "p", "needs_input", 1), ws("2", "p", "attention", 1, { news: 1 }), ws("3", "q", "failed", 1, { news: 1 })])], opts({ collapse: { "proj:h:p": true } }));
     const proj = tree.rows.find((r) => r.type === "project" && r.projectId === "p");
     expect(proj?.type === "project" && proj.tally).toEqual({ asking: 1, error: 0, unread: 1 });
-    const h = tree.rows[0];
-    expect(h?.type === "host" && h.tally).toEqual({ asking: 1, error: 0, unread: 2 });
+    expect(tree.hosts[0]?.tally).toEqual({ asking: 1, error: 0, unread: 2 });
   });
   it("renders loading skeletons per host and offline hosts dimmed", () => {
     const tree = buildTree([host("l", [], { loading: true }), host("o", [], { status: "offline" })], opts());
     expect(types(tree.rows)).toEqual(["host", "skeleton", "skeleton", "skeleton", "host"]);
+  });
+  it("host rows only separate several hosts; one chosen host drops them and the others", () => {
+    const both = [host("a", [ws("1", "p", "needs_input", 1)]), host("b", [ws("2", "p", "done", 1)]), host("off", [], { status: "offline" })];
+    const all = buildTree(both, opts());
+    expect(types(all.rows)).toEqual(["host", "project", "workspace", "host", "project", "workspace", "host"]);
+    const onlyB = buildTree(both, opts({ hostView: "b" }));
+    expect(onlyB.hostView).toBe("b");
+    expect(types(onlyB.rows)).toEqual(["project", "workspace"]);
+    expect(wsIds(onlyB.rows)).toEqual(["2"]);
+    expect(onlyB.counts.all).toBe(1);
+    // The host list still covers every host, with what waits there.
+    expect(onlyB.hosts.map((h) => [h.serverId, h.state, h.tally.asking])).toEqual([["a", "online", 1], ["b", "online", 0], ["off", "offline", 0]]);
+    expect(types(buildTree(both, opts({ hostView: "off" })).rows)).toEqual(["note"]);
+    // A host that is gone (or hidden) falls back to all.
+    expect(buildTree(both, opts({ hostView: "gone" })).hostView).toBeNull();
   });
   it("hides hosts listed in hiddenHosts", () => {
     expect(buildTree([host("h", [ws("1", "p", "done", 1)])], opts({ settings: { ...settings, hiddenHosts: ["h"] } })).rows).toHaveLength(0);
@@ -180,11 +197,12 @@ describe("manual order", () => {
 
 describe("pins", () => {
   const hosts = () => [host("h", [ws("a", "p", "done", 1), ws("b", "p", "running", 5), ws("old", "p", "done", 60 * 24 * 30)])];
-  it("pass every view in their project, even when old finished ones are hidden", () => {
-    const tree = buildTree(hosts(), opts({ pins: new Set(["h:old"]), settings: { ...settings, hideDone: "7d" }, filter: "active" }));
-    expect(wsIds(tree.rows)).toEqual(["b", "old"]);
-    const pinned = tree.rows.find((r) => r.type === "workspace" && r.workspace.id === "old");
-    expect(pinned?.type === "workspace" && pinned.pinned).toBe(true);
+  it("show only in Pinned and All; All keeps them when old finished ones are hidden", () => {
+    const view = (filter: "all" | "active" | "recent") => buildTree(hosts(), opts({ pins: new Set(["h:old"]), settings: { ...settings, hideDone: "7d" }, filter }));
+    expect(wsIds(view("all").rows)).toEqual(["a", "b", "old"]);
+    expect(view("all").counts).toMatchObject({ all: 3, active: 1, recent: 2, pinned: 1 });
+    expect(wsIds(view("active").rows)).toEqual(["b"]);
+    expect(wsIds(view("recent").rows)).toEqual(["a", "b"]);
   });
   it("the Pinned view shows only pinned workspaces", () => {
     const tree = buildTree(hosts(), opts({ pins: new Set(["h:a"]), filter: "pinned" }));
@@ -204,7 +222,7 @@ describe("tab rows", () => {
   ];
   const hosts = () => [host("h", [ws("w", "p", "running", 1, { agents: tabs, terminals: [{ id: "t1", title: "Terminal 1" }] })])];
   it("are folded by default and summed up as urgent-first marks, capped at 4", () => {
-    const row = buildTree(hosts(), opts()).rows[2];
+    const row = buildTree(hosts(), opts()).rows[1];
     expect(row?.type === "workspace" && row.tabs).toMatchObject({
       key: "agents:h:w",
       open: false,
@@ -221,23 +239,28 @@ describe("tab rows", () => {
     const main = buildTree(hosts(), opts({ collapse: { "agents:h:w": false } })).rows.find((r) => r.type === "tab" && r.id === "main");
     expect(main?.type === "tab" && main.subagents).toEqual({ key: "subagents:h:w:main", open: false, count: 1, waiting: 1 });
   });
-  it("the status line names the chat that asks you", () => {
-    const row = buildTree(hosts(), opts()).rows[2];
-    expect(row?.type === "workspace" && row.reason).toEqual({ state: "asking", title: "Helper" });
+  it("the status line names the top-level chat that asks you, not an asking sub-agent", () => {
+    const reason = (agents: AgentInput[]) => {
+      const row = buildTree([host("h", [ws("w", "p", "running", 1, { agents })])], opts()).rows.find((r) => r.type === "workspace");
+      return row?.type === "workspace" ? row.reason : undefined;
+    };
+    expect(reason(tabs)).toBeUndefined();
+    expect(reason([...tabs, chat("q", "asking", { title: "Question" })])).toEqual({ state: "asking", title: "Question" });
+    expect(reason([...tabs, chat("lost", "asking", { title: "Lost", parentId: "gone" })])).toEqual({ state: "asking", title: "Lost" });
   });
   it("a workspace with a single tab has no tab level, unless that tab has sub-agents", () => {
     const only = (agents: AgentInput[], terminals: { id: string; title: string }[] = []) =>
       buildTree([host("h", [ws("w", "p", "running", 1, { agents, terminals })])], opts({ collapse: { "agents:h:w": false } })).rows;
     const lone = only([chat("main", "running")]);
-    expect(lone[2]?.type === "workspace" && lone[2].tabs).toBeFalsy();
+    expect(lone[1]?.type === "workspace" && lone[1].tabs).toBeFalsy();
     expect(lone.some((r) => r.type === "tab")).toBe(false);
     expect(only([], [{ id: "t1", title: "Terminal 1" }]).some((r) => r.type === "tab")).toBe(false);
     const parent = only([chat("main", "running"), chat("sub", "idle", { parentId: "main" })]);
-    expect(parent[2]?.type === "workspace" && parent[2].tabs).toBeTruthy();
+    expect(parent[1]?.type === "workspace" && parent[1].tabs).toBeTruthy();
   });
   it("tab and terminal titles are searchable", () => {
     expect(wsIds(buildTree(hosts(), opts({ query: "orphan" })).rows)).toEqual(["w"]);
-    const row = buildTree(hosts(), opts({ query: "terminal 1" })).rows[2];
+    const row = buildTree(hosts(), opts({ query: "terminal 1" })).rows[1];
     expect(row?.type === "workspace" && row.matchedTab).toEqual({ title: "Terminal 1", kind: "terminal" });
   });
 });
@@ -267,16 +290,18 @@ describe("read state per chat", () => {
     const w = ws("w", "p", "done", 1, { agents: [chat("m", "idle"), chat("s", "finished", { parentId: "m", unreadAt: min(2) })] });
     expect(workspaceState(w, "h", {})).toBe("read");
   });
-  it("an asking sub-agent makes the workspace ask you", () => {
-    const w = ws("w", "p", "running", 1, { agents: [chat("m", "running"), chat("s", "asking", { parentId: "m" })] });
-    expect(workspaceState(w, "h", {})).toBe("needs_you");
+  it("an asking sub-agent under a listed parent does not make the workspace ask you; an orphan one does", () => {
+    const withSub = (sub: AgentInput) => ws("w", "p", "running", 1, { agents: [chat("m", "running"), sub] });
+    expect(workspaceState(withSub(chat("s", "asking", { parentId: "m" })), "h", {})).toBe("running");
+    expect(workspaceState(withSub(chat("s", "asking", { parentId: "gone" })), "h", {})).toBe("needs_you");
+    expect(workspaceState(withSub(chat("s", "asking")), "h", {})).toBe("needs_you");
   });
 });
 
 describe("search reasons", () => {
   it("a project-name hit lists the project even without matching workspaces", () => {
     const tree = buildTree([host("h", [ws("1", "atlas", "done", 1)])], opts({ query: "ATLAS", filter: "active" }));
-    expect(types(tree.rows)).toEqual(["host", "project", "note"]);
+    expect(types(tree.rows)).toEqual(["project", "note"]);
   });
   it("a hit only through a tab says which tab", () => {
     const w = ws("1", "p", "done", 1, { agents: [chat("m", "idle", { title: "Main" }), chat("s", "idle", { title: "Contrast check", parentId: "m" })] });

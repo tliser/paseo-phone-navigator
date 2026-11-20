@@ -6,33 +6,58 @@ const platformSchema = z.enum(["ios", "android", "web"]);
 /** The Inbox (earlier "attention") was a view; it is a sheet now, so a profile that opened on it opens on Active. */
 const filterSchema = z.preprocess((value) => (value === "attention" || value === "inbox" ? "active" : value), z.enum(["all", "recent", "active", "pinned"]));
 
-const ROW_FIELDS = ["branch", "model", "diff"] as const;
+export const ROW_FIELDS = ["title", "time", "branch", "model", "diff", "reason", "project", "host"] as const;
 export type RowField = (typeof ROW_FIELDS)[number];
+export const MAX_LINES = 3;
+const DEFAULT_LINES: RowField[][] = [["title", "time"], ["branch", "model", "diff"]];
 
-/** Known values once each, in the given order; missing ones are appended. */
-export function normalizeFieldOrder(raw: unknown): RowField[] {
-  const given = Array.isArray(raw) ? raw.filter((value): value is RowField => (ROW_FIELDS as readonly unknown[]).includes(value)) : [];
-  return [...new Set([...given, ...ROW_FIELDS])];
+/**
+ * A workspace row's lines (1–3), each the fields shown on it in order. Every field once at most, the title
+ * always somewhere (first on line 1 when missing), no empty lines.
+ */
+export function normalizeLines(raw: unknown): RowField[][] {
+  if (!Array.isArray(raw)) return DEFAULT_LINES.map((line) => [...line]);
+  const seen = new Set<RowField>();
+  const lines = raw
+    .slice(0, MAX_LINES)
+    .map((line) => (Array.isArray(line) ? line : []).filter((field): field is RowField => (ROW_FIELDS as readonly unknown[]).includes(field) && !seen.has(field) && !!seen.add(field)))
+    .filter((line) => line.length > 0);
+  if (!seen.has("title")) {
+    if (lines.length) lines[0]!.unshift("title");
+    else lines.push(["title"]);
+  }
+  return lines;
 }
 
-const profileSettingsSchema = z.object({
+/** Profiles from before row lines: title and time on line 1, the switched-on values of the second line in their order. */
+function migrateLines(settings: unknown): unknown {
+  if (!settings || typeof settings !== "object" || "lines" in settings) return settings;
+  const old = settings as { show?: Record<string, unknown>; fieldOrder?: unknown };
+  if (!old.show && !old.fieldOrder) return settings;
+  const shown = (field: string) => old.show?.[field] !== false;
+  const order = Array.isArray(old.fieldOrder) ? old.fieldOrder.filter((field) => ["branch", "model", "diff"].includes(field)) : [];
+  const second = [...new Set([...order, "branch", "model", "diff"])].filter(shown);
+  return { ...settings, lines: [["title", ...(shown("time") ? ["time"] : [])], second] };
+}
+
+const profileSettingsSchema = z.preprocess(migrateLines, z.object({
   density: z.enum(["compact", "comfortable"]).default("compact"),
+  /** A workspace row's lines and the fields on each. */
+  lines: z.unknown().optional().transform(normalizeLines),
   show: z
     .object({
-      model: z.boolean().default(true),
-      branch: z.boolean().default(true),
-      diff: z.boolean().default(true),
-      time: z.boolean().default(true),
       /** Tab marks and the tab list of a workspace. */
       tabs: z.boolean().default(true),
       /** Sub-agents under their parent tab; has no effect while `tabs` is off. */
       subagents: z.boolean().default(true),
     })
-    .default({ model: true, branch: true, diff: true, time: true, tabs: true, subagents: true }),
-  /** Order of the values on a row's second line. */
-  fieldOrder: z.unknown().optional().transform(normalizeFieldOrder),
-  /** Rows that ask you, failed or are unread say why instead of branch and model. */
-  statusLine: z.boolean().default(true),
+    .default({ tabs: true, subagents: true }),
+  /** How you pick the host: tabs above the tree, or a host button in the title bar. */
+  hostSwitch: z.enum(["tabs", "menu"]).default("tabs"),
+  /** How the workspace open in the app is marked (desktop sidebar only); `color` is an ICON_COLORS id ("default" = theme accent). */
+  openMarker: z
+    .object({ style: z.enum(["bar", "tint", "outline", "none"]).default("bar"), color: z.string().default("default") })
+    .default({ style: "bar", color: "default" }),
   defaultFilter: filterSchema.default("all"),
   hideDone: z.enum(["off", "1d", "7d"]).default("off"),
   /** The Recent filter shows workspaces active within this many days. */
@@ -45,7 +70,7 @@ const profileSettingsSchema = z.object({
     .default({ hosts: true, projects: false }),
   /** Hovering (desktop) or long-pressing (phones) a row shows its full names in a card. */
   namesCard: z.boolean().default(true),
-});
+}));
 
 const profileSchema = z.object({
   id: z.string().min(1),
@@ -202,10 +227,12 @@ export function expandOrCollapseAll(
   settings: ProfileSettings,
 ): Record<string, boolean> {
   const anyCollapsed = keys.some((key) => isCollapsed(map, key, settings));
+  // Folds the top level shown: hosts, or projects when the tree has no host rows (one host shown).
+  const top = keys.some((key) => key.startsWith("host:")) ? "host:" : "proj:";
   let next: Record<string, boolean> = { ...map };
   for (const key of keys) {
     if (anyCollapsed) next = setCollapsed(next, key, false, settings);
-    else if (key.startsWith("host:")) next = setCollapsed(next, key, true, settings);
+    else if (key.startsWith(top)) next = setCollapsed(next, key, true, settings);
     else delete next[key];
   }
   return next;

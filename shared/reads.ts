@@ -1,4 +1,5 @@
-// Read/unread state, kept by the plugin because plugins cannot clear Paseo's own attention flag. Pure.
+// Read/unread state, kept by the plugin: Paseo clears its own "finished" flag as soon as a chat is on screen,
+// so the plugin remembers the news itself (`newsKey`) and only your marks clear it. Pure.
 import { z } from "zod";
 
 /**
@@ -20,6 +21,15 @@ export const readAgentKey = (serverId: string, agentId: string) => `${serverId}:
  * lives in the reads document so it syncs and merges like a read mark: the later event wins.
  */
 export const recentKey = (serverId: string, workspaceId: string) => `${serverId}:recent:${workspaceId}`;
+/**
+ * When a chat last finished a turn Paseo flagged as news (epoch ms), remembered because Paseo drops the
+ * flag once the chat is on screen. Merges like a read mark: the later value wins.
+ */
+export const newsKey = (serverId: string, agentId: string) => `${serverId}:news:${agentId}`;
+
+/** News older than this is no longer news (also how long marks are kept, so a dropped mark cannot revive it). */
+export const KEEP_DAYS = 60;
+const DAY_MS = 86_400_000;
 
 /** You removed it from Recent and have not sent it a prompt since. */
 export function removedFromRecent(reads: ReadMap, serverId: string, workspace: { id: string; orderAt: number }): boolean {
@@ -42,17 +52,20 @@ function unreadFrom(seen: number, unreadAt: number): boolean {
 export function isUnread(reads: ReadMap, serverId: string, workspaceId: string, unreadAt: number): boolean {
   return unreadFrom(reads[readKey(serverId, workspaceId)] ?? 0, unreadAt);
 }
-
 /**
  * The same for one chat. Without its own entry the workspace's entry counts, so marks made before
  * reads were per chat do not turn every chat unread after the update. Sending a prompt counts as
- * reading: it clears an earlier "put back in Inbox", and only a turn finishing after it is news.
+ * reading: it clears an earlier "mark unread", and only a turn finishing after it is news. News is
+ * Paseo's live flag or the remembered one, whichever is later; with `now`, news older than KEEP_DAYS
+ * only counts when you marked the chat unread.
  */
-export function isAgentUnread(reads: ReadMap, serverId: string, workspaceId: string, agent: { id: string; unreadAt: number; promptAt?: number }): boolean {
+export function isAgentUnread(reads: ReadMap, serverId: string, workspaceId: string, agent: { id: string; unreadAt: number; promptAt?: number }, now?: number): boolean {
   const mark = reads[readAgentKey(serverId, agent.id)] ?? reads[readKey(serverId, workspaceId)] ?? 0;
   const prompt = agent.promptAt ?? 0;
   const seen = prompt > Math.abs(mark) ? prompt : mark;
-  return unreadFrom(seen, agent.unreadAt);
+  const news = Math.max(agent.unreadAt, reads[newsKey(serverId, agent.id)] ?? 0);
+  if (now !== undefined && seen >= 0 && news < now - KEEP_DAYS * DAY_MS) return false;
+  return unreadFrom(seen, news);
 }
 
 /** A key and the value a mark wrote, so it can be undone. */
@@ -72,14 +85,15 @@ export function undoReads(current: ReadMap, changes: readonly ReadChange[], now:
   return marks;
 }
 
-const KEEP_DAYS = 60;
-const MAX_ENTRIES = 1000;
+// Room for a read mark and a remembered news time per chat. A read mark is newer than the news it
+// clears, so trimming drops the news first and cannot turn a read chat unread.
+const MAX_ENTRIES = 2000;
 
-/** Marks keys as seen at `now`, then drops entries older than 60 days and keeps the newest 1000. */
+/** Marks keys as seen at `now`, then drops entries older than KEEP_DAYS and keeps the newest MAX_ENTRIES. */
 export function markSeen(reads: ReadMap, keys: readonly string[], now: number): Record<string, number> {
   const next: Record<string, number> = { ...reads };
   for (const key of keys) next[key] = Math.max(next[key] ?? 0, now);
-  const cutoff = now - KEEP_DAYS * 86_400_000;
+  const cutoff = now - KEEP_DAYS * DAY_MS;
   const kept = Object.entries(next)
     .filter(([, at]) => Math.abs(at) >= cutoff)
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))

@@ -5,18 +5,46 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { removedFromRecent } from "../shared/reads";
+import { removedFromRecent, type ReadMap } from "../shared/reads";
 import type { TabRow, WorkspaceRow } from "../shared/tree";
 import { InfoCard } from "./names-card";
 import { useNavigatorStore } from "./runtime";
 import { Sheet, SheetDivider, SheetItem, type Anchor } from "./sheet";
+import type { Store } from "./store";
 import type { ToastMessage } from "./toast";
+import { useOwnField } from "./chat-nav";
 
 export interface MenuTarget {
   row: WorkspaceRow;
   /** Set when a tab row was held: its actions come first. */
   tab?: TabRow;
   anchor: Anchor | null;
+}
+
+/** Reads are per chat; a workspace without chats keeps its own mark. */
+export function canMarkWorkspaceRead(row: WorkspaceRow): boolean {
+  return (row.workspace.agents ?? []).length ? row.unreadChats.length > 0 : row.state === "unread";
+}
+
+/** Mark read for a whole workspace (menu and swipe left), with Undo. */
+export function markWorkspaceRead(store: Store, row: WorkspaceRow, onToast: (message: ToastMessage) => void): void {
+  const { workspace } = row;
+  if (!(workspace.agents ?? []).length) {
+    store.markRead(row.serverId, [workspace.id]);
+    onToast({ text: `Marked "${workspace.title}" read`, undo: () => store.markUnread(row.serverId, workspace.id) });
+    return;
+  }
+  const ids = row.unreadChats;
+  const changes = store.markChatsRead(row.serverId, ids);
+  onToast({ text: `Marked ${ids.length} ${ids.length === 1 ? "chat" : "chats"} in "${workspace.title}" read`, undo: () => store.undoReads(changes) });
+}
+
+/** Remove from Recent or put back (menu and swipe right), with Undo. */
+export function toggleRecent(store: Store, reads: ReadMap, row: WorkspaceRow, onToast: (message: ToastMessage) => void): void {
+  const { workspace } = row;
+  const offRecent = removedFromRecent(reads, row.serverId, workspace);
+  const changes = store.setInRecent(row.serverId, workspace.id, offRecent);
+  onToast({ text: offRecent ? `"${workspace.title}" is back in Recent` : `Removed "${workspace.title}" from Recent`, undo: () => store.undoReads(changes) });
 }
 
 export function WorkspaceMenu({
@@ -55,31 +83,16 @@ export function WorkspaceMenu({
   const [title, setTitle] = useState(workspace.title);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const titleField = useOwnField();
   const pinned = snapshot.pinsFor(profileId).has(`${row.serverId}:${workspace.id}`);
   const offRecent = removedFromRecent(snapshot.reads, row.serverId, workspace);
-  const toggleRecent = () => {
-    const changes = store.setInRecent(row.serverId, workspace.id, offRecent);
-    onToast({ text: offRecent ? `"${workspace.title}" is back in Recent` : `Removed "${workspace.title}" from Recent`, undo: () => store.undoReads(changes) });
-  };
   const index = siblings.indexOf(workspace.id);
   const then = (action: () => void) => () => {
     onClose();
     action();
   };
 
-  // Reads are per chat; a workspace without chats keeps its own mark.
-  const chatless = !(workspace.agents ?? []).length;
-  const canMarkRead = chatless ? row.state === "unread" : row.unreadChats.length > 0;
-  const markWorkspaceRead = () => {
-    if (chatless) {
-      store.markRead(row.serverId, [workspace.id]);
-      onToast({ text: `Marked "${workspace.title}" read`, undo: () => store.markUnread(row.serverId, workspace.id) });
-      return;
-    }
-    const ids = row.unreadChats;
-    const changes = store.markChatsRead(row.serverId, ids);
-    onToast({ text: `Marked ${ids.length} ${ids.length === 1 ? "chat" : "chats"} in "${workspace.title}" read`, undo: () => store.undoReads(changes) });
-  };
+  const canMarkRead = canMarkWorkspaceRead(row);
   const tabAction = tab && tab.kind === "chat" && (tab.mark === "unread" || tab.mark === "read") ? tab : null;
   const toggleTab = () => {
     if (!tabAction) return;
@@ -88,7 +101,7 @@ export function WorkspaceMenu({
       onToast({ text: `Marked "${tabAction.title}" read`, undo: () => store.undoReads(changes) });
     } else {
       const changes = store.markChatUnread(row.serverId, tabAction.id);
-      onToast({ text: `"${tabAction.title}" is back in your Inbox`, undo: () => store.undoReads(changes) });
+      onToast({ text: `Marked "${tabAction.title}" unread`, undo: () => store.undoReads(changes) });
     }
   };
 
@@ -126,6 +139,7 @@ export function WorkspaceMenu({
         <View style={{ gap: 8, padding: 8 }}>
           <View style={{ minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface0, paddingHorizontal: 12, justifyContent: "center" }}>
             <TextInput
+              {...titleField}
               value={title}
               onChangeText={setTitle}
               autoFocus
@@ -175,15 +189,15 @@ export function WorkspaceMenu({
                 theme={theme}
                 compact={compact}
                 icon={tabAction.mark === "unread" ? "Check" : "Undo2"}
-                label={tabAction.mark === "unread" ? `Mark "${tabAction.title}" read` : `Put "${tabAction.title}" back in Inbox`}
+                label={tabAction.mark === "unread" ? `Mark "${tabAction.title}" read` : `Mark "${tabAction.title}" unread`}
                 onPress={then(toggleTab)}
               />
               <SheetDivider theme={theme} />
             </>
           ) : null}
           <SheetItem theme={theme} compact={compact} icon={pinned ? "PinOff" : "Pin"} label={pinned ? "Unpin workspace" : "Pin workspace"} onPress={then(() => store.setPinned(profileId, row.serverId, workspace.id, !pinned))} />
-          {canMarkRead ? <SheetItem theme={theme} compact={compact} icon="CheckCheck" label="Mark workspace read" onPress={then(markWorkspaceRead)} /> : null}
-          <SheetItem theme={theme} compact={compact} icon={offRecent ? "History" : "EyeOff"} label={offRecent ? "Show in Recent again" : "Remove from Recent"} onPress={then(toggleRecent)} />
+          {canMarkRead ? <SheetItem theme={theme} compact={compact} icon="CheckCheck" label="Mark workspace read" onPress={then(() => markWorkspaceRead(store, row, onToast))} /> : null}
+          <SheetItem theme={theme} compact={compact} icon={offRecent ? "History" : "EyeOff"} label={offRecent ? "Show in Recent again" : "Remove from Recent"} onPress={then(() => toggleRecent(store, snapshot.reads, row, onToast))} />
           <SheetItem theme={theme} compact={compact} icon="Pencil" label="Rename workspace" onPress={() => setMode("rename")} />
           {manual && index !== -1 ? (
             <>

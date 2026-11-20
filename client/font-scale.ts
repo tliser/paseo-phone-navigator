@@ -2,7 +2,7 @@
 // lists. Sizes here are authored for Paseo's default of 14 px. The app does not announce a change, so
 // the value is re-read every few seconds while the list is on screen. Phones have no such setting: 1.
 import { useSyncExternalStore } from "react";
-import { Platform } from "react-native";
+import { PixelRatio, Platform } from "react-native";
 
 declare const localStorage: { getItem(key: string): string | null };
 
@@ -55,5 +55,13 @@ export function useFontScale(): number {
   return useSyncExternalStore(subscribe, () => scale, () => scale);
 }
 
+/**
+ * How much taller rows must be than at the default text size. Web and desktop: Paseo's interface font size
+ * (`useFontScale`). Phones: the system text size, which React Native applies to all text on its own while
+ * row heights are fixed numbers, so rows grow with it instead of clipping their lines.
+ */
+export function layoutScale(fontScale: number): number {
+  return Platform.OS === "web" ? fontScale : Math.max(fontScale, PixelRatio.getFontScale());
+}
 /** Monospace face for branch names. */
 export const MONO_FONT = Platform.select({ ios: "Menlo", android: "monospace", default: "ui-monospace, Menlo, Consolas, monospace" });

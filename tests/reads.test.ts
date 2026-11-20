@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAgentUnread, isUnread, markSeen, normalizeReads, readAgentKey, readKey, undoReads } from "../shared/reads";
+import { isAgentUnread, isUnread, KEEP_DAYS, markSeen, newsKey, normalizeReads, readAgentKey, readKey, undoReads } from "../shared/reads";
 
 const DAY = 86_400_000;
 const NOW = 100 * DAY;
@@ -39,9 +39,27 @@ describe("read state", () => {
     const reads = { a: NOW - 70 * DAY, b: NOW - DAY, c: NOW, m: -(NOW - 70 * DAY) };
     expect(markSeen(reads, ["b"], NOW - 2 * DAY)).toEqual({ b: NOW - DAY, c: NOW });
   });
-  it("caps the number of entries", () => {
-    const many = Object.fromEntries(Array.from({ length: 1200 }, (_, i) => [`k${i}`, NOW - i]));
-    expect(Object.keys(markSeen(many, [], NOW))).toHaveLength(1000);
+  it("caps the number of entries, keeping the newest", () => {
+    const many = Object.fromEntries(Array.from({ length: 2500 }, (_, i) => [`k${i}`, NOW - i]));
+    const kept = Object.keys(markSeen(many, [], NOW));
+    expect(kept).toHaveLength(2000);
+    expect(kept).toContain("k0");
+    expect(kept).not.toContain("k2000");
+  });
+  it("remembered news keeps a chat unread after Paseo drops its live flag, until a later mark or prompt", () => {
+    const agent = { id: "a", unreadAt: 0 };
+    expect(isAgentUnread({ [newsKey("h", "a")]: 50 }, "h", "w", agent)).toBe(true);
+    expect(isAgentUnread({ [newsKey("h", "a")]: 50, [readAgentKey("h", "a")]: 40 }, "h", "w", agent)).toBe(true);
+    expect(isAgentUnread({ [newsKey("h", "a")]: 50, [readAgentKey("h", "a")]: 60 }, "h", "w", agent)).toBe(false);
+    expect(isAgentUnread({ [newsKey("h", "a")]: 50 }, "h", "w", { ...agent, promptAt: 60 })).toBe(false);
+  });
+  it(`news older than ${KEEP_DAYS} days is not unread, unless the chat was marked unread`, () => {
+    const old = NOW - (KEEP_DAYS + 1) * DAY;
+    const agent = { id: "a", unreadAt: 0 };
+    expect(isAgentUnread({ [newsKey("h", "a")]: old }, "h", "w", agent, NOW)).toBe(false);
+    expect(isAgentUnread({}, "h", "w", { id: "a", unreadAt: old }, NOW)).toBe(false);
+    expect(isAgentUnread({ [newsKey("h", "a")]: NOW - DAY }, "h", "w", agent, NOW)).toBe(true);
+    expect(isAgentUnread({ [newsKey("h", "a")]: old, [readAgentKey("h", "a")]: -old }, "h", "w", agent, NOW)).toBe(true);
   });
   it("treats a broken document as empty", () => {
     expect(normalizeReads({ seen: "x" })).toEqual({ seen: {} });

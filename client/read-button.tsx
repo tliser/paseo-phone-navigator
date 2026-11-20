@@ -1,6 +1,6 @@
-// "Done" in the chat header: the plugin cannot see you read or type in Paseo's chat, so reading is explicit.
-// Done marks the open chat read; on a read chat "Put back in Inbox" makes it unread again. When Paseo only
-// tells the button which workspace is open, the popover lists that workspace's chats instead.
+// "Mark read" in the chat header: marks the open chat read; on a read chat "Mark unread" puts it back in the
+// Inbox. When Paseo only tells the button which workspace is open, the popover lists that workspace's chats
+// instead. Typing in a chat or sending it a prompt also marks it read.
 import type { PluginButtonContentProps, PluginButtonIconProps } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { Pressable, Text, View } from "react-native";
@@ -17,7 +17,7 @@ interface ChatInfo {
 
 function chatsOf(hosts: readonly HostInput[], reads: ReadMap, serverId: string, workspaceId: string): ChatInfo[] {
   const workspace = hosts.find((host) => host.serverId === serverId)?.workspaces.find((entry) => entry.id === workspaceId);
-  return (workspace?.agents ?? []).map((agent) => ({ agent, state: chatState(agent, serverId, workspaceId, reads) }));
+  return (workspace?.agents ?? []).map((agent) => ({ agent, state: chatState(agent, serverId, workspaceId, reads, Date.now()) }));
 }
 
 /** Only unread and read chats can be marked; questions and errors stay until answered or fixed. */
@@ -47,7 +47,7 @@ export function ReadStateContent(props: PluginButtonContentProps) {
   };
   const button = (chat: ChatInfo, big: boolean) => {
     const unread = chat.state === "unread";
-    const text = unread ? `Done: mark "${chat.agent.title}" read` : `Put "${chat.agent.title}" back in Inbox`;
+    const text = unread ? `Mark "${chat.agent.title}" read` : `Mark "${chat.agent.title}" unread`;
     return (
       <Pressable
         key={chat.agent.id}

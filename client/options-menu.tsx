@@ -47,7 +47,7 @@ export function OptionsMenu({
   return (
     <Sheet theme={theme} title="Options" compact={compact} anchor={anchor} width={300} onClose={onClose}>
       <SheetNote theme={theme}>{`${profile.name} profile · ${manual ? "manual order" : "automatic order"}`}</SheetNote>
-      <SheetItem theme={theme} compact={compact} icon={anyCollapsed ? "ChevronsUpDown" : "ChevronsDownUp"} label={anyCollapsed ? "Expand all" : "Collapse to hosts"} onPress={then(onFoldAll)} />
+      <SheetItem theme={theme} compact={compact} icon={anyCollapsed ? "ChevronsUpDown" : "ChevronsDownUp"} label={anyCollapsed ? "Expand all" : "Collapse all"} onPress={then(onFoldAll)} />
       <SheetItem theme={theme} compact={compact} icon="CheckCheck" label={unread ? `Mark ${unread} unread as read` : "No unread chats"} disabled={!unread} onPress={then(onMarkUnreadRead)} />
       {compact ? (
         <SheetItem theme={theme} compact={compact} icon="GripVertical" label="Arrange order…" onPress={then(onArrange)} />

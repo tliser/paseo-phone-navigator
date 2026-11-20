@@ -8,6 +8,7 @@ import type { ProjectRow } from "../shared/tree";
 import { useKeyboardTop } from "./keyboard";
 import { useNavigatorStore } from "./runtime";
 import type { ProviderChoice, ProviderListState, ProviderToggle } from "./store";
+import { useOwnField } from "./chat-nav";
 
 /** Last choice per host for this app session, so the next draft starts where you left off. */
 const lastChoice = new Map<
@@ -182,6 +183,9 @@ export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated 
   const page = useRef<View>(null);
   const scroll = useRef<ScrollView>(null);
   const promptFocused = useRef(false);
+  const nameField = useOwnField();
+  const branchField = useOwnField();
+  const promptField = useOwnField();
   const keyboardTop = useKeyboardTop();
   const [keyboardInset, setKeyboardInset] = useState(0);
   useEffect(() => {
@@ -196,6 +200,7 @@ export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated 
           <Text style={label}>Name (optional)</Text>
           <View style={field}>
             <TextInput
+              {...nameField}
               value={name}
               onChangeText={setName}
               placeholder="Generated if empty"
@@ -214,6 +219,7 @@ export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated 
             {isolation === "worktree" ? (
               <View style={{ ...field, marginTop: 8 }}>
                 <TextInput
+                  {...branchField}
                   value={branch}
                   onChangeText={setBranch}
                   placeholder="Branch name (optional, generated if empty)"
@@ -303,10 +309,12 @@ export function NewWorkspaceSheet({ theme, project, compact, onClose, onCreated 
                     value={prompt}
                     onChangeText={setPrompt}
                     onFocus={() => {
+                      promptField.onFocus();
                       promptFocused.current = true;
                       if (keyboardInset) scroll.current?.scrollToEnd();
                     }}
                     onBlur={() => {
+                      promptField.onBlur();
                       promptFocused.current = false;
                     }}
                     placeholder="What should the agent do?"

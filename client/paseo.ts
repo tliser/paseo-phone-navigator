@@ -15,3 +15,5 @@ export type ServerMessage = Parameters<Parameters<EventObservation["subscribe"]>
 export interface Released {
   release(): Promise<void>;
 }
+/** An answer to what an agent waits for, as the host takes it. */
+export type PermissionResponse = Parameters<ReturnType<PaseoApi["agents"]["ref"]>["respondToPermission"]>[0]["response"];

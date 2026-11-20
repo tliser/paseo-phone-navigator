@@ -113,12 +113,20 @@ interface MatchedTab {
 }
 export type TreeRow = HostRow | ProjectRow | WorkspaceRow | TabRow | SkeletonRow | NoteRow;
 
+/** One host for the host tabs or menu, counted like its section of the tree. */
+export interface HostSummary {
+  serverId: string;
+  label: string;
+  state: "online" | "offline" | "loading";
+  /** Workspaces matching filter and search. */
+  count: number;
+  tally: Tally;
+}
+
 interface TreeResult {
   rows: TreeRow[];
-  /** Workspaces matching filter and search on online hosts. */
+  /** Workspaces matching filter and search on online, shown hosts. */
   matched: number;
-  /** Running workspaces on online, visible hosts (ignores filter and search). */
-  running: number;
   counts: Record<Filter, number>;
   /** Group keys shown (for expand/collapse all). */
   groupKeys: string[];
@@ -126,6 +134,10 @@ interface TreeResult {
   emptyBecauseFiltered: boolean;
   /** Every group's complete child ids in display order, hidden ones included (for drag and drop). */
   groups: Record<string, string[]>;
+  /** Every host not hidden by the profile, in display order. */
+  hosts: HostSummary[];
+  /** The host the tree is limited to; null shows all (also when the chosen host is gone). */
+  hostView: string | null;
 }
 
 export interface TreeOptions {
@@ -141,31 +153,47 @@ export interface TreeOptions {
   hostOrder?: readonly string[];
   /** Workspaces ("serverId:workspaceId") being archived. */
   archiving?: ReadonlySet<string>;
-  /** Pinned workspaces ("serverId:workspaceId"); they pass every view and make up the Pinned view. */
+  /** Pinned workspaces ("serverId:workspaceId"); they make up the Pinned view and always show in All. */
   pins?: ReadonlySet<string>;
+  /** Show only this host ("serverId"); null or unknown shows all. Host rows appear only when several hosts are shown. */
+  hostView?: string | null;
 }
 
 /** A chat's state: asking, then error, then running, then unread news; anything else is read. A working chat never waits for you. */
-export function chatState(agent: AgentInput, serverId: string, workspaceId: string, reads: ReadMap): ChatState {
+export function chatState(agent: AgentInput, serverId: string, workspaceId: string, reads: ReadMap, now?: number): ChatState {
   if (agent.status === "asking") return "asking";
   if (agent.status === "error") return "error";
   if (agent.status === "running") return "running";
-  if (isAgentUnread(reads, serverId, workspaceId, agent)) return "unread";
+  if (isAgentUnread(reads, serverId, workspaceId, agent, now)) return "unread";
   return "read";
 }
 
 /**
- * The state a row shows, from its chats: one asking (sub-agents included), then one errored, then the
- * workspace running, then a top-level chat with unread news. Without chats the workspace's own news counts.
+ * The chats that count on their own: top-level ones, and sub-agents whose parent is not listed (archived,
+ * not loaded), which would otherwise be unreachable. Sub-agents belong to their parent's work.
  */
-export function workspaceState(workspace: WorkspaceInput, serverId: string, reads: ReadMap): WorkspaceState {
+export function topLevelChats(agents: readonly AgentInput[]): AgentInput[] {
+  const ids = new Set(agents.map((agent) => agent.id));
+  return agents.filter((agent) => !agent.parentId || !ids.has(agent.parentId));
+}
+
+/**
+ * The state a row shows, from its top-level chats (as the Inbox counts them): one asking, then one errored,
+ * then the workspace running, then one with unread news. Without chats the workspace's own state counts.
+ */
+export function workspaceState(workspace: WorkspaceInput, serverId: string, reads: ReadMap, now?: number): WorkspaceState {
   const agents = workspace.agents ?? [];
-  const states = agents.map((agent) => chatState(agent, serverId, workspace.id, reads));
-  if (workspace.needsYou || states.includes("asking")) return "needs_you";
-  if (workspace.agentError || states.includes("error")) return "error";
+  if (!agents.length) {
+    if (workspace.needsYou) return "needs_you";
+    if (workspace.agentError) return "error";
+    if (workspace.status === "running") return "running";
+    return isUnread(reads, serverId, workspace.id, workspace.unreadAt) ? "unread" : "read";
+  }
+  const states = topLevelChats(agents).map((agent) => chatState(agent, serverId, workspace.id, reads, now));
+  if (states.includes("asking")) return "needs_you";
+  if (states.includes("error")) return "error";
   if (workspace.status === "running") return "running";
-  if (agents.length) return agents.some((agent, index) => !agent.parentId && states[index] === "unread") ? "unread" : "read";
-  return isUnread(reads, serverId, workspace.id, workspace.unreadAt) ? "unread" : "read";
+  return states.includes("unread") ? "unread" : "read";
 }
 
 interface Ranked {
@@ -188,6 +216,8 @@ function compareRanked(a: Ranked, b: Ranked): number {
 export function passesFilter(item: Ranked, filter: Filter, settings: ProfileSettings, now: number): boolean {
   const { workspace, state } = item;
   if (filter === "pinned") return !!item.pinned;
+  // A pin is explicit: All keeps it even when finished workspaces are hidden. Other views filter it like any other.
+  if (filter === "all" && item.pinned) return true;
   // Hide old finished workspaces, but never one that is new to you or asks for you.
   if (state === "read" && workspace.status !== "running" && settings.hideDone !== "off") {
     const limit = (settings.hideDone === "1d" ? 1 : 7) * DAY_MS;
@@ -198,6 +228,7 @@ export function passesFilter(item: Ranked, filter: Filter, settings: ProfileSett
     if (item.offRecent && state !== "needs_you" && state !== "error") return false;
     return state !== "read" || (!!workspace.activityAt && now - workspace.activityAt <= settings.recentDays * DAY_MS);
   }
+  // Active: an agent runs, has output you have not read, or needs you (asks or failed).
   if (filter === "active") return state !== "read";
   return true;
 }
@@ -268,23 +299,21 @@ function summarize(marks: readonly TabMark[], subagents: number): string {
 
 /** A workspace row, followed by its tab rows when the tab list is unfolded. */
 function workspaceRows(host: HostInput, item: Ranked, group: string, query: string, options: TreeOptions): TreeRow[] {
-  const { collapse, settings, reads } = options;
+  const { collapse, settings, reads, now } = options;
   const row = workspaceRow(host, item, group, query, options.archiving ?? new Set());
   const { workspace } = item;
   const serverId = host.serverId;
   const agents = workspace.agents ?? [];
-  const states = new Map(agents.map((agent) => [agent.id, chatState(agent, serverId, workspace.id, reads)]));
+  const states = new Map(agents.map((agent) => [agent.id, chatState(agent, serverId, workspace.id, reads, now)]));
+  const top = topLevelChats(agents);
   const wanted = item.state === "needs_you" ? "asking" : item.state === "error" || item.state === "unread" ? item.state : null;
-  const why = wanted ? agents.find((agent) => states.get(agent.id) === wanted && (wanted !== "unread" || !agent.parentId)) : undefined;
+  const why = wanted ? top.find((agent) => states.get(agent.id) === wanted) : undefined;
   if (wanted && why) row.reason = { state: wanted, title: why.title };
-  row.unreadChats = agents.filter((agent) => !agent.parentId && states.get(agent.id) === "unread").map((agent) => agent.id);
+  row.unreadChats = top.filter((agent) => states.get(agent.id) === "unread").map((agent) => agent.id);
   if (!settings.show.tabs) return [row];
 
-  // A sub-agent whose parent is not listed (archived, not loaded) is a top-level tab, so it stays reachable.
-  const ids = new Set(agents.map((agent) => agent.id));
-  const parentOf = (agent: AgentInput) => (agent.parentId && ids.has(agent.parentId) ? agent.parentId : null);
-  const top = agents.filter((agent) => !parentOf(agent));
-  const children = (agent: AgentInput) => agents.filter((child) => parentOf(child) === agent.id);
+  const topIds = new Set(top.map((agent) => agent.id));
+  const children = (agent: AgentInput) => agents.filter((child) => !topIds.has(child.id) && child.parentId === agent.id);
   const terminals = workspace.terminals ?? [];
   const topMarks: TabMark[] = [...top.map((agent) => states.get(agent.id) ?? "read"), ...terminals.map((): TabMark => "terminal")];
   // A lone tab without listed sub-agents is the workspace itself: nothing to unfold.
@@ -359,35 +388,44 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   const rows: TreeRow[] = [];
   const groupKeys: string[] = [];
   const counts: Record<Filter, number> = { all: 0, recent: 0, active: 0, pinned: 0 };
-  let running = 0;
   let matched = 0;
   let totalOnline = 0;
+  const summaries: HostSummary[] = [];
+  const visibleHosts = orderHosts(hosts.filter((host) => !hidden.has(host.serverId)), options.hostOrder);
+  const hostView = options.hostView && visibleHosts.some((host) => host.serverId === options.hostView) ? options.hostView : null;
+  // A host row only separates hosts; with one host shown it would be a wasted line.
+  const hostRows = (hostView ? 1 : visibleHosts.length) > 1;
 
-  for (const host of orderHosts(hosts.filter((host) => !hidden.has(host.serverId)), options.hostOrder)) {
+  for (const host of visibleHosts) {
     const hKey = hostKey(host.serverId);
     const noTally = emptyTally();
+    const shown = !hostView || host.serverId === hostView;
     if (host.status !== "online") {
+      summaries.push({ serverId: host.serverId, label: host.label, state: "offline", count: 0, tally: noTally });
       // Offline hosts: dimmed, not expandable, left out of search results.
-      if (!searching) {
-        rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "offline", collapsed: true, count: 0, tally: noTally, error: host.error });
+      if (shown && !searching) {
+        if (hostRows) rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "offline", collapsed: true, count: 0, tally: noTally, error: host.error });
+        else rows.push({ type: "note", key: `${hKey}#offline`, text: `${host.label} is offline` });
       }
       continue;
     }
     if (host.loading) {
-      rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "loading", collapsed: false, count: 0, tally: noTally, error: null });
+      summaries.push({ serverId: host.serverId, label: host.label, state: "loading", count: 0, tally: noTally });
+      if (!shown) continue;
+      if (hostRows) rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "loading", collapsed: false, count: 0, tally: noTally, error: null });
       for (let i = 0; i < 3; i++) rows.push({ type: "skeleton", key: `${hKey}#skel${i}` });
       continue;
     }
 
     const hostTally = emptyTally();
-    totalOnline += host.workspaces.length;
+    if (shown) totalOnline += host.workspaces.length;
 
     // Group by project, keeping each project's newest prompt from all its workspaces (filtering must not change rank).
     const projects = new Map<string, { id: string; name: string; kind: ProjectKind; rootPath: string; orderAt: number; all: Ranked[]; tally: Tally }>();
     for (const workspace of host.workspaces) {
       const item: Ranked = {
         workspace,
-        state: workspaceState(workspace, host.serverId, reads),
+        state: workspaceState(workspace, host.serverId, reads, now),
         pinned: isPinned(host.serverId, workspace.id),
         offRecent: removedFromRecent(reads, host.serverId, workspace),
       };
@@ -400,8 +438,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       project.orderAt = Math.max(project.orderAt, workspace.orderAt);
       addTally(project.tally, item.state);
       addTally(hostTally, item.state);
-      if (item.state === "running") running++;
-      if (matchesSearch(workspace, host.label, query)) {
+      if (shown && matchesSearch(workspace, host.label, query)) {
         for (const key of FILTERS) {
           if (passesFilter(item, key, settings, now)) counts[key]++;
         }
@@ -419,7 +456,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
         const pKey = projectKey(host.serverId, project.id);
         const all = manual ? applyOrder(project.all, (entry) => entry.workspace.id, order[pKey], compareRanked) : [...project.all].sort(compareRanked);
         groups[pKey] = all.map((entry) => entry.workspace.id);
-        const visible = all.filter((entry) => (entry.pinned || passesFilter(entry, filter, settings, now)) && matchesSearch(entry.workspace, host.label, query));
+        const visible = all.filter((entry) => passesFilter(entry, filter, settings, now) && matchesSearch(entry.workspace, host.label, query));
         // A search hit on the project name lists the project even when none of its workspaces match.
         const nameHit = searching && searchTerms(query).every((term) => project.name.toLowerCase().includes(term));
         return { ...project, visible, nameHit };
@@ -427,15 +464,17 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       .filter((project) => project.visible.length > 0 || project.nameHit);
 
     const count = visibleProjects.reduce((sum, project) => sum + project.visible.length, 0);
+    summaries.push({ serverId: host.serverId, label: host.label, state: "online", count, tally: hostTally });
+    if (!shown) continue;
     matched += count;
     if (searching && !visibleProjects.length) continue;
 
-    groupKeys.push(hKey);
+    if (hostRows) groupKeys.push(hKey);
     for (const project of visibleProjects) groupKeys.push(projectKey(host.serverId, project.id));
 
     // Search expands temporarily; the stored collapse map is not touched.
-    const hostCollapsed = searching ? false : isCollapsed(collapse, hKey, settings);
-    rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "online", collapsed: hostCollapsed, count, tally: hostTally, error: host.error });
+    const hostCollapsed = hostRows && !searching && isCollapsed(collapse, hKey, settings);
+    if (hostRows) rows.push({ type: "host", key: hKey, serverId: host.serverId, label: host.label, state: "online", collapsed: hostCollapsed, count, tally: hostTally, error: host.error });
     if (hostCollapsed) continue;
 
     if (host.workspaces.length === 0) {
@@ -443,7 +482,7 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
       continue;
     }
     if (visibleProjects.length === 0) {
-      rows.push({ type: "note", key: `${hKey}#filtered`, text: filter === "pinned" ? "Nothing pinned" : filter === "active" ? "Nothing active or new" : filter === "recent" ? "Nothing recent" : "Nothing matches" });
+      rows.push({ type: "note", key: `${hKey}#filtered`, text: filter === "pinned" ? "Nothing pinned" : filter === "active" ? "Nothing running, unread or asking" : filter === "recent" ? "Nothing recent" : "Nothing matches" });
       continue;
     }
     for (const project of visibleProjects) {
@@ -459,10 +498,11 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   return {
     rows,
     matched,
-    running,
     counts,
     groupKeys,
     emptyBecauseFiltered: matched === 0 && totalOnline > 0 && (searching || filter !== "all"),
     groups,
+    hosts: summaries,
+    hostView,
   };
 }

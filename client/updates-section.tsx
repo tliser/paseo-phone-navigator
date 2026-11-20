@@ -22,9 +22,15 @@ export function UpdatesSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fromGit = !!version;
+  const fromGit = !!version && !version.local;
   const versionText =
-    version === undefined ? "Checking…" : version ? `${version.commit.slice(0, 7)}, installed ${new Date(version.installedAt).toLocaleDateString()}` : "Local folder (development): not updated automatically";
+    version === undefined
+      ? "Checking…"
+      : !version
+        ? "Local folder (development): not updated automatically"
+        : version.local
+          ? `${version.commit.slice(0, 7)} from a local folder (development): not updated automatically; Git installs on your other hosts follow it`
+          : `${version.commit.slice(0, 7)}, installed ${new Date(version.installedAt).toLocaleDateString()}`;
 
   return (
     <SettingsSection title="Updates" info="Installed from GitHub, the plugin checks for a new version a few minutes after the host starts and every 6 hours, and installs it on its own. When one host has a newer version, the others update at once. The switch applies to every host.">

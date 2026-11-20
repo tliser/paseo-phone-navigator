@@ -3,8 +3,8 @@
 import { defineRpc, defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 
-/** The version installed from Git on a host: its commit and when it was installed (ms). */
-export const installedVersionSchema = z.object({ commit: z.string(), installedAt: z.number() });
+/** The version on a host: its commit and when it was installed (ms); `local` for a local folder (its checkout, loaded then). */
+export const installedVersionSchema = z.object({ commit: z.string(), installedAt: z.number(), local: z.boolean().optional() });
 export type InstalledVersion = z.output<typeof installedVersionSchema>;
 
 export const updatesDocumentSchema = z.object({
@@ -19,7 +19,7 @@ export type UpdatesDocument = z.output<typeof updatesDocumentSchema>;
 
 export const updatesSettings = defineSettings({ id: "updates", scope: "host", version: 1, schema: updatesDocumentSchema });
 
-/** This host's installed version, or null when the plugin runs from a local folder. */
+/** This host's installed version: a Git install's, a local Git checkout's (`local`), or null for another local folder. */
 export const installedVersionRpc = defineRpc({
   name: "updates.installed",
   input: z.object({}),

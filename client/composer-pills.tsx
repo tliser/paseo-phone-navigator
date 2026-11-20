@@ -297,6 +297,38 @@ export function registerComposerPills(client: PluginClientContext): () => void {
     }
   }
 
+  /**
+   * A chat's pills. Their presses name the chat through this function's parameters, not a loop variable:
+   * Hermes runs plugin code without per-iteration bindings, so a closure over `for (const agent …)` would
+   * see the loop's last agent when pressed.
+   */
+  function addPills(agentId: string, workspaceId: string) {
+    const target = { workspaceId, agentId };
+    pills.set(agentId, {
+      inbox: client.addComposerPill({
+        id: "inbox",
+        ...target,
+        button: { title: INBOX_TITLE, label: inboxLabel, icon: InboxPillIcon, behavior: { kind: "popover", Content: InboxPopover } },
+      }),
+      read: client.addComposerPill({
+        id: "mark-read",
+        ...target,
+        button: { title: "Mark this chat read", label: "Mark read", icon: ReadIcon, visible: false, behavior: { kind: "action", onPress: () => mark(agentId, true) } },
+      }),
+      unread: client.addComposerPill({
+        id: "mark-unread",
+        ...target,
+        button: { title: "Put this chat back in the Inbox", label: "Mark unread", icon: UnreadIcon, visible: false, behavior: { kind: "action", onPress: () => mark(agentId, false) } },
+      }),
+      catchUp: client.addComposerPill({
+        id: "catch-up",
+        ...target,
+        button: { title: "Where this chat left off and what comes next", label: "Catch up", icon: CatchUpIcon, behavior: { kind: "popover", Content: CatchUpContent } },
+      }),
+      state: null,
+    });
+  }
+
   const observer = createHostObserver(
     client.paseo,
     (directory) => {
@@ -306,30 +338,7 @@ export function registerComposerPills(client: PluginClientContext): () => void {
         if (agent.archivedAt || !agent.workspaceId || ("internal" in agent && agent.internal === true) || ("background" in agent && agent.background === true)) continue;
         live.add(agent.id);
         if (pills.has(agent.id)) continue;
-        const target = { workspaceId: agent.workspaceId, agentId: agent.id };
-        pills.set(agent.id, {
-          inbox: client.addComposerPill({
-            id: "inbox",
-            ...target,
-            button: { title: INBOX_TITLE, label: inboxLabel, icon: InboxPillIcon, behavior: { kind: "popover", Content: InboxPopover } },
-          }),
-          read: client.addComposerPill({
-            id: "mark-read",
-            ...target,
-            button: { title: "Mark this chat read", label: "Mark read", icon: ReadIcon, visible: false, behavior: { kind: "action", onPress: () => mark(agent.id, true) } },
-          }),
-          unread: client.addComposerPill({
-            id: "mark-unread",
-            ...target,
-            button: { title: "Put this chat back in the Inbox", label: "Mark unread", icon: UnreadIcon, visible: false, behavior: { kind: "action", onPress: () => mark(agent.id, false) } },
-          }),
-          catchUp: client.addComposerPill({
-            id: "catch-up",
-            ...target,
-            button: { title: "Where this chat left off and what comes next", label: "Catch up", icon: CatchUpIcon, behavior: { kind: "popover", Content: CatchUpContent } },
-          }),
-          state: null,
-        });
+        addPills(agent.id, agent.workspaceId);
       }
       for (const [id, entry] of pills) {
         if (live.has(id)) continue;

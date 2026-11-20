@@ -283,13 +283,19 @@ export function registerComposerPills(client: PluginClientContext): () => void {
     })
     .catch(() => undefined);
 
-  /** Marks an unread chat read and a read one unread; questions, errors and running chats stay as they are. */
+  /**
+   * Marks an unread chat read and a read one unread; questions, errors and running chats stay as they are.
+   * Runs after Paseo has finished handling the press: on the phone, an update to the pressed pill made while
+   * Paseo still handles its press did not show until the screen redrew, while other pills updated at once.
+   */
   const toggle = (agentId: string) => {
-    const serverId = selfId;
-    if (!serverId) return;
-    const state = stateOf(serverId, agentId);
-    if (state === "unread") getStore().markChatsRead(serverId, [agentId]);
-    else if (state === "read") getStore().markChatUnread(serverId, agentId);
+    setTimeout(() => {
+      const serverId = selfId;
+      if (!serverId) return;
+      const state = stateOf(serverId, agentId);
+      if (state === "unread") getStore().markChatsRead(serverId, [agentId]);
+      else if (state === "read") getStore().markChatUnread(serverId, agentId);
+    }, 0);
   };
 
   /** The Inbox count on every Inbox pill, and each Read pill's state where it changed. */

@@ -100,6 +100,9 @@ const profileSettingsSchema = z.preprocess(migrateLines, z.object({
   namesCard: z.boolean().default(true),
 }));
 
+const hostsShownSchema = z.union([z.literal("all"), z.array(z.string())]);
+export type HostsShown = z.output<typeof hostsShownSchema>;
+
 const profileSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).max(60),
@@ -112,8 +115,8 @@ const profileSchema = z.object({
   order: z.record(z.string(), z.array(z.string())).default({}),
   /** Pinned workspaces ("serverId:workspaceId"). Only used where the device has no storage of its own (phones). */
   pins: z.array(z.string()).default([]),
-  /** The hosts the tree shows (serverIds); empty shows all. */
-  shownHosts: z.array(z.string()).default([]),
+  /** The hosts the tree shows: "all", or these serverIds (none shows an empty tree that asks you to pick one). */
+  hostsShown: hostsShownSchema.default("all"),
 });
 
 export type ProfileSettings = z.output<typeof profileSettingsSchema>;
@@ -162,7 +165,7 @@ export function builtinProfiles(now: number): Profile[] {
       collapse: {},
       order: {},
       pins: [],
-      shownHosts: [],
+      hostsShown: "all",
     },
     {
       id: DESKTOP_ID,
@@ -173,7 +176,7 @@ export function builtinProfiles(now: number): Profile[] {
       collapse: {},
       order: {},
       pins: [],
-      shownHosts: [],
+      hostsShown: "all",
     },
   ];
 }

@@ -1,11 +1,13 @@
 // Picking the hosts the tree shows: tabs above the tree, or a host button that opens a list. Only shown
 // with more than one host. "All" draws every host with a thin divider row each. The profile picks "one"
-// (a host shows only that host) or "several" (a host is added or removed; none left is All).
+// (a host shows only that host) or "several" (a host is added or removed; All is on while every host is,
+// and turns them all on or off; with none the tree asks you to pick one).
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/ui";
 import { useRef } from "react";
 import { Pressable, Text, View } from "react-native";
 import { colorHex, hostColorKey } from "../shared/colors";
+import type { HostsShown } from "../shared/profiles";
 import type { HostSummary } from "../shared/tree";
 import { TallyMarks } from "./marks";
 import { measureAnchor, Sheet, SheetItem, type Anchor } from "./sheet";
@@ -16,10 +18,18 @@ const allTally = (hosts: readonly HostSummary[]) =>
 export type HostPick = "one" | "several";
 
 /** The hosts shown after picking `serverId`. */
-function picked(mode: HostPick, value: readonly string[], serverId: string): string[] {
+function picked(mode: HostPick, value: HostsShown, hosts: readonly HostSummary[], serverId: string): HostsShown {
   if (mode === "one") return [serverId];
-  return value.includes(serverId) ? value.filter((id) => id !== serverId) : [...value, serverId];
+  const current = value === "all" ? hosts.map((host) => host.serverId) : value;
+  const next = current.includes(serverId) ? current.filter((id) => id !== serverId) : [...current, serverId];
+  return next.length === hosts.length ? "all" : next;
 }
+
+/** The hosts shown after picking All: with "several" it turns every host on, or off when all are on. */
+const pickedAll = (mode: HostPick, value: HostsShown): HostsShown => (mode === "several" && value === "all" ? [] : "all");
+
+/** Whether a host counts as picked: with "several", All means every host is. */
+const isPicked = (mode: HostPick, value: HostsShown, serverId: string) => (value === "all" ? mode === "several" : value.includes(serverId));
 
 /** Tabs: All, then each host with its icon colour and what waits there. Hold a host tab to colour its icon. */
 export function HostTabs({
@@ -34,11 +44,11 @@ export function HostTabs({
 }: {
   theme: PluginTheme;
   hosts: readonly HostSummary[];
-  value: readonly string[];
+  value: HostsShown;
   mode: HostPick;
   compact: boolean;
   colors: Readonly<Record<string, string>>;
-  onChange(serverIds: string[]): void;
+  onChange(hosts: HostsShown): void;
   onPickColor(host: HostSummary): void;
 }) {
   const c = theme.colors;
@@ -60,9 +70,9 @@ export function HostTabs({
   );
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityRole="tablist" accessibilityLabel="Hosts" contentContainerStyle={{ gap: 4, paddingHorizontal: 8 }}>
-      {tab("all", !value.length, "All", "All hosts", () => onChange([]), { tally: allTally(hosts) })}
+      {tab("all", value === "all", "All", "All hosts", () => onChange(pickedAll(mode, value)), { tally: allTally(hosts) })}
       {hosts.map((host) =>
-        tab(host.serverId, value.includes(host.serverId), host.label, `${host.label}${host.state === "offline" ? ", offline" : host.state === "loading" ? ", loading" : `, ${host.count} workspaces`}`, () => onChange(picked(mode, value, host.serverId)), {
+        tab(host.serverId, isPicked(mode, value, host.serverId), host.label, `${host.label}${host.state === "offline" ? ", offline" : host.state === "loading" ? ", loading" : `, ${host.count} workspaces`}`, () => onChange(picked(mode, value, hosts, host.serverId)), {
           icon: { color: colorHex(colors[hostColorKey(host.serverId)], c.foregroundMuted), dim: host.state !== "online" },
           tally: host.tally,
           onLongPress: () => onPickColor(host),
@@ -72,17 +82,17 @@ export function HostTabs({
   );
 }
 
-/** Title bar button for the menu mode: the host shown (or "All hosts", or how many); opens the list. */
-export function HostButton({ theme, hosts, value, compact, colors, onOpen }: { theme: PluginTheme; hosts: readonly HostSummary[]; value: readonly string[]; compact: boolean; colors: Readonly<Record<string, string>>; onOpen(anchor: Anchor | null): void }) {
+/** Title bar button for the menu mode: the host shown (or "All hosts", how many, or none); opens the list. */
+export function HostButton({ theme, hosts, value, compact, colors, onOpen }: { theme: PluginTheme; hosts: readonly HostSummary[]; value: HostsShown; compact: boolean; colors: Readonly<Record<string, string>>; onOpen(anchor: Anchor | null): void }) {
   const c = theme.colors;
   const ref = useRef<View>(null);
-  const host = value.length === 1 ? hosts.find((entry) => entry.serverId === value[0]) : undefined;
-  const label = host ? host.label : value.length ? `${value.length} hosts` : "All hosts";
+  const host = value !== "all" && value.length === 1 ? hosts.find((entry) => entry.serverId === value[0]) : undefined;
+  const label = value === "all" ? "All hosts" : host ? host.label : value.length ? `${value.length} hosts` : "No host";
   return (
     <Pressable
       ref={ref}
       accessibilityRole="button"
-      accessibilityLabel={`Hosts: ${host ? host.label : value.length ? hosts.filter((entry) => value.includes(entry.serverId)).map((entry) => entry.label).join(", ") : "all hosts"}. Choose`}
+      accessibilityLabel={`Hosts: ${value === "all" ? "all hosts" : value.length ? hosts.filter((entry) => value.includes(entry.serverId)).map((entry) => entry.label).join(", ") : "none"}. Choose`}
       onPress={() => measureAnchor(ref.current, onOpen)}
       hitSlop={{ top: 4, bottom: 4 }}
       style={({ pressed }) => ({ minHeight: compact ? 36 : 32, maxWidth: 160, flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, borderRadius: 8, backgroundColor: pressed ? c.surface1 : "transparent" })}
@@ -109,24 +119,24 @@ export function HostMenu({
 }: {
   theme: PluginTheme;
   hosts: readonly HostSummary[];
-  value: readonly string[];
+  value: HostsShown;
   mode: HostPick;
   compact: boolean;
   anchor: Anchor | null;
   colors: Readonly<Record<string, string>>;
-  onChange(serverIds: string[]): void;
+  onChange(hosts: HostsShown): void;
   onPickColor(host: HostSummary): void;
   onClose(): void;
 }) {
   const c = theme.colors;
-  const pick = (next: string[]) => {
-    if (mode === "one" || !next.length) onClose();
+  const pick = (next: HostsShown) => {
+    if (mode === "one") onClose();
     onChange(next);
   };
   const check = <Icon name="Check" size={16} color={c.accent} />;
   return (
     <Sheet theme={theme} title="Hosts" compact={compact} anchor={anchor} width={280} onClose={onClose}>
-      <SheetItem theme={theme} compact={compact} icon="Layers" label="All hosts" onPress={() => pick([])} trailing={!value.length ? check : <TallyMarks theme={theme} tally={allTally(hosts)} />} />
+      <SheetItem theme={theme} compact={compact} icon="Layers" label="All hosts" onPress={() => pick(pickedAll(mode, value))} trailing={value === "all" ? check : <TallyMarks theme={theme} tally={allTally(hosts)} />} />
       {hosts.map((host) => (
         <SheetItem
           key={host.serverId}
@@ -134,7 +144,7 @@ export function HostMenu({
           compact={compact}
           icon="Server"
           label={`${host.label}${host.state === "offline" ? " · offline" : ""}`}
-          onPress={() => pick(picked(mode, value, host.serverId))}
+          onPress={() => pick(picked(mode, value, hosts, host.serverId))}
           trailing={
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <TallyMarks theme={theme} tally={host.tally} />
@@ -149,7 +159,7 @@ export function HostMenu({
               >
                 <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: colorHex(colors[hostColorKey(host.serverId)], c.foregroundMuted) }} />
               </Pressable>
-              {value.includes(host.serverId) ? check : null}
+              {isPicked(mode, value, host.serverId) ? check : null}
             </View>
           }
         />

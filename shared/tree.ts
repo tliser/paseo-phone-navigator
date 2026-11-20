@@ -1,7 +1,7 @@
 // Builds the flattened tree the FlatList renders. Pure.
 import { shortenModel } from "./format";
 import { applyOrder, type OrderMap } from "./order";
-import { agentsKey, hostKey, isCollapsed, projectKey, subagentsKey, type CollapseMap, type ProfileSettings } from "./profiles";
+import { agentsKey, hostKey, isCollapsed, projectKey, subagentsKey, type CollapseMap, type HostsShown, type ProfileSettings } from "./profiles";
 import { isAgentUnread, isUnread, removedFromRecent, type ReadMap } from "./reads";
 import { FILTERS, type AgentInput, type ChatState, type Filter, type HostInput, type ProjectKind, type WorkspaceInput, type WorkspaceState } from "./types";
 
@@ -136,8 +136,8 @@ interface TreeResult {
   groups: Record<string, string[]>;
   /** Every host not hidden by the profile, in display order. */
   hosts: HostSummary[];
-  /** The hosts the tree is limited to, in display order; empty shows all (also when every chosen host is gone). */
-  hostView: string[];
+  /** The hosts the tree shows, in display order: "all" (also when every visible host is chosen, or every chosen one is gone), or these; none shows no hosts. */
+  hostView: HostsShown;
 }
 
 export interface TreeOptions {
@@ -155,8 +155,8 @@ export interface TreeOptions {
   archiving?: ReadonlySet<string>;
   /** Pinned workspaces ("serverId:workspaceId"); they make up the Pinned view and always show in All. */
   pins?: ReadonlySet<string>;
-  /** Show only these hosts ("serverId"); empty, or only unknown or hidden ones, shows all. Host rows appear only when several hosts are shown. */
-  hostView?: readonly string[];
+  /** The hosts to show; "all" when omitted. Unknown and hidden ones are ignored. Host rows appear only when several hosts are shown. */
+  hostView?: HostsShown;
 }
 
 /** A chat's state: asking, then error, then running, then unread news; anything else is read. A working chat never waits for you. */
@@ -392,14 +392,17 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   let totalOnline = 0;
   const summaries: HostSummary[] = [];
   const visibleHosts = orderHosts(hosts.filter((host) => !hidden.has(host.serverId)), options.hostOrder);
-  const hostView = visibleHosts.filter((host) => options.hostView?.includes(host.serverId)).map((host) => host.serverId);
+  const chosen = options.hostView ?? "all";
+  const known = chosen === "all" ? [] : visibleHosts.filter((host) => chosen.includes(host.serverId)).map((host) => host.serverId);
+  // Every visible host chosen is All; chosen hosts that are all gone or hidden fall back to All; an empty choice shows none.
+  const hostView: HostsShown = chosen === "all" || (chosen.length > 0 && !known.length) || known.length === visibleHosts.length ? "all" : known;
   // A host row only separates hosts; with one host shown it would be a wasted line.
-  const hostRows = (hostView.length || visibleHosts.length) > 1;
+  const hostRows = (hostView === "all" ? visibleHosts.length : hostView.length) > 1;
 
   for (const host of visibleHosts) {
     const hKey = hostKey(host.serverId);
     const noTally = emptyTally();
-    const shown = !hostView.length || hostView.includes(host.serverId);
+    const shown = hostView === "all" || hostView.includes(host.serverId);
     if (host.status !== "online") {
       summaries.push({ serverId: host.serverId, label: host.label, state: "offline", count: 0, tally: noTally });
       // Offline hosts: dimmed, not expandable, left out of search results.

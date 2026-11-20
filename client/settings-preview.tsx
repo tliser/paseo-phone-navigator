@@ -7,7 +7,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useMemo } from "react";
 import { View } from "react-native";
 import { dragId } from "../shared/drag";
-import type { Profile } from "../shared/profiles";
+import type { HostsShown, Profile } from "../shared/profiles";
 import { buildTree } from "../shared/tree";
 import type { AgentInput, HostInput, WorkspaceInput } from "../shared/types";
 import { HostButton, HostTabs } from "./host-switch";
@@ -85,7 +85,7 @@ export function SettingsPreview({
   const manual = settings.sort === "manual";
   const noop = () => undefined;
   // "Several" shows two hosts picked, so the setting visibly changes the preview.
-  const picked = settings.hostPick === "several" ? tree.hosts.slice(0, 2).map((host) => host.serverId) : [];
+  const picked: HostsShown = settings.hostPick === "several" ? tree.hosts.slice(0, 2).map((host) => host.serverId) : "all";
   return (
     <View accessibilityLabel="Preview" style={{ backgroundColor: c.surface0 }} pointerEvents="none">
       <View style={{ gap: 6, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: c.border }}>

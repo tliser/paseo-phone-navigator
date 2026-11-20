@@ -160,11 +160,17 @@ describe("tree shape", () => {
     // The host list still covers every host, with what waits there.
     expect(onlyB.hosts.map((h) => [h.serverId, h.state, h.tally.asking])).toEqual([["a", "online", 1], ["b", "online", 0], ["off", "offline", 0]]);
     expect(types(buildTree(both, opts({ hostView: ["off"] })).rows)).toEqual(["note"]);
-    // Several chosen hosts keep their host rows, in display order; gone (or hidden) ones drop out, and none left shows all.
+    // Several chosen hosts keep their host rows, in display order; gone (or hidden) ones drop out.
     const twoHosts = buildTree(both, opts({ hostView: ["b", "gone", "a"] }));
     expect(twoHosts.hostView).toEqual(["a", "b"]);
     expect(types(twoHosts.rows)).toEqual(["host", "project", "workspace", "host", "project", "workspace"]);
-    expect(buildTree(both, opts({ hostView: ["gone"] })).hostView).toEqual([]);
+    // Every host chosen is All; only gone ones fall back to All; none chosen shows no host.
+    expect(buildTree(both, opts({ hostView: ["a", "b", "off"] })).hostView).toBe("all");
+    expect(buildTree(both, opts({ hostView: ["gone"] })).hostView).toBe("all");
+    const none = buildTree(both, opts({ hostView: [] }));
+    expect(none.hostView).toEqual([]);
+    expect(none.rows).toEqual([]);
+    expect(none.hosts).toHaveLength(3);
   });
   it("hides hosts listed in hiddenHosts", () => {
     expect(buildTree([host("h", [ws("1", "p", "done", 1)])], opts({ settings: { ...settings, hiddenHosts: ["h"] } })).rows).toHaveLength(0);

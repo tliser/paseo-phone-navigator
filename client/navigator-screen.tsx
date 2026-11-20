@@ -4,7 +4,7 @@ import { FlatList, Icon } from "@getpaseo/plugin/client/ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AccessibilityInfo, Animated, Easing, findNodeHandle, Platform, Pressable, Text, View, type GestureResponderHandlers } from "react-native";
 import { timeAgo } from "../shared/format";
-import { expandForAttention, expandOrCollapseAll, isCollapsed, toggleCollapsed, type Profile, type RowField } from "../shared/profiles";
+import { expandForAttention, expandOrCollapseAll, isCollapsed, toggleCollapsed, type HostsShown, type Profile, type RowField } from "../shared/profiles";
 import { blockEnd, dragId, dragShift, heightsFor, rowOffsets, stickyHeaders, type DropTarget, type StickyHeaders } from "../shared/drag";
 import { inboxTally, type InboxEntry } from "../shared/inbox";
 import { buildTree, workspaceState, type HostRow, type ProjectRow, type TabRow, type Tally, type TreeRow, type WorkspaceRow } from "../shared/tree";
@@ -78,10 +78,10 @@ export function NavigatorScreen(
   };
 
   // The hosts shown are kept in the profile, so they stay picked on every device that uses it.
-  const hostView = profile.shownHosts;
-  const setHostView = (shownHosts: string[]) => {
+  const hostView = profile.hostsShown;
+  const setHostView = (hostsShown: HostsShown) => {
     const now = Date.now();
-    store.editProfiles((profiles) => profiles.map((entry) => (entry.id === profile.id ? { ...entry, shownHosts, updatedAt: now } : entry)));
+    store.editProfiles((profiles) => profiles.map((entry) => (entry.id === profile.id ? { ...entry, hostsShown, updatedAt: now } : entry)));
   };
 
   const [query, setQuery] = useState("");
@@ -129,7 +129,7 @@ export function NavigatorScreen(
     [hosts, snapshot.hostOrder, snapshot.reads, snapshot.archiving, profile.order, filter, query, settings, collapse, now, pins, hostView],
   );
   // New project goes to the host on screen, or asks which online host when several are shown.
-  const projectHosts = tree.hosts.filter((host) => host.state === "online" && (!tree.hostView.length || tree.hostView.includes(host.serverId)));
+  const projectHosts = tree.hosts.filter((host) => host.state === "online" && (tree.hostView === "all" || tree.hostView.includes(host.serverId)));
   const hostSwitch = tree.hosts.length > 1 ? settings.hostSwitch : null;
   const loading = snapshot.hosts.some((host) => host.loading);
   useEffect(() => {
@@ -360,6 +360,8 @@ export function NavigatorScreen(
 
   const empty = snapshot.hosts.length === 0 ? (
     <EmptyState theme={theme} icon="Server" title="No hosts configured" text="Add a host in Paseo to see its workspaces here." />
+  ) : tree.hostView !== "all" && !tree.hostView.length ? (
+    <EmptyState theme={theme} icon="Server" title="No host selected" text={hostSwitch === "menu" ? "Pick one or more hosts with the host button." : "Tap one or more hosts above to show their workspaces."} />
   ) : tree.emptyBecauseFiltered ? (
     <EmptyState
       theme={theme}

@@ -514,6 +514,7 @@ export function NavigatorScreen(
           compact={layout.compact}
           anchor={overlay.anchor}
           inbox={inbox}
+          lines={settings.inboxLines}
           now={now}
           onOpen={openFromInbox}
           onMarkUnreadRead={() => {

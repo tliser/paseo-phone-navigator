@@ -3,19 +3,23 @@
 //   back and forward through the chats you visited.
 // - "Mark read" on an unread chat, "Mark unread" on a read one: either marks the chat and opens the next chat
 //   in the Inbox, so you can work through it without going back to the tree.
+// - "Catch up": where the chat left off and what comes next, in two short lines. Pressing it writes a new one
+//   unless the stored one is still current.
 // Pills are registered per chat, so this follows the host's chat list and adds or removes them.
 import type { PluginButtonContentProps, PluginButtonIconProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { Icon } from "@getpaseo/plugin/client/ui";
-import { useEffect, useRef } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native";
+import type { CatchUp } from "../shared/catchup";
+import { timeAgo } from "../shared/format";
 import { buildInbox, inboxTally, type Inbox, type InboxTally } from "../shared/inbox";
 import { chatState } from "../shared/tree";
-import type { ChatState } from "../shared/types";
+import type { AgentInput, ChatState } from "../shared/types";
 import { chatKey, currentChat, historyStep, reportShownChat, splitChatKey, travelTo, useHistorySteps, type ShownChat } from "./chat-nav";
 import { unreadColor } from "./colors";
 import { createHostObserver } from "./host-observer";
 import { hostsNote, InboxList, inboxSummary } from "./inbox-sheet";
-import { getStore, openChat, useInbox, useNavigatorStore } from "./runtime";
+import { getStore, openChat, PROFILES_SCREEN_ID, useActiveProfile, useInbox, useNavigatorStore } from "./runtime";
 import type { StoreSnapshot } from "./store";
 
 const INBOX_TITLE = "Inbox";
@@ -73,11 +77,13 @@ function InboxPillIcon({ theme, size, color, host, ...context }: PluginButtonIco
 
 const ReadIcon = ({ size, color }: PluginButtonIconProps) => <Icon name="Check" size={size} color={color} />;
 const UnreadIcon = ({ size, color }: PluginButtonIconProps) => <Icon name="CircleDot" size={size} color={color} />;
+const CatchUpIcon = ({ size, color }: PluginButtonIconProps) => <Icon name="History" size={size} color={color} />;
 
 /** The Inbox pill's popover: back and forward through visited chats, then the Inbox. */
 function InboxPopover({ theme, layout, close }: PluginButtonContentProps) {
   const { snapshot } = useNavigatorStore();
   const inbox = useInbox(snapshot);
+  const lines = useActiveProfile(snapshot, layout.platform, layout.compact).settings.inboxLines;
   const steps = useHistorySteps();
   const c = theme.colors;
   const note = hostsNote(inbox);
@@ -115,6 +121,7 @@ function InboxPopover({ theme, layout, close }: PluginButtonContentProps) {
       <InboxList
         theme={theme}
         inbox={inbox}
+        lines={lines}
         now={Date.now()}
         compact={layout.compact}
         hostScrolls
@@ -124,6 +131,100 @@ function InboxPopover({ theme, layout, close }: PluginButtonContentProps) {
         }}
       />
       {note ? <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{note}</Text> : null}
+    </View>
+  );
+}
+
+/** One of the store's chats, or null while unknown. */
+function chatOf(snapshot: StoreSnapshot, serverId: string, agentId: string): AgentInput | null {
+  for (const workspace of snapshot.hosts.find((entry) => entry.serverId === serverId)?.workspaces ?? []) {
+    const agent = workspace.agents?.find((entry) => entry.id === agentId);
+    if (agent) return agent;
+  }
+  return null;
+}
+
+/**
+ * The Catch up pill's popover. Opening it is the request: it writes a catch-up unless the stored one is newer
+ * than the chat's last prompt and finished turn; "Again" writes a new one anyway.
+ */
+function CatchUpPopover({ theme, host, openSettings, ...context }: PluginButtonContentProps & { openSettings(): void }) {
+  const { store, snapshot } = useNavigatorStore();
+  const agentId = context.context === "agent" ? context.agentId : "";
+  const chat = chatOf(snapshot, host.id, agentId);
+  const [written, setWritten] = useState<CatchUp | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const c = theme.colors;
+  const stored = chat?.catchUp ?? null;
+  // The one just written wins until the host's copy of the chat catches up.
+  const shown = written && (!stored || written.at >= stored.at) ? written : stored;
+  const current = !!shown && !!chat && chat.status !== "running" && shown.at >= Math.max(chat.promptAt ?? 0, chat.unreadAt);
+  const model = snapshot.catchUp.model;
+
+  const write = () => {
+    if (busy || !agentId) return;
+    setBusy(true);
+    setError(null);
+    store
+      .writeCatchUp(host.id, agentId)
+      .then(setWritten)
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)))
+      .finally(() => setBusy(false));
+  };
+  const started = useRef(false);
+  useEffect(() => {
+    // Once per opening, after the chat is known, so a current catch-up is not written again.
+    if (started.current || !snapshot.profilesReady || (!chat && agentId)) return;
+    started.current = true;
+    if (model && !current) write();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot.profilesReady, chat, model]);
+
+  if (snapshot.profilesReady && !model) {
+    return (
+      <View style={{ gap: 8 }}>
+        <Text style={{ color: c.foreground, fontSize: 13 }}>Choose the model that writes catch-ups first.</Text>
+        <Pressable accessibilityRole="button" onPress={openSettings} style={({ pressed }) => ({ minHeight: 36, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: pressed ? c.surface2 : c.surface1 })}>
+          <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>Open settings → Inbox</Text>
+        </Pressable>
+      </View>
+    );
+  }
+  return (
+    <View style={{ gap: 8, minWidth: 240 }}>
+      {shown ? (
+        <View accessible accessibilityLabel={`${shown.title}. Left off: ${shown.left}. Next: ${shown.next}`} style={{ gap: 4, opacity: busy ? 0.5 : 1 }}>
+          <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: 12 }}>
+            {`${shown.title} · ${timeAgo(shown.at, Date.now()) || "now"}${current ? "" : " · older"}`}
+          </Text>
+          <Text style={{ color: c.foreground, fontSize: 14 }}>
+            <Text style={{ fontWeight: "700" }}>Left off </Text>
+            {shown.left}
+          </Text>
+          <Text style={{ color: c.foreground, fontSize: 14 }}>
+            <Text style={{ fontWeight: "700" }}>Next </Text>
+            {shown.next}
+          </Text>
+        </View>
+      ) : null}
+      {busy ? (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <ActivityIndicator size="small" color={c.foregroundMuted} />
+          <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>Catching up…</Text>
+        </View>
+      ) : null}
+      {error ? <Text style={{ color: c.statusDanger, fontSize: 12 }}>{`Could not catch up: ${error}`}</Text> : null}
+      {!busy && shown ? (
+        <Pressable accessibilityRole="button" accessibilityLabel="Write the catch-up again" onPress={write} hitSlop={{ top: 6, bottom: 6 }} style={{ alignSelf: "flex-start" }}>
+          <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>Again</Text>
+        </Pressable>
+      ) : null}
+      {!busy && !shown && error ? (
+        <Pressable accessibilityRole="button" onPress={write} hitSlop={{ top: 6, bottom: 6 }} style={{ alignSelf: "flex-start" }}>
+          <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>Try again</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -146,7 +247,17 @@ function openNext(except: string) {
 
 export function registerComposerPills(client: PluginClientContext): () => void {
   if (typeof client.addComposerPill !== "function") return () => undefined;
-  const pills = new Map<string, { inbox: PluginButtonRegistration; read: PluginButtonRegistration; unread: PluginButtonRegistration; state: ChatState | null }>();
+  const pills = new Map<string, { inbox: PluginButtonRegistration; read: PluginButtonRegistration; unread: PluginButtonRegistration; catchUp: PluginButtonRegistration; state: ChatState | null }>();
+  const openSettings = () => client.openScreen({ screenId: PROFILES_SCREEN_ID, params: { section: "inbox" } });
+  const CatchUpContent = (props: PluginButtonContentProps) => (
+    <CatchUpPopover
+      {...props}
+      openSettings={() => {
+        props.close();
+        openSettings();
+      }}
+    />
+  );
   let inboxLabel = INBOX_TITLE;
   // The host serving this copy: the chats that get its pills. Their states show once it is known.
   let selfId: string | null = null;
@@ -212,6 +323,11 @@ export function registerComposerPills(client: PluginClientContext): () => void {
             ...target,
             button: { title: "Mark unread and open the next chat", label: "Mark unread", icon: UnreadIcon, visible: false, behavior: { kind: "action", onPress: () => markAndNext(agent.id, false) } },
           }),
+          catchUp: client.addComposerPill({
+            id: "catch-up",
+            ...target,
+            button: { title: "Where this chat left off and what comes next", label: "Catch up", icon: CatchUpIcon, behavior: { kind: "popover", Content: CatchUpContent } },
+          }),
           state: null,
         });
       }
@@ -220,6 +336,7 @@ export function registerComposerPills(client: PluginClientContext): () => void {
         entry.inbox.remove();
         entry.read.remove();
         entry.unread.remove();
+        entry.catchUp.remove();
         pills.delete(id);
       }
       refresh();
@@ -236,6 +353,7 @@ export function registerComposerPills(client: PluginClientContext): () => void {
       entry.inbox.remove();
       entry.read.remove();
       entry.unread.remove();
+      entry.catchUp.remove();
     }
     pills.clear();
   };

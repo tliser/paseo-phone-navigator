@@ -1,5 +1,6 @@
 // The Inbox: every top-level chat that asks you, errored or has unread news, on every online host. Sub-agents
 // are left out: they belong to their parent's work, which the Inbox already lists. Pure.
+import type { CatchUp } from "./catchup";
 import type { ReadMap } from "./reads";
 import { chatState, topLevelChats } from "./tree";
 import type { AgentRequest, HostInput } from "./types";
@@ -12,8 +13,12 @@ export interface InboxEntry {
   workspaceId: string;
   workspaceTitle: string;
   projectName: string;
+  branch: string | null;
+  /** Top-level chats of its workspace: with one, the workspace title only repeats the chat's. */
+  workspaceChats: number;
   agentId: string;
   chatTitle: string;
+  model: string | null;
   state: InboxState;
   /** When it started waiting, or its last activity; epoch ms. */
   at: number;
@@ -21,6 +26,9 @@ export interface InboxEntry {
   request?: AgentRequest;
   /** Why it stopped (error only): the agent's last error message. */
   errorText?: string;
+  catchUp?: CatchUp;
+  /** The chat was prompted or finished a turn after its catch-up was written. */
+  catchUpStale?: boolean;
 }
 
 export interface Inbox {
@@ -61,7 +69,8 @@ export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: nu
     // A failed load keeps the last complete list (possibly none), so its chats may be missing or stale.
     if (host.error) failedHosts.push(host.label);
     for (const workspace of host.workspaces) {
-      for (const agent of topLevelChats(workspace.agents ?? [])) {
+      const chats = topLevelChats(workspace.agents ?? []);
+      for (const agent of chats) {
         const state = chatState(agent, host.serverId, workspace.id, reads, now);
         if (state !== "asking" && state !== "error" && state !== "unread") continue;
         entries.push({
@@ -70,12 +79,16 @@ export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: nu
           workspaceId: workspace.id,
           workspaceTitle: workspace.title,
           projectName: workspace.projectName,
+          branch: workspace.branch,
+          workspaceChats: chats.length,
           agentId: agent.id,
           chatTitle: agent.title,
+          model: agent.model,
           state,
           at: (state === "unread" && agent.unreadAt) || agent.activityAt,
           ...(state === "asking" && agent.request ? { request: agent.request } : {}),
           ...(state === "error" && agent.errorText ? { errorText: agent.errorText } : {}),
+          ...(agent.catchUp ? { catchUp: agent.catchUp, catchUpStale: agent.catchUp.at < Math.max(agent.promptAt ?? 0, agent.unreadAt) } : {}),
         });
       }
     }

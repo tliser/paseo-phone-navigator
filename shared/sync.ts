@@ -30,7 +30,10 @@ export function mergeProfileDocs(docs: readonly ProfilesDocument[]): ProfilesDoc
       if (!known || entry.at > known.at) projectColors[key] = entry;
     }
   }
-  return { profiles: profiles.length ? profiles : builtinProfiles(0), deleted, projectColors };
+  // Newest change wins; a copy from a version without catch-up has none.
+  let catchUp: ProfilesDocument["catchUp"] = { model: null, rename: true, at: 0 };
+  for (const doc of docs) if (doc.catchUp && doc.catchUp.at > catchUp.at) catchUp = doc.catchUp;
+  return { profiles: profiles.length ? profiles : builtinProfiles(0), deleted, projectColors, catchUp };
 }
 
 /** Per workspace the later event wins: a view (positive) or a "mark unread" (negative, stored as -when). */

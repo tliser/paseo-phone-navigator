@@ -6,8 +6,9 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { ScrollView } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { timeAgo } from "../shared/format";
+import { shortenModel, timeAgo } from "../shared/format";
 import type { Inbox, InboxEntry } from "../shared/inbox";
+import type { InboxField } from "../shared/profiles";
 import type { AgentRequest, RequestAction } from "../shared/types";
 import { Mark, MARK_LABEL, markColor } from "./marks";
 import type { PermissionResponse } from "./paseo";
@@ -104,29 +105,78 @@ function RequestAnswers({ theme, entry, compact }: { theme: PluginTheme; entry: 
   );
 }
 
-function EntryRow({ theme, entry, now, compact, onOpen }: { theme: PluginTheme; entry: InboxEntry; now: number; compact: boolean; onOpen(entry: InboxEntry): void }) {
+/** The text of one field, or "" when the entry has nothing for it (the field then stays hidden). */
+function fieldText(field: InboxField, entry: InboxEntry, now: number, shown: ReadonlySet<InboxField>): string {
+  switch (field) {
+    case "chat":
+      return entry.chatTitle;
+    case "workspace":
+      // With one chat, or the same name, the workspace title only repeats the chat's.
+      return entry.workspaceChats > 1 && entry.workspaceTitle.trim().toLowerCase() !== entry.chatTitle.trim().toLowerCase() ? entry.workspaceTitle : "";
+    case "project":
+      return entry.projectName;
+    case "host":
+      return entry.hostLabel;
+    case "time":
+      return timeAgo(entry.at, now);
+    case "state":
+      return MARK_LABEL[entry.state];
+    case "model":
+      return shortenModel(entry.model);
+    case "branch":
+      return entry.branch ?? "";
+    case "catchup":
+      if (entry.catchUp) return `${entry.catchUp.left} → ${entry.catchUp.next}`;
+      // No catch-up yet: what the entry is and where, unless another line already says it.
+      return [shown.has("state") ? "" : MARK_LABEL[entry.state], shown.has("project") ? "" : entry.projectName].filter(Boolean).join(" · ");
+  }
+}
+
+/** An entry's lines as the profile lays them out; the first line is the headline. */
+function EntryLines({ theme, entry, lines, now }: { theme: PluginTheme; entry: InboxEntry; lines: readonly InboxField[][]; now: number }) {
+  const c = theme.colors;
+  const shown = new Set(lines.flat());
+  return (
+    <View style={{ flex: 1, minWidth: 0 }}>
+      {lines.map((fields, index) => {
+        const parts = fields.map((field) => ({ field, text: fieldText(field, entry, now, shown) })).filter((part) => part.text);
+        if (!parts.length) return null;
+        const head = index === 0;
+        const catchUp = fields.includes("catchup") && !!entry.catchUp;
+        return (
+          <Text
+            key={index}
+            numberOfLines={catchUp ? 2 : 1}
+            style={{ color: head ? c.foreground : c.foregroundMuted, fontSize: head ? 14 : 12, ...(catchUp && entry.catchUpStale ? { fontStyle: "italic", opacity: 0.75 } : {}) }}
+          >
+            {parts.map((part, at) => (
+              <Text key={part.field} style={part.field === "chat" ? { fontWeight: "700" } : part.field === "catchup" && entry.catchUp && !head ? { color: c.foreground } : undefined}>
+                {at ? ` · ${part.text}` : part.text}
+              </Text>
+            ))}
+          </Text>
+        );
+      })}
+    </View>
+  );
+}
+
+export function EntryRow({ theme, entry, lines, now, compact, onOpen }: { theme: PluginTheme; entry: InboxEntry; lines: readonly InboxField[][]; now: number; compact: boolean; onOpen(entry: InboxEntry): void }) {
   const c = theme.colors;
   const ago = timeAgo(entry.at, now);
   const where = `${entry.hostLabel} / ${entry.projectName}`;
   const tint = entry.state === "unread" ? "transparent" : `${markColor(theme, entry.state)}14`;
+  const catchUp = entry.catchUp ? `. Catch-up${entry.catchUpStale ? ", older" : ""}: ${entry.catchUp.left}. Next: ${entry.catchUp.next}` : "";
   return (
     <View style={{ gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: tint }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${entry.chatTitle} in ${entry.workspaceTitle}. ${MARK_LABEL[entry.state]}, ${where}${ago ? `, ${ago} ago` : ""}. Opens the chat`}
+        accessibilityLabel={`${entry.chatTitle} in ${entry.workspaceTitle}. ${MARK_LABEL[entry.state]}, ${where}${ago ? `, ${ago} ago` : ""}${catchUp}. Opens the chat`}
         onPress={() => onOpen(entry)}
         style={({ pressed }) => ({ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 10, opacity: pressed ? 0.7 : 1 })}
       >
         <Mark theme={theme} kind={entry.state} size={16} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text numberOfLines={1} style={{ color: c.foreground, fontSize: 14 }}>
-            <Text style={{ fontWeight: "700" }}>{entry.chatTitle}</Text>
-            {` · ${entry.workspaceTitle}`}
-          </Text>
-          <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: 12 }}>
-            {[MARK_LABEL[entry.state], where, ago].filter(Boolean).join(" · ")}
-          </Text>
-        </View>
+        <EntryLines theme={theme} entry={entry} lines={lines} now={now} />
       </Pressable>
       {entry.request ? <RequestAnswers key={entry.request.id} theme={theme} entry={entry as InboxEntry & { request: AgentRequest }} compact={compact} /> : null}
       {entry.errorText ? (
@@ -141,9 +191,9 @@ function EntryRow({ theme, entry, now, compact, onOpen }: { theme: PluginTheme; 
  * for composer pills); a scroll area inside it would get no height of its own and take the swipes, so the
  * list could not scroll at all.
  */
-export function InboxList({ theme, inbox, now, compact, onOpen, hostScrolls = false }: { theme: PluginTheme; inbox: Inbox; now: number; compact: boolean; onOpen(entry: InboxEntry): void; hostScrolls?: boolean }) {
+export function InboxList({ theme, inbox, lines, now, compact, onOpen, hostScrolls = false }: { theme: PluginTheme; inbox: Inbox; lines: readonly InboxField[][]; now: number; compact: boolean; onOpen(entry: InboxEntry): void; hostScrolls?: boolean }) {
   if (!inbox.entries.length) return null;
-  const rows = inbox.entries.map((entry) => <EntryRow key={`${entry.serverId}:${entry.agentId}`} theme={theme} entry={entry} now={now} compact={compact} onOpen={onOpen} />);
+  const rows = inbox.entries.map((entry) => <EntryRow key={`${entry.serverId}:${entry.agentId}`} theme={theme} entry={entry} lines={lines} now={now} compact={compact} onOpen={onOpen} />);
   if (hostScrolls) return <View style={{ gap: 4 }}>{rows}</View>;
   return (
     <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: 4 }} keyboardShouldPersistTaps="handled">
@@ -157,6 +207,7 @@ export function InboxSheet({
   compact,
   anchor,
   inbox,
+  lines,
   now,
   onOpen,
   onMarkUnreadRead,
@@ -166,6 +217,7 @@ export function InboxSheet({
   compact: boolean;
   anchor: Anchor | null;
   inbox: Inbox;
+  lines: readonly InboxField[][];
   now: number;
   onOpen(entry: InboxEntry): void;
   onMarkUnreadRead(): void;
@@ -176,7 +228,7 @@ export function InboxSheet({
   return (
     <Sheet theme={theme} title="Inbox" compact={compact} anchor={anchor} width={400} onClose={onClose}>
       <SheetNote theme={theme}>{inboxSummary(inbox)}</SheetNote>
-      <InboxList theme={theme} inbox={inbox} now={now} compact={compact} onOpen={onOpen} />
+      <InboxList theme={theme} inbox={inbox} lines={lines} now={now} compact={compact} onOpen={onOpen} />
       {note ? <SheetNote theme={theme}>{note}</SheetNote> : null}
       {unread ? (
         <>

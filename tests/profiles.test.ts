@@ -8,6 +8,7 @@ import {
   isCollapsed,
   normalizeDocument,
   normalizeLines,
+  ROW_LINES,
   pruneCollapse,
   resolveProfile,
   setCollapsed,
@@ -96,9 +97,9 @@ describe("settings migration", () => {
     expect(doc.profiles[0]!.settings).toMatchObject({ lines: [["title"], ["diff", "branch"]], show: { tabs: false } });
   });
   it("lines keep each value once, drop empty lines and always keep the title", () => {
-    expect(normalizeLines([["branch", "nope", "branch"], [], ["model", "title"], ["diff"]])).toEqual([["branch"], ["model", "title"]]);
-    expect(normalizeLines([["model"]])).toEqual([["title", "model"]]);
-    expect(normalizeLines([])).toEqual([["title"]]);
+    expect(normalizeLines([["branch", "nope", "branch"], [], ["model", "title"], ["diff"]], ROW_LINES)).toEqual([["branch"], ["model", "title"]]);
+    expect(normalizeLines([["model"]], ROW_LINES)).toEqual([["title", "model"]]);
+    expect(normalizeLines([], ROW_LINES)).toEqual([["title"]]);
   });
 });
 

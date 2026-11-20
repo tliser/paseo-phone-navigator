@@ -3,27 +3,33 @@ import { builtinProfiles, normalizeDocument, type Profile } from "../shared/prof
 import { mergeProfileDocs, mergeReadDocs, mergeUpdateDocs, sameDoc } from "../shared/sync";
 
 const profile = (id: string, updatedAt: number, name = id): Profile => ({ ...builtinProfiles(0)[0]!, id, name, updatedAt });
+const noCatchUp = { model: null, rename: true, at: 0 };
 
 describe("mergeProfileDocs", () => {
   it("takes the newest copy of each profile and keeps every profile", () => {
-    const a = { profiles: [profile("phone", 5, "old"), profile("x", 1)], deleted: {}, projectColors: {} };
-    const b = { profiles: [profile("phone", 9, "new"), profile("y", 2)], deleted: {}, projectColors: {} };
+    const a = { profiles: [profile("phone", 5, "old"), profile("x", 1)], deleted: {}, projectColors: {}, catchUp: noCatchUp };
+    const b = { profiles: [profile("phone", 9, "new"), profile("y", 2)], deleted: {}, projectColors: {}, catchUp: noCatchUp };
     const merged = mergeProfileDocs([a, b]);
     expect(merged.profiles.map((p) => `${p.id}:${p.name}`)).toEqual(["phone:new", "x:x", "y:y"]);
   });
   it("a deletion beats older edits but not newer ones", () => {
-    const a = { profiles: [profile("x", 3), profile("phone", 1)], deleted: {}, projectColors: {} };
-    const b = { profiles: [profile("phone", 1)], deleted: { x: 5 }, projectColors: {} };
+    const a = { profiles: [profile("x", 3), profile("phone", 1)], deleted: {}, projectColors: {}, catchUp: noCatchUp };
+    const b = { profiles: [profile("phone", 1)], deleted: { x: 5 }, projectColors: {}, catchUp: noCatchUp };
     expect(mergeProfileDocs([a, b]).profiles.map((p) => p.id)).toEqual(["phone"]);
-    const edited = { profiles: [profile("x", 7), profile("phone", 1)], deleted: {}, projectColors: {} };
+    const edited = { profiles: [profile("x", 7), profile("phone", 1)], deleted: {}, projectColors: {}, catchUp: noCatchUp };
     expect(mergeProfileDocs([edited, b]).profiles.map((p) => p.id)).toEqual(["x", "phone"]);
   });
   it("is idempotent, and a fresh host's built-ins lose to edited ones", () => {
-    const edited = { profiles: [profile("phone", 9, "Mine")], deleted: { desktop: 4 }, projectColors: {} };
+    const edited = { profiles: [profile("phone", 9, "Mine")], deleted: { desktop: 4 }, projectColors: {}, catchUp: noCatchUp };
     const fresh = normalizeDocument(undefined);
     const once = mergeProfileDocs([fresh, edited]);
     expect(once.profiles.map((p) => p.name)).toEqual(["Mine"]);
     expect(sameDoc(mergeProfileDocs([once, edited, fresh]), mergeProfileDocs([once]))).toBe(true);
+  });
+  it("keeps the newest catch-up settings; a host that never set them does not reset them", () => {
+    const chosen = { profiles: [profile("phone", 1)], deleted: {}, projectColors: {}, catchUp: { model: "omp/haiku", rename: false, at: 5 } };
+    const older = { ...chosen, catchUp: { model: "codex/mini", rename: true, at: 2 } };
+    expect(mergeProfileDocs([normalizeDocument(undefined), older, chosen]).catchUp).toEqual(chosen.catchUp);
   });
 });
 

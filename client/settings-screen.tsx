@@ -1,12 +1,15 @@
-// Settings of one profile, in sections: View · Rows · Order · Groups · Profile, plus this plugin's Updates.
-// Section tabs and a preview of sample rows stay at the top; only the settings below them scroll.
+// Settings of one profile, in sections: View · Rows · Inbox · Order · Groups · Profile, plus this plugin's
+// Updates. Section tabs and a preview of sample rows (or Inbox entries) stay at the top; only the settings
+// below them scroll.
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
+import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { ScrollView, SettingsAction, SettingsCard, SettingsInput, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PanResponder, Pressable, Text, View } from "react-native";
-import { bindPlatform, defaultSettings, newProfileId, pruneCollapse, type Profile, type ProfileSettings } from "../shared/profiles";
-import { LineEditor } from "./line-editor";
+import { bindPlatform, defaultSettings, INBOX_LINES, newProfileId, pruneCollapse, ROW_LINES, type Profile, type ProfileSettings } from "../shared/profiles";
+import { INBOX_FIELD_LABEL, LineEditor, ROW_FIELD_LABEL } from "./line-editor";
+import { InboxPreview } from "./inbox-preview";
+import type { ProviderListState, Store } from "./store";
 import { ICON_COLORS } from "../shared/colors";
 import type { Platform } from "../shared/types";
 import { PLATFORM_LABEL } from "./options-menu";
@@ -18,11 +21,12 @@ import { ownScreenOpen } from "./chat-nav";
 import { UpdatesSection } from "./updates-section";
 
 type PlatformChoice = Platform | "none";
-type Section = "view" | "rows" | "order" | "groups" | "profile" | "updates";
+type Section = "view" | "rows" | "inbox" | "order" | "groups" | "profile" | "updates";
 
 const SECTIONS: readonly [Section, string][] = [
   ["view", "View"],
   ["rows", "Rows"],
+  ["inbox", "Inbox"],
   ["order", "Order"],
   ["groups", "Groups"],
   ["profile", "Profile"],
@@ -30,7 +34,7 @@ const SECTIONS: readonly [Section, string][] = [
 ];
 const RECENT_DAYS = [1, 2, 3, 7, 14, 30];
 
-export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
+export function SettingsScreen({ theme, layout, host, params }: PluginScreenProps) {
   // A full screen over a chat on phones: typing in its fields is not typing in that chat.
   useEffect(() => ownScreenOpen(), []);
   const { store, snapshot } = useNavigatorStore();
@@ -39,7 +43,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
   const edit = snapshot.profiles.find((profile) => profile.id === editId) ?? active;
   const [name, setName] = useState(edit.name);
   useEffect(() => setName(edit.name), [edit.id, edit.name]);
-  const [section, setSection] = useState<Section>("view");
+  const [section, setSection] = useState<Section>(() => SECTIONS.find(([id]) => id === params.section)?.[0] ?? "view");
   /** How far the preview was dragged taller than its starting size. */
   const [grown, setGrown] = useState(0);
   const { toast, show: showToast, hide: hideToast } = useToastState();
@@ -167,7 +171,7 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
       <>
         <SettingsCard>
           <View style={{ padding: 12 }}>
-            <LineEditor theme={theme} lines={s.lines} disabled={!ready} onChange={(lines) => updateSettings({ lines })} />
+            <LineEditor theme={theme} kind={ROW_LINES} labels={ROW_FIELD_LABEL} lines={s.lines} disabled={!ready} onChange={(lines) => updateSettings({ lines })} />
           </View>
         </SettingsCard>
         <SettingsCard>
@@ -175,6 +179,16 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
           {yesNo(s.show.subagents, (subagents) => updateSettings({ show: { ...s.show, subagents } }), "Sub-agents", s.show.tabs ? "Under their parent tab." : "Needs Tabs.", undefined, !s.show.tabs)}
           {layout.compact ? null : yesNo(s.namesCard, (namesCard) => updateSettings({ namesCard }), "Info card on hover", "Full details of workspaces, tabs and projects.")}
         </SettingsCard>
+      </>
+    ),
+    inbox: (
+      <>
+        <SettingsCard>
+          <View style={{ padding: 12 }}>
+            <LineEditor theme={theme} kind={INBOX_LINES} labels={INBOX_FIELD_LABEL} lines={s.inboxLines} disabled={!ready} onChange={(inboxLines) => updateSettings({ inboxLines })} />
+          </View>
+        </SettingsCard>
+        <CatchUpSettings store={store} serverId={host.id} catchUp={snapshot.catchUp} disabled={!ready} />
       </>
     ),
     order: (
@@ -338,7 +352,11 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
               </Pressable>
             </View>
             <ScrollView style={{ flex: 1 }} nestedScrollEnabled>
-              <SettingsPreview theme={theme} profile={edit} touch={touch} hosts={snapshot.hosts} colors={snapshot.colors} />
+              {section === "inbox" ? (
+                <InboxPreview theme={theme} lines={s.inboxLines} host={snapshot.hosts.find((entry) => entry.serverId === host.id)?.label || "tardis"} compact={layout.compact} />
+              ) : (
+                <SettingsPreview theme={theme} profile={edit} touch={touch} hosts={snapshot.hosts} colors={snapshot.colors} />
+              )}
             </ScrollView>
             {/* Drag handle: pull down to make the preview taller, push up to shrink it back. */}
             <View
@@ -360,6 +378,58 @@ export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
       </ScrollView>
       <Toast theme={theme} toast={toast} onHide={hideToast} />
     </View>
+  );
+}
+
+/**
+ * Which model writes catch-ups, for every profile and device, and whether they rename chats. The models are
+ * the ones this host offers; a catch-up runs on its chat's host, which must offer the same model.
+ */
+function CatchUpSettings({ store, serverId, catchUp, disabled }: { store: Store; serverId: string; catchUp: { model: string | null; rename: boolean }; disabled: boolean }) {
+  const [providers, setProviders] = useState<ProviderListState | null>(null);
+  useEffect(() => store.watchProviders(serverId, "~", setProviders), [store, serverId]);
+  // Stored as Paseo's `provider/model`; provider ids have no slash, model ids may.
+  const cut = catchUp.model?.indexOf("/") ?? -1;
+  const providerId = catchUp.model && cut > 0 ? catchUp.model.slice(0, cut) : null;
+  const modelId = catchUp.model && cut > 0 ? catchUp.model.slice(cut + 1) : null;
+  const ready = providers?.ready ?? [];
+  const provider = ready.find((entry) => entry.id === providerId) ?? null;
+  const loading = !providers || (!ready.length && providers.loading.length > 0);
+  // A stored choice the host does not list (yet) stays selectable, so it is never shown as something else.
+  const providerOptions = [...ready.map((entry) => ({ value: entry.id, label: entry.label })), ...(providerId && !provider ? [{ value: providerId, label: providerId }] : [])];
+  const models = provider?.models ?? [];
+  const modelOptions = [...models.map((entry) => ({ value: entry.id, label: entry.label })), ...(modelId && !models.some((entry) => entry.id === modelId) ? [{ value: modelId, label: modelId }] : [])];
+  const pickProvider = (id: string) => {
+    const next = ready.find((entry) => entry.id === id);
+    const model = next?.models.find((entry) => entry.isDefault) ?? next?.models[0];
+    if (model) store.setCatchUpSettings({ model: `${id}/${model.id}` });
+  };
+  return (
+    <SettingsCard>
+      <SettingsSelect
+        label="Catch-up provider"
+        hint={providers?.error ? `Could not list providers: ${providers.error}` : loading ? "Loading providers…" : "Catch up under a chat writes where it left off and what comes next."}
+        value={providerId ?? ""}
+        options={providerId ? providerOptions : [{ value: "", label: "Choose…" }, ...providerOptions]}
+        onValueChange={pickProvider}
+        disabled={disabled || !providerOptions.length}
+      />
+      <SettingsSelect
+        label="Catch-up model"
+        hint="A small, fast model is enough."
+        value={modelId ?? ""}
+        options={modelId ? modelOptions : [{ value: "", label: "Choose a provider first" }]}
+        onValueChange={(id) => providerId && store.setCatchUpSettings({ model: `${providerId}/${id}` })}
+        disabled={disabled || !modelOptions.length}
+      />
+      <SettingsSwitch
+        label="Name chats from the catch-up"
+        hint="Replaces the start of your first prompt with a short topic. Names you gave a chat yourself stay."
+        value={catchUp.rename}
+        onValueChange={(rename) => store.setCatchUpSettings({ rename })}
+        disabled={disabled}
+      />
+    </SettingsCard>
   );
 }
 

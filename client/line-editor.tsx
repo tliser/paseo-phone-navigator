@@ -1,16 +1,28 @@
-// The row's lines as you see them: each line is a strip of value chips in their order. Tap a chip to
-// select it, then move it within or between lines or remove it; "+" on a line adds a value that is not
-// shown yet; "Add line" starts a new line (up to three). The title can move but never be removed.
+// The lines as you see them: each line is a strip of value chips in their order. Tap a chip to select it,
+// then move it within or between lines or remove it; "+" on a line adds a value that is not shown yet;
+// "Add line" starts a new line (up to three). The required value can move but never be removed. Used for
+// workspace rows and Inbox entries.
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { MAX_LINES, normalizeLines, ROW_FIELDS, type RowField } from "../shared/profiles";
+import { MAX_LINES, normalizeLines, type InboxField, type LineKind, type RowField } from "../shared/profiles";
 
-const FIELD_LABEL: Record<RowField, string> = { title: "Title", time: "Last activity", branch: "Branch", model: "Model", diff: "Changes", reason: "Why it needs you", project: "Project", host: "Host" };
+export const ROW_FIELD_LABEL: Record<RowField, string> = { title: "Title", time: "Last activity", branch: "Branch", model: "Model", diff: "Changes", reason: "Why it needs you", project: "Project", host: "Host" };
+export const INBOX_FIELD_LABEL: Record<InboxField, string> = {
+  chat: "Chat",
+  catchup: "Catch-up",
+  workspace: "Workspace",
+  project: "Project",
+  host: "Host",
+  time: "Waiting since",
+  state: "State",
+  model: "Model",
+  branch: "Branch",
+};
 
 /** Where `field` sits: line and position, or null when it is not shown. */
-function find(lines: readonly RowField[][], field: RowField): { line: number; at: number } | null {
+function find<Field extends string>(lines: readonly Field[][], field: Field): { line: number; at: number } | null {
   for (const [line, fields] of lines.entries()) {
     const at = fields.indexOf(field);
     if (at !== -1) return { line, at };
@@ -19,33 +31,47 @@ function find(lines: readonly RowField[][], field: RowField): { line: number; at
 }
 
 /** Takes `field` out and puts it on `line` at `at` (end when omitted); one past the last line adds a line. */
-function place(lines: readonly RowField[][], field: RowField, line: number, at?: number): RowField[][] {
+function place<Field extends string>(lines: readonly Field[][], kind: LineKind<Field>, field: Field, line: number, at?: number): Field[][] {
   const next = lines.map((fields) => fields.filter((name) => name !== field));
   if (line >= next.length) next.push([field]);
   else next[line]!.splice(at ?? next[line]!.length, 0, field);
-  return normalizeLines(next);
+  return normalizeLines(next, kind);
 }
 
-export function LineEditor({ theme, lines, disabled, onChange }: { theme: PluginTheme; lines: RowField[][]; disabled: boolean; onChange(lines: RowField[][]): void }) {
+export function LineEditor<Field extends string>({
+  theme,
+  kind,
+  labels,
+  lines,
+  disabled,
+  onChange,
+}: {
+  theme: PluginTheme;
+  kind: LineKind<Field>;
+  labels: Record<Field, string>;
+  lines: Field[][];
+  disabled: boolean;
+  onChange(lines: Field[][]): void;
+}) {
   const c = theme.colors;
-  const [selected, setSelected] = useState<RowField | null>(null);
+  const [selected, setSelected] = useState<Field | null>(null);
   /** The line whose "+" list is open, or `lines.length` for a new line. */
   const [adding, setAdding] = useState<number | null>(null);
-  const unused = ROW_FIELDS.filter((field) => !find(lines, field));
+  const unused = kind.fields.filter((field) => !find(lines, field));
   const where = selected ? find(lines, selected) : null;
-  const change = (next: RowField[][]) => {
+  const change = (next: Field[][]) => {
     onChange(next);
     setAdding(null);
   };
 
-  const chip = (field: RowField) => {
+  const chip = (field: Field) => {
     const on = selected === field;
     return (
       <Pressable
         key={field}
         accessibilityRole="button"
         accessibilityState={{ selected: on, disabled }}
-        accessibilityLabel={`${FIELD_LABEL[field]}${on ? ", selected" : ""}`}
+        accessibilityLabel={`${labels[field]}${on ? ", selected" : ""}`}
         accessibilityHint="Select to move or remove"
         disabled={disabled}
         onPress={() => {
@@ -55,7 +81,7 @@ export function LineEditor({ theme, lines, disabled, onChange }: { theme: Plugin
         hitSlop={{ top: 4, bottom: 4 }}
         style={{ minHeight: 34, justifyContent: "center", paddingHorizontal: 12, borderRadius: 8, borderWidth: 1.5, borderColor: on ? c.accent : c.border, backgroundColor: on ? c.surface2 : c.surface0 }}
       >
-        <Text style={{ color: c.foreground, fontSize: 13, fontWeight: field === "title" ? "700" : "500" }}>{FIELD_LABEL[field]}</Text>
+        <Text style={{ color: c.foreground, fontSize: 13, fontWeight: field === kind.required ? "700" : "500" }}>{labels[field]}</Text>
       </Pressable>
     );
   };
@@ -83,13 +109,13 @@ export function LineEditor({ theme, lines, disabled, onChange }: { theme: Plugin
           <Pressable
             key={field}
             accessibilityRole="button"
-            accessibilityLabel={`Add ${FIELD_LABEL[field]} to line ${line + 1}`}
-            onPress={() => change(place(lines, field, line))}
+            accessibilityLabel={`Add ${labels[field]} to line ${line + 1}`}
+            onPress={() => change(place(lines, kind, field, line))}
             hitSlop={{ top: 4, bottom: 4 }}
             style={{ minHeight: 34, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, borderRadius: 8, backgroundColor: c.surface2 }}
           >
             <Icon name="Plus" size={12} color={c.accent} />
-            <Text style={{ color: c.foreground, fontSize: 13 }}>{FIELD_LABEL[field]}</Text>
+            <Text style={{ color: c.foreground, fontSize: 13 }}>{labels[field]}</Text>
           </Pressable>
         ))}
       </View>
@@ -130,18 +156,18 @@ export function LineEditor({ theme, lines, disabled, onChange }: { theme: Plugin
       {selected && where ? (
         // Moves for the selected value; it stays selected so it can be moved again.
         <View accessibilityRole="toolbar" style={{ flexDirection: "row", alignItems: "center", gap: 2, padding: 4, borderRadius: 10, backgroundColor: c.surface1, borderWidth: 1, borderColor: c.border }}>
-          <Text numberOfLines={1} style={{ flex: 1, paddingLeft: 8, color: c.foreground, fontSize: 13, fontWeight: "600" }}>{FIELD_LABEL[selected]}</Text>
-          {action("ArrowLeft", "Move earlier", where.at > 0, () => change(place(lines, selected, where.line, where.at - 1)))}
-          {action("ArrowRight", "Move later", where.at < lines[where.line]!.length - 1, () => change(place(lines, selected, where.line, where.at + 1)))}
-          {action("ArrowUp", "Move to the line above", where.line > 0, () => change(place(lines, selected, where.line - 1)))}
-          {action("ArrowDown", "Move to the line below", where.line < lines.length - 1 || (lines.length < MAX_LINES && lines[where.line]!.length > 1), () => change(place(lines, selected, where.line + 1)))}
-          {action("Trash2", "Remove from the row", selected !== "title", () => {
-            change(normalizeLines(lines.map((fields) => fields.filter((name) => name !== selected))));
+          <Text numberOfLines={1} style={{ flex: 1, paddingLeft: 8, color: c.foreground, fontSize: 13, fontWeight: "600" }}>{labels[selected]}</Text>
+          {action("ArrowLeft", "Move earlier", where.at > 0, () => change(place(lines, kind, selected, where.line, where.at - 1)))}
+          {action("ArrowRight", "Move later", where.at < lines[where.line]!.length - 1, () => change(place(lines, kind, selected, where.line, where.at + 1)))}
+          {action("ArrowUp", "Move to the line above", where.line > 0, () => change(place(lines, kind, selected, where.line - 1)))}
+          {action("ArrowDown", "Move to the line below", where.line < lines.length - 1 || (lines.length < MAX_LINES && lines[where.line]!.length > 1), () => change(place(lines, kind, selected, where.line + 1)))}
+          {action("Trash2", "Remove", selected !== kind.required, () => {
+            change(normalizeLines(lines.map((fields) => fields.filter((name) => name !== selected)), kind));
             setSelected(null);
           })}
         </View>
       ) : (
-        <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>Tap a value to move or remove it. Values without data stay hidden on that row.</Text>
+        <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>Tap a value to move or remove it. Values without data stay hidden.</Text>
       )}
     </View>
   );

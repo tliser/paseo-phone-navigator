@@ -1,5 +1,6 @@
 // Turns the daemon's workspace and agent payloads into WorkspaceInput. Pure; structural types only,
 // so it neither depends on the SDK's generated types nor breaks when fields are added.
+import { readCatchUp } from "./catchup";
 import { epoch } from "./format";
 import type { AgentInput, AgentRequest, ProjectKind, RequestAction, RequestQuestion, WorkspaceInput, WorkspaceStatus } from "./types";
 
@@ -44,6 +45,8 @@ export interface AgentLike {
   attentionTimestamp?: string | null;
   pendingPermissions?: readonly unknown[];
   lastError?: string | null;
+  /** Data plugins store on the agent; the catch-up lives here. */
+  metadata?: Readonly<Record<string, unknown>> | null;
 }
 
 const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
@@ -151,6 +154,7 @@ function agentInput(agent: AgentLike, index: number): AgentInput {
   const unreadAt = agent.requiresAttention && agent.attentionReason === "finished" ? epoch(agent.attentionTimestamp) || epoch(agent.updatedAt) : 0;
   const request = status === "asking" && agent.pendingPermissions?.length ? requestOf(agent.pendingPermissions[0]) : undefined;
   const errorText = status === "error" ? text(agent.lastError) : "";
+  const catchUp = readCatchUp(agent.metadata);
   return {
     id: agent.id,
     title: agent.title?.trim() || `Agent ${index + 1}`,
@@ -162,6 +166,7 @@ function agentInput(agent: AgentLike, index: number): AgentInput {
     promptAt: epoch(agent.lastUserMessageAt),
     ...(request ? { request } : {}),
     ...(errorText ? { errorText } : {}),
+    ...(catchUp ? { catchUp } : {}),
   };
 }
 

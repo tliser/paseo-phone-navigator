@@ -1,4 +1,5 @@
 // Domain inputs for the pure core. Independent of the Paseo SDK, so the core is testable and Hermes-safe.
+import type { CatchUp } from "./catchup";
 
 export type WorkspaceStatus = "needs_input" | "failed" | "running" | "attention" | "done";
 type HostStatus = "idle" | "connecting" | "online" | "offline" | "error";
@@ -41,6 +42,8 @@ export interface AgentInput {
   request?: AgentRequest;
   /** Its last error message (error only). */
   errorText?: string;
+  /** Its catch-up, when one was written. */
+  catchUp?: CatchUp;
 }
 
 /** One answer button of a permission request. */

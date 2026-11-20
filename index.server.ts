@@ -1,5 +1,7 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { installedVersion, updateIfBehind } from "./server/auto-update";
+import { generateCatchUp } from "./server/catchup";
+import { catchUpRpc } from "./shared/catchup";
 import { profilesSettings, readsSettings } from "./shared/settings";
 import { checkForUpdateRpc, installedVersionRpc, updatesSettings, type InstalledVersion } from "./shared/updates";
 
@@ -12,6 +14,7 @@ export default function contribute(server: PluginServerContext) {
   server.registerSettings(profilesSettings);
   server.registerSettings(readsSettings);
   const updates = server.registerSettings(updatesSettings);
+  server.handle(catchUpRpc, (input, { paseo }) => generateCatchUp(paseo, input));
 
   let checking = false;
   const check = async (reason: string, force = false) => {

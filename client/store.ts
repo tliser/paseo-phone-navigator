@@ -15,6 +15,7 @@ import { KEEP_DAYS, markSeen, newsKey, normalizeReads, readAgentKey, readKey, re
 import { profilesSettings, readsSettings } from "../shared/settings";
 import { mergeProfileDocs, mergeReadDocs, mergeUpdateDocs, sameDoc } from "../shared/sync";
 import { checkForUpdateRpc, installedVersionRpc, updatesDocumentSchema, updatesSettings, type InstalledVersion, type UpdatesDocument } from "../shared/updates";
+import { catchUpRpc, type CatchUp } from "../shared/catchup";
 import { createHostSync, type HostSync, type SyncedKind } from "./host-sync";
 import { createPeerDirectory, type Peer, type PeerDirectory } from "./peers";
 import type { HostInput, ProjectKind } from "../shared/types";
@@ -49,6 +50,8 @@ export interface StoreSnapshot {
   pinsFor(profileId: string): ReadonlySet<string>;
   /** Colour id per project folder (`projectColorKey`) and host icon (`hostColorKey`), shared by every profile and device. */
   colors: Readonly<Record<string, string>>;
+  /** Catch-up settings, shared by every profile and device. */
+  catchUp: ProfilesDocument["catchUp"];
   /** When you marked each chat ("serverId:agent:agentId") or chat-less workspace ("serverId:workspaceId") read. */
   reads: ReadMap;
   savingError: string | null;
@@ -104,6 +107,10 @@ export interface Store {
   archiveWorkspace(serverId: string, workspaceId: string): Promise<void>;
   /** Answers what an agent waits for (allow/deny, with answers for questions). Rejects when the host refuses. */
   respondToPermission(serverId: string, agentId: string, requestId: string, response: PermissionResponse): Promise<void>;
+  /** Changes the catch-up settings for every profile and device. */
+  setCatchUpSettings(patch: { model?: string | null; rename?: boolean }): void;
+  /** Has the chat's host write its catch-up with the chosen model. Rejects when no model is chosen, the host lacks this plugin, or the model fails. */
+  writeCatchUp(serverId: string, agentId: string): Promise<CatchUp>;
   dispose(): void;
 }
 
@@ -293,6 +300,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       },
       reads: currentReads(),
       colors: Object.fromEntries(Object.entries(profilesDoc.value().projectColors).map(([key, entry]) => [key, entry.color])),
+      catchUp: profilesDoc.value().catchUp,
       savingError: profilesDoc.error() ?? readsDoc.error(),
       archiving: new Set(archiving),
       errors: hostInputs.flatMap((host) => (host.error ? [`${host.label}: ${host.error}`] : [])),
@@ -714,6 +722,17 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     },
     async respondToPermission(serverId, agentId, requestId, response) {
       await apiFor(serverId).agents.ref(agentId).respondToPermission({ requestId, response });
+    },
+    setCatchUpSettings(patch) {
+      profilesDoc.edit((doc) => ({ ...doc, catchUp: { ...doc.catchUp, ...patch, at: Date.now() } }));
+    },
+    async writeCatchUp(serverId, agentId) {
+      const { model, rename } = profilesDoc.value().catchUp;
+      if (!model) throw new Error("Choose a model for catch-ups in the settings first");
+      // The chat's own host writes it; every host with this plugin registers its RPC in the directory.
+      const peer = directory.list().find((entry) => entry.serverId === serverId);
+      if (!peer) throw new Error("This host does not run Workspace Organizer, so it cannot write catch-ups");
+      return (await peer.rpc(catchUpRpc, { agentId, model, rename })).catchUp;
     },
     dispose() {
       if (timers.stop !== undefined) clearTimeout(timers.stop);

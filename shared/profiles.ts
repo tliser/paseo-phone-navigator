@@ -8,23 +8,36 @@ const filterSchema = z.preprocess((value) => (value === "attention" || value ===
 
 export const ROW_FIELDS = ["title", "time", "branch", "model", "diff", "reason", "project", "host"] as const;
 export type RowField = (typeof ROW_FIELDS)[number];
+/** What an Inbox entry can show. `catchup` is the chat's catch-up, else its state and project when no line shows them. */
+export const INBOX_FIELDS = ["chat", "catchup", "workspace", "project", "host", "time", "state", "model", "branch"] as const;
+export type InboxField = (typeof INBOX_FIELDS)[number];
 export const MAX_LINES = 3;
 const DEFAULT_LINES: RowField[][] = [["title", "time"], ["branch", "model", "diff"]];
+const DEFAULT_INBOX_LINES: InboxField[][] = [["chat", "time"], ["catchup"]];
+
+/** Which fields a kind of line holds, the one that is always shown, and the lines it starts with. */
+export interface LineKind<Field extends string> {
+  fields: readonly Field[];
+  required: Field;
+  defaults: readonly Field[][];
+}
+export const ROW_LINES: LineKind<RowField> = { fields: ROW_FIELDS, required: "title", defaults: DEFAULT_LINES };
+export const INBOX_LINES: LineKind<InboxField> = { fields: INBOX_FIELDS, required: "chat", defaults: DEFAULT_INBOX_LINES };
 
 /**
- * A workspace row's lines (1–3), each the fields shown on it in order. Every field once at most, the title
- * always somewhere (first on line 1 when missing), no empty lines.
+ * Lines (1–3), each the fields shown on it in order. Every field once at most, the required one always
+ * somewhere (first on line 1 when missing), no empty lines.
  */
-export function normalizeLines(raw: unknown): RowField[][] {
-  if (!Array.isArray(raw)) return DEFAULT_LINES.map((line) => [...line]);
-  const seen = new Set<RowField>();
+export function normalizeLines<Field extends string>(raw: unknown, kind: LineKind<Field>): Field[][] {
+  if (!Array.isArray(raw)) return kind.defaults.map((line) => [...line]);
+  const seen = new Set<Field>();
   const lines = raw
     .slice(0, MAX_LINES)
-    .map((line) => (Array.isArray(line) ? line : []).filter((field): field is RowField => (ROW_FIELDS as readonly unknown[]).includes(field) && !seen.has(field) && !!seen.add(field)))
+    .map((line) => (Array.isArray(line) ? line : []).filter((field): field is Field => (kind.fields as readonly unknown[]).includes(field) && !seen.has(field) && !!seen.add(field)))
     .filter((line) => line.length > 0);
-  if (!seen.has("title")) {
-    if (lines.length) lines[0]!.unshift("title");
-    else lines.push(["title"]);
+  if (!seen.has(kind.required)) {
+    if (lines.length) lines[0]!.unshift(kind.required);
+    else lines.push([kind.required]);
   }
   return lines;
 }
@@ -43,7 +56,9 @@ function migrateLines(settings: unknown): unknown {
 const profileSettingsSchema = z.preprocess(migrateLines, z.object({
   density: z.enum(["compact", "comfortable"]).default("compact"),
   /** A workspace row's lines and the fields on each. */
-  lines: z.unknown().optional().transform(normalizeLines),
+  lines: z.unknown().optional().transform((raw) => normalizeLines(raw, ROW_LINES)),
+  /** An Inbox entry's lines and the fields on each. */
+  inboxLines: z.unknown().optional().transform((raw) => normalizeLines(raw, INBOX_LINES)),
   show: z
     .object({
       /** Tab marks and the tab list of a workspace. */
@@ -100,6 +115,8 @@ export const profilesDocumentSchema = z.object({
    * `at` lets the newest win. The name predates host colours and stays: it is synced between versions.
    */
   projectColors: z.record(z.string(), z.object({ color: z.string(), at: z.number() })).default({}),
+  /** Catch-up for every profile and device: the model (`provider/model`, null = not chosen) and whether it renames chats. `at` lets the newest win. */
+  catchUp: z.object({ model: z.string().nullable().default(null), rename: z.boolean().default(true), at: z.number().default(0) }).default({ model: null, rename: true, at: 0 }),
 });
 export type ProfilesDocument = z.output<typeof profilesDocumentSchema>;
 
@@ -141,7 +158,8 @@ export function normalizeDocument(raw: unknown): ProfilesDocument {
   const profiles = parsed.success ? parsed.data.profiles : [];
   const deleted = parsed.success ? parsed.data.deleted : {};
   const projectColors = parsed.success ? parsed.data.projectColors : {};
-  return { profiles: profiles.length ? dedupe(profiles) : builtinProfiles(0), deleted, projectColors };
+  const catchUp = parsed.success ? parsed.data.catchUp : { model: null, rename: true, at: 0 };
+  return { profiles: profiles.length ? dedupe(profiles) : builtinProfiles(0), deleted, projectColors, catchUp };
 }
 
 function dedupe(profiles: Profile[]): Profile[] {

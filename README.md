@@ -3,9 +3,9 @@
 A Host → Project → Workspace tree for [Paseo](https://paseo.sh) on the phone, desktop and web. It shows every workspace on every connected host in one place, with an Inbox of what needs you. Formerly "Phone Navigator".
 
 <p>
-  <img src="docs/screenshots/phone-active.png" width="230" alt="Active filter on the phone">
-  <img src="docs/screenshots/phone-inbox.png" width="230" alt="Inbox: asking you and unread">
-  <img src="docs/screenshots/phone-drag.png" width="230" alt="Manual ordering by long-press drag">
+  <img src="docs/screenshots/phone-active.png" width="230" alt="Active view on the phone, with host tabs">
+  <img src="docs/screenshots/phone-inbox.png" width="230" alt="Inbox: answer a permission with Allow or Deny, see a failed chat's error">
+  <img src="docs/screenshots/phone-all.png" width="230" alt="All view: a workspace's tabs listed, sub-agents under their chat">
 </p>
 
 ## Features
@@ -25,15 +25,15 @@ A Host → Project → Workspace tree for [Paseo](https://paseo.sh) on the phone
 - **Profiles.** Phone and Desktop come built in, and you can add your own. A profile holds the density, how you pick the host, the view it opens on, what Recent means, the row lines, order, pins, hidden hosts and the collapse state. The settings screen shows a live preview above the settings (every tab but Profile) that follows each change: host switch, opening view, row lines, open marker, hidden hosts, order grips, folding defaults. It uses sample workspaces on your host names and stays in place while the settings scroll.
 - **Entry points.** A "Workspaces" row in the sidebar, a sidebar view (Paseo 0.16), header buttons on every workspace (Workspaces, then Mark read), pills under each chat's message field, and a Command Center entry.
 
-The screenshots below show the previous version.
-
-| Desktop | Settings | Profiles | Search |
+| Desktop sidebar | Inbox pill popover | Search | Row actions |
 | --- | --- | --- | --- |
-| <img src="docs/screenshots/desktop.png" width="260"> | <img src="docs/screenshots/settings.png" width="200"> | <img src="docs/screenshots/phone-profiles.png" width="160"> | <img src="docs/screenshots/phone-search.png" width="160"> |
+| <img src="docs/screenshots/desktop.png" width="260"> | <img src="docs/screenshots/inbox-popover.png" width="200"> | <img src="docs/screenshots/phone-search.png" width="160"> | <img src="docs/screenshots/phone-row-menu.png" width="160"> |
+| All hosts under thin dividers; the open workspace marked with a bar | Back and Forward, then the Inbox with its answers | Matches across hosts, named under each row | Details card on top, then pin, mark read, Recent, rename, archive |
 
-| All, with a pin | Row actions | New workspace |
-| --- | --- | --- |
-| <img src="docs/screenshots/phone-all.png" width="200"> | <img src="docs/screenshots/phone-row-menu.png" width="200"> | <img src="docs/screenshots/phone-new-workspace.png" width="200"> |
+| Settings: Rows | Settings: Profile | New workspace | Sidebar row |
+| --- | --- | --- | --- |
+| <img src="docs/screenshots/settings.png" width="200"> | <img src="docs/screenshots/settings-profile.png" width="200"> | <img src="docs/screenshots/phone-new-workspace.png" width="200"> | <img src="docs/screenshots/sidebar.png" width="200"> |
+| Line editor under the live preview | Built-in and own profiles, per platform and device | Worktree or folder, agent, model, thinking, mode, options | "Workspaces" with the Inbox counts |
 
 See [OVERVIEW.md](OVERVIEW.md) for more detail.
 

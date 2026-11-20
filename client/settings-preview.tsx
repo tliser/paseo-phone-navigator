@@ -84,15 +84,17 @@ export function SettingsPreview({
   );
   const manual = settings.sort === "manual";
   const noop = () => undefined;
+  // "Several" shows two hosts picked, so the setting visibly changes the preview.
+  const picked = settings.hostPick === "several" ? tree.hosts.slice(0, 2).map((host) => host.serverId) : [];
   return (
     <View accessibilityLabel="Preview" style={{ backgroundColor: c.surface0 }} pointerEvents="none">
       <View style={{ gap: 6, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: c.border }}>
         {/* As in the navigator: a host switch only with more than one host shown. */}
         {tree.hosts.length < 2 ? null : settings.hostSwitch === "tabs" ? (
-          <HostTabs theme={theme} hosts={tree.hosts} value={null} compact={touch} colors={colors} onChange={noop} onPickColor={noop} />
+          <HostTabs theme={theme} hosts={tree.hosts} value={picked} mode={settings.hostPick} compact={touch} colors={colors} onChange={noop} onPickColor={noop} />
         ) : (
           <View style={{ alignItems: "flex-end", paddingHorizontal: 4 }}>
-            <HostButton theme={theme} hosts={tree.hosts} value={null} compact={touch} colors={colors} onOpen={noop} />
+            <HostButton theme={theme} hosts={tree.hosts} value={picked} compact={touch} colors={colors} onOpen={noop} />
           </View>
         )}
         <ViewsControl theme={theme} value={settings.defaultFilter} counts={tree.counts} compact={touch} onChange={noop} />

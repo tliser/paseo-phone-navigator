@@ -32,9 +32,8 @@ import { ColorPicker, type ColorTarget } from "./color-picker";
 import { colorHex, hostColorKey, projectColorKey } from "../shared/colors";
 import { ownScreenOpen } from "./chat-nav";
 
-/** Filter and host picked in this session per profile; the filter starts at the profile's default, the host at all. */
+/** Filter picked in this session per profile; it starts at the profile's default. */
 const sessionFilters = new Map<string, Filter>();
-const sessionHosts = new Map<string, string | null>();
 
 /**
  * A chat was opened from the Inbox on the phone screen: coming back to the screen reopens the Inbox.
@@ -78,11 +77,11 @@ export function NavigatorScreen(
     setFilterState(next);
   };
 
-  const [hostView, setHostViewState] = useState<string | null>(() => sessionHosts.get(profile.id) ?? null);
-  useEffect(() => setHostViewState(sessionHosts.get(profile.id) ?? null), [profile.id]);
-  const setHostView = (next: string | null) => {
-    sessionHosts.set(profile.id, next);
-    setHostViewState(next);
+  // The hosts shown are kept in the profile, so they stay picked on every device that uses it.
+  const hostView = profile.shownHosts;
+  const setHostView = (shownHosts: string[]) => {
+    const now = Date.now();
+    store.editProfiles((profiles) => profiles.map((entry) => (entry.id === profile.id ? { ...entry, shownHosts, updatedAt: now } : entry)));
   };
 
   const [query, setQuery] = useState("");
@@ -129,8 +128,8 @@ export function NavigatorScreen(
     () => buildTree(hosts, { filter, query, settings, collapse, reads: snapshot.reads, order: profile.order, now, hostOrder: snapshot.hostOrder, pins, archiving: snapshot.archiving, hostView }),
     [hosts, snapshot.hostOrder, snapshot.reads, snapshot.archiving, profile.order, filter, query, settings, collapse, now, pins, hostView],
   );
-  // New project goes to the host on screen, or asks which online host when all are shown.
-  const projectHosts = tree.hosts.filter((host) => host.state === "online" && (!tree.hostView || host.serverId === tree.hostView));
+  // New project goes to the host on screen, or asks which online host when several are shown.
+  const projectHosts = tree.hosts.filter((host) => host.state === "online" && (!tree.hostView.length || tree.hostView.includes(host.serverId)));
   const hostSwitch = tree.hosts.length > 1 ? settings.hostSwitch : null;
   const loading = snapshot.hosts.some((host) => host.loading);
   useEffect(() => {
@@ -392,7 +391,7 @@ export function NavigatorScreen(
         />
         {/* Desktop: search always under the title bar. Phones: only after the search icon, to save space. */}
         {!layout.compact ? <SearchField theme={theme} query={query} onChange={setQuery} /> : searchOpen ? <SearchField theme={theme} query={query} onChange={setQuery} onClose={closeSearch} /> : null}
-        {hostSwitch === "tabs" ? <HostTabs theme={theme} hosts={tree.hosts} value={tree.hostView} compact={layout.compact} colors={snapshot.colors} onChange={setHostView} onPickColor={pickHostColor} /> : null}
+        {hostSwitch === "tabs" ? <HostTabs theme={theme} hosts={tree.hosts} value={tree.hostView} mode={settings.hostPick} compact={layout.compact} colors={snapshot.colors} onChange={setHostView} onPickColor={pickHostColor} /> : null}
         <ViewsControl theme={theme} value={filter} counts={tree.counts} compact={layout.compact} onChange={setFilter} />
       </View>
       {arranging ? (
@@ -529,6 +528,7 @@ export function NavigatorScreen(
           theme={theme}
           hosts={tree.hosts}
           value={tree.hostView}
+          mode={settings.hostPick}
           compact={layout.compact}
           anchor={overlay.anchor}
           colors={snapshot.colors}

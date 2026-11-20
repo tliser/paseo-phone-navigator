@@ -72,7 +72,7 @@ export function SettingsScreen({ theme, layout, host, params }: PluginScreenProp
       created = newProfileId(profiles, now);
       const profile: Profile = base
         ? { ...base, id: created, name: `${base.name} copy`.slice(0, 60), platform: null, updatedAt: now }
-        : { id: created, name: "New profile", platform: null, updatedAt: now, settings: defaultSettings(), collapse: {}, order: {}, pins: [] };
+        : { id: created, name: "New profile", platform: null, updatedAt: now, settings: defaultSettings(), collapse: {}, order: {}, pins: [], shownHosts: [] };
       return [...profiles, profile];
     });
     if (created) setEditId(created);
@@ -119,6 +119,14 @@ export function SettingsScreen({ theme, layout, host, params }: PluginScreenProp
           value={s.hostSwitch}
           options={[{ value: "tabs", label: "Tabs above the list" }, { value: "menu", label: "Button in the title bar" }]}
           onValueChange={(hostSwitch) => updateSettings({ hostSwitch })}
+          disabled={!ready}
+        />
+        <SettingsSelect
+          label="Tapping a host"
+          hint={s.hostPick === "several" ? "Adds or removes it, so several hosts can show at once; All shows every host again." : "Shows only that host."}
+          value={s.hostPick}
+          options={[{ value: "one", label: "Shows only that host" }, { value: "several", label: "Adds or removes it" }]}
+          onValueChange={(hostPick) => updateSettings({ hostPick })}
           disabled={!ready}
         />
         <SettingsSelect

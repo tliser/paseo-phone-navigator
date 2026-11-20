@@ -136,8 +136,8 @@ interface TreeResult {
   groups: Record<string, string[]>;
   /** Every host not hidden by the profile, in display order. */
   hosts: HostSummary[];
-  /** The host the tree is limited to; null shows all (also when the chosen host is gone). */
-  hostView: string | null;
+  /** The hosts the tree is limited to, in display order; empty shows all (also when every chosen host is gone). */
+  hostView: string[];
 }
 
 export interface TreeOptions {
@@ -155,8 +155,8 @@ export interface TreeOptions {
   archiving?: ReadonlySet<string>;
   /** Pinned workspaces ("serverId:workspaceId"); they make up the Pinned view and always show in All. */
   pins?: ReadonlySet<string>;
-  /** Show only this host ("serverId"); null or unknown shows all. Host rows appear only when several hosts are shown. */
-  hostView?: string | null;
+  /** Show only these hosts ("serverId"); empty, or only unknown or hidden ones, shows all. Host rows appear only when several hosts are shown. */
+  hostView?: readonly string[];
 }
 
 /** A chat's state: asking, then error, then running, then unread news; anything else is read. A working chat never waits for you. */
@@ -392,14 +392,14 @@ export function buildTree(hosts: readonly HostInput[], options: TreeOptions): Tr
   let totalOnline = 0;
   const summaries: HostSummary[] = [];
   const visibleHosts = orderHosts(hosts.filter((host) => !hidden.has(host.serverId)), options.hostOrder);
-  const hostView = options.hostView && visibleHosts.some((host) => host.serverId === options.hostView) ? options.hostView : null;
+  const hostView = visibleHosts.filter((host) => options.hostView?.includes(host.serverId)).map((host) => host.serverId);
   // A host row only separates hosts; with one host shown it would be a wasted line.
-  const hostRows = (hostView ? 1 : visibleHosts.length) > 1;
+  const hostRows = (hostView.length || visibleHosts.length) > 1;
 
   for (const host of visibleHosts) {
     const hKey = hostKey(host.serverId);
     const noTally = emptyTally();
-    const shown = !hostView || host.serverId === hostView;
+    const shown = !hostView.length || hostView.includes(host.serverId);
     if (host.status !== "online") {
       summaries.push({ serverId: host.serverId, label: host.label, state: "offline", count: 0, tally: noTally });
       // Offline hosts: dimmed, not expandable, left out of search results.

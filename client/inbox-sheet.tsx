@@ -136,14 +136,18 @@ function EntryRow({ theme, entry, now, compact, onOpen }: { theme: PluginTheme; 
   );
 }
 
-/** The entries, in their own scroll area. */
-export function InboxList({ theme, inbox, now, compact, onOpen }: { theme: PluginTheme; inbox: Inbox; now: number; compact: boolean; onOpen(entry: InboxEntry): void }) {
+/**
+ * The entries, in their own scroll area. `hostScrolls`: the surface around already scrolls (Paseo's popover
+ * for composer pills); a scroll area inside it would get no height of its own and take the swipes, so the
+ * list could not scroll at all.
+ */
+export function InboxList({ theme, inbox, now, compact, onOpen, hostScrolls = false }: { theme: PluginTheme; inbox: Inbox; now: number; compact: boolean; onOpen(entry: InboxEntry): void; hostScrolls?: boolean }) {
   if (!inbox.entries.length) return null;
+  const rows = inbox.entries.map((entry) => <EntryRow key={`${entry.serverId}:${entry.agentId}`} theme={theme} entry={entry} now={now} compact={compact} onOpen={onOpen} />);
+  if (hostScrolls) return <View style={{ gap: 4 }}>{rows}</View>;
   return (
     <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: 4 }} keyboardShouldPersistTaps="handled">
-      {inbox.entries.map((entry) => (
-        <EntryRow key={`${entry.serverId}:${entry.agentId}`} theme={theme} entry={entry} now={now} compact={compact} onOpen={onOpen} />
-      ))}
+      {rows}
     </ScrollView>
   );
 }

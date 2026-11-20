@@ -104,8 +104,9 @@ function InboxPopover({ theme, layout, close }: PluginButtonContentProps) {
       {by > 0 ? <Icon name="ArrowRight" size={15} color={c.foreground} /> : null}
     </Pressable>
   );
+  // Paseo's popover surface (max 420 x 440, padded) scrolls itself: no size or scroll area of our own here.
   return (
-    <View style={{ gap: 8, padding: 10, width: layout.compact ? undefined : 400, maxHeight: 560 }}>
+    <View style={{ gap: 8 }}>
       <View style={{ flexDirection: "row", gap: 6 }}>
         {step(-1, steps.back)}
         {step(1, steps.forward)}
@@ -116,6 +117,7 @@ function InboxPopover({ theme, layout, close }: PluginButtonContentProps) {
         inbox={inbox}
         now={Date.now()}
         compact={layout.compact}
+        hostScrolls
         onOpen={(entry) => {
           close();
           openChat(entry.serverId, entry.agentId);

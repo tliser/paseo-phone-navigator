@@ -1,7 +1,7 @@
 // The Inbox: every top-level chat that asks you, failed or is unread, on every host. An entry opens that chat.
 // A chat that asks shows what it asks and can be answered right here: the permission's buttons (allow, deny,
 // or the provider's own), or the options of a single question. Anything else opens the chat. A failed chat
-// shows its last error. The same list sits in the title bar's sheet and in the composer's Inbox pill.
+// shows its last error. The title bar's sheet lists it; the composer's Inbox pill draws the same entries.
 import type { PluginTheme } from "@getpaseo/plugin";
 import { ScrollView } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
@@ -185,15 +185,10 @@ export function EntryRow({ theme, entry, lines, now, compact, onOpen }: { theme:
   );
 }
 
-/**
- * The entries, in their own scroll area. `hostScrolls`: the surface around already scrolls (Paseo's popover
- * for composer pills); a scroll area inside it would get no height of its own and take the swipes, so the
- * list could not scroll at all.
- */
-export function InboxList({ theme, inbox, lines, now, compact, onOpen, hostScrolls = false }: { theme: PluginTheme; inbox: Inbox; lines: readonly InboxField[][]; now: number; compact: boolean; onOpen(entry: InboxEntry): void; hostScrolls?: boolean }) {
+/** The entries, in their own scroll area. */
+export function InboxList({ theme, inbox, lines, now, compact, onOpen }: { theme: PluginTheme; inbox: Inbox; lines: readonly InboxField[][]; now: number; compact: boolean; onOpen(entry: InboxEntry): void }) {
   if (!inbox.entries.length) return null;
   const rows = inbox.entries.map((entry) => <EntryRow key={`${entry.serverId}:${entry.agentId}`} theme={theme} entry={entry} lines={lines} now={now} compact={compact} onOpen={onOpen} />);
-  if (hostScrolls) return <View style={{ gap: 4 }}>{rows}</View>;
   return (
     <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: 4 }} keyboardShouldPersistTaps="handled">
       {rows}

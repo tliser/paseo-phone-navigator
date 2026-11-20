@@ -9,6 +9,7 @@ import { PanResponder, Pressable, Text, View } from "react-native";
 import { bindPlatform, defaultSettings, INBOX_LINES, newProfileId, pruneCollapse, ROW_LINES, type Profile, type ProfileSettings, type ProfilesDocument } from "../shared/profiles";
 import { INBOX_FIELD_LABEL, LineEditor, ROW_FIELD_LABEL } from "./line-editor";
 import { InboxPreview } from "./inbox-preview";
+import { SectionPicker } from "./popup-sections";
 import { PickerSheet } from "./picker-sheet";
 import type { ProviderListState, Store } from "./store";
 import { ICON_COLORS } from "../shared/colors";
@@ -189,6 +190,13 @@ export function SettingsScreen({ theme, layout, host, params }: PluginScreenProp
             <LineEditor theme={theme} kind={INBOX_LINES} labels={INBOX_FIELD_LABEL} lines={s.inboxLines} disabled={!ready} onChange={(inboxLines) => updateSettings({ inboxLines })} />
           </View>
         </SettingsCard>
+        <SettingsCard>
+          <View style={{ paddingHorizontal: 12, paddingTop: 12, gap: 2 }}>
+            <Text style={{ color: c.foreground, fontSize: 14, fontWeight: "600" }}>Inbox button under the message field</Text>
+            <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>What its popup lists, in this order; three chats each, then "Show all".</Text>
+          </View>
+          <SectionPicker theme={theme} sections={s.popupSections} disabled={!ready} onChange={(popupSections) => updateSettings({ popupSections })} />
+        </SettingsCard>
         <CatchUpSettings theme={theme} compact={layout.compact} store={store} hosts={snapshot.hosts} selfId={host.id} catchUp={snapshot.catchUp} disabled={!ready} />
       </>
     ),
@@ -354,7 +362,7 @@ export function SettingsScreen({ theme, layout, host, params }: PluginScreenProp
             </View>
             <ScrollView style={{ flex: 1 }} nestedScrollEnabled>
               {section === "inbox" ? (
-                <InboxPreview theme={theme} lines={s.inboxLines} host={snapshot.hosts.find((entry) => entry.serverId === host.id)?.label || "tardis"} compact={layout.compact} />
+                <InboxPreview theme={theme} lines={s.inboxLines} sections={s.popupSections} host={snapshot.hosts.find((entry) => entry.serverId === host.id)?.label || "tardis"} compact={layout.compact} />
               ) : (
                 <SettingsPreview theme={theme} profile={edit} touch={touch} hosts={snapshot.hosts} colors={snapshot.colors} />
               )}

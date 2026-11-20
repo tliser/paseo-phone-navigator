@@ -3,9 +3,7 @@
 import type { CatchUp } from "./catchup";
 import type { ReadMap } from "./reads";
 import { chatState, topLevelChats } from "./tree";
-import type { AgentRequest, HostInput } from "./types";
-
-type InboxState = "asking" | "error" | "unread";
+import type { AgentInput, AgentRequest, ChatState, HostInput, WorkspaceInput } from "./types";
 
 export interface InboxEntry {
   serverId: string;
@@ -19,7 +17,7 @@ export interface InboxEntry {
   agentId: string;
   chatTitle: string;
   model: string | null;
-  state: InboxState;
+  state: ChatState;
   /** When it started waiting, or its last activity; epoch ms. */
   at: number;
   /** What it asks (asking only): the question or the permission it waits for, answerable from the Inbox. */
@@ -48,7 +46,29 @@ export interface InboxTally {
   unread: number;
 }
 
-const urgent = (state: InboxState) => (state === "unread" ? 1 : 0);
+const urgent = (state: ChatState) => (state === "unread" ? 1 : 0);
+
+/** A chat as the Inbox and the Inbox pill's other sections list it. */
+export function chatEntry(host: HostInput, workspace: WorkspaceInput, agent: AgentInput, state: ChatState): InboxEntry {
+  return {
+    serverId: host.serverId,
+    hostLabel: host.label,
+    workspaceId: workspace.id,
+    workspaceTitle: workspace.title,
+    projectName: workspace.projectName,
+    branch: workspace.branch,
+    workspaceChats: topLevelChats(workspace.agents ?? []).length,
+    agentId: agent.id,
+    chatTitle: agent.title,
+    model: agent.model,
+    state,
+    at: (state === "unread" && agent.unreadAt) || agent.activityAt,
+    ...(state === "asking" && agent.request ? { request: agent.request } : {}),
+    ...(state === "error" && agent.errorText ? { errorText: agent.errorText } : {}),
+    ...(agent.catchUp ? { catchUp: agent.catchUp, catchUpStale: agent.catchUp.at < Math.max(agent.promptAt ?? 0, agent.unreadAt) } : {}),
+    ...(agent.lastReply ? { lastReply: agent.lastReply } : {}),
+  };
+}
 
 /**
  * Covers every host, hidden ones included: one Inbox you can trust. Asking and errors first, then unread;
@@ -71,28 +91,9 @@ export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: nu
     // A failed load keeps the last complete list (possibly none), so its chats may be missing or stale.
     if (host.error) failedHosts.push(host.label);
     for (const workspace of host.workspaces) {
-      const chats = topLevelChats(workspace.agents ?? []);
-      for (const agent of chats) {
+      for (const agent of topLevelChats(workspace.agents ?? [])) {
         const state = chatState(agent, host.serverId, workspace.id, reads, now);
-        if (state !== "asking" && state !== "error" && state !== "unread") continue;
-        entries.push({
-          serverId: host.serverId,
-          hostLabel: host.label,
-          workspaceId: workspace.id,
-          workspaceTitle: workspace.title,
-          projectName: workspace.projectName,
-          branch: workspace.branch,
-          workspaceChats: chats.length,
-          agentId: agent.id,
-          chatTitle: agent.title,
-          model: agent.model,
-          state,
-          at: (state === "unread" && agent.unreadAt) || agent.activityAt,
-          ...(state === "asking" && agent.request ? { request: agent.request } : {}),
-          ...(state === "error" && agent.errorText ? { errorText: agent.errorText } : {}),
-          ...(agent.catchUp ? { catchUp: agent.catchUp, catchUpStale: agent.catchUp.at < Math.max(agent.promptAt ?? 0, agent.unreadAt) } : {}),
-          ...(agent.lastReply ? { lastReply: agent.lastReply } : {}),
-        });
+        if (state === "asking" || state === "error" || state === "unread") entries.push(chatEntry(host, workspace, agent, state));
       }
     }
   }
@@ -102,6 +103,6 @@ export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: nu
 
 export function inboxTally(entries: readonly InboxEntry[]): InboxTally {
   const tally: InboxTally = { total: entries.length, asking: 0, error: 0, unread: 0 };
-  for (const entry of entries) tally[entry.state]++;
+  for (const entry of entries) if (entry.state === "asking" || entry.state === "error" || entry.state === "unread") tally[entry.state]++;
   return tally;
 }

@@ -1,10 +1,11 @@
-// Settings preview for the Inbox tab: sample entries (never a real host) drawn exactly as the Inbox draws them,
-// with the profile's Inbox lines. One has a catch-up, one has none yet, one sits in a workspace with two chats.
+// Settings preview for the Inbox tab: the Inbox pill's popup with sample entries (never a real host), drawn
+// exactly as the popup draws them: the profile's sections, each entry with the profile's Inbox lines. Inbox
+// samples: one has a catch-up, one has none yet, one sits in a workspace with two chats.
 import type { PluginTheme } from "@getpaseo/plugin";
 import { View } from "react-native";
 import type { InboxEntry } from "../shared/inbox";
-import type { InboxField } from "../shared/profiles";
-import { EntryRow } from "./inbox-sheet";
+import type { InboxField, PopupSection } from "../shared/profiles";
+import { PopupSections } from "./popup-sections";
 
 const MINUTE = 60_000;
 
@@ -49,13 +50,22 @@ function sampleEntries(now: number, host: string): InboxEntry[] {
   ];
 }
 
-export function InboxPreview({ theme, lines, host, compact }: { theme: PluginTheme; lines: readonly InboxField[][]; host: string; compact: boolean }) {
+/** Other sections' samples: chats that are read or working, as those sections mostly hold. */
+function otherSamples(now: number, host: string): Record<Exclude<PopupSection, "inbox">, InboxEntry[]> {
+  const base = { serverId: "preview", hostLabel: host, branch: "main", workspaceChats: 1, model: "openai/gpt-5.1-codex" };
+  const docs: InboxEntry = { ...base, workspaceId: "w4", workspaceTitle: "Docs refresh", projectName: "workspace-organizer", agentId: "a4", chatTitle: "README screenshots", state: "read", at: now - 3 * 60 * MINUTE, lastReply: "Screenshots refreshed for the new Inbox popup." };
+  const build: InboxEntry = { ...base, workspaceId: "w5", workspaceTitle: "CI", projectName: "tutor", agentId: "a5", chatTitle: "Fix flaky login test", state: "running", at: now - 1 * MINUTE };
+  return { pinned: [docs], recent: [build, docs], active: [build], running: [build] };
+}
+
+/** The Inbox pill's popup as the profile sets it up: its sections, each entry drawn with the Inbox lines. */
+export function InboxPreview({ theme, lines, sections, host, compact }: { theme: PluginTheme; lines: readonly InboxField[][]; sections: readonly PopupSection[]; host: string; compact: boolean }) {
   const now = Date.now();
+  const others = otherSamples(now, host);
+  const lists = sections.map((section) => ({ section, entries: section === "inbox" ? sampleEntries(now, host) : others[section] }));
   return (
-    <View accessibilityLabel="Preview" pointerEvents="none" style={{ gap: 4, padding: 8, backgroundColor: theme.colors.surface0 }}>
-      {sampleEntries(now, host).map((entry) => (
-        <EntryRow key={entry.agentId} theme={theme} entry={entry} lines={lines} now={now} compact={compact} onOpen={() => undefined} />
-      ))}
+    <View accessibilityLabel="Preview" pointerEvents="none" style={{ padding: 8, backgroundColor: theme.colors.surface0 }}>
+      <PopupSections theme={theme} lists={lists} lines={lines} now={now} compact={compact} onOpen={() => undefined} />
     </View>
   );
 }

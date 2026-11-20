@@ -6,7 +6,7 @@
 // shown again (a hidden tab lays out with no size). The open chat is the visible one shown most recently.
 // Shared on globalThis: each host runs its own copy of the plugin, and history spans every host. The shape
 // is a contract between plugin versions: change it together with the key.
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 const KEY = "__workspaceOrganizer.chatNav.v3";
 const MAX_HISTORY = 50;
@@ -117,19 +117,6 @@ export function historyStep(by: -1 | 1): ChatKey | null {
 /** Marks `key` as the target of back/forward, so opening it moves in the history. */
 export function travelTo(key: ChatKey): void {
   nav().travelling = key;
-}
-
-export function subscribeChatNav(listener: () => void): () => void {
-  const state = nav();
-  state.listeners.add(listener);
-  return () => void state.listeners.delete(listener);
-}
-
-/** Re-renders on every change of the chat on screen or the history; returns whether back/forward can move. */
-export function useHistorySteps(): { back: boolean; forward: boolean } {
-  const index = useSyncExternalStore(subscribeChatNav, () => `${nav().index}/${nav().history.length}`);
-  const [at, length] = index.split("/").map(Number) as [number, number];
-  return { back: at > 0, forward: at >= 0 && at < length - 1 };
 }
 
 function setActive(key: ChatKey | null | undefined) {

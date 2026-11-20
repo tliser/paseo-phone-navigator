@@ -1,6 +1,6 @@
 // Pills under every chat's message field, for the chats of the host serving this copy of the plugin:
-// - "Inbox" with what waits for you on every host; it opens the Inbox (answer from there, open a chat) with
-//   back and forward through the chats you visited.
+// - "Inbox" with what waits for you on every host; it opens the sections the profile picks (the Inbox by
+//   default: answer from there, open a chat).
 // - "Mark read" on an unread chat, "Mark unread" on a read one: marks the chat and turns into the other, and
 //   the Inbox updates; you stay on the chat.
 // - "Catch up": where the chat left off and what comes next, in two short lines. Pressing it writes a new one
@@ -13,12 +13,14 @@ import { ActivityIndicator, Platform, Pressable, Text, View } from "react-native
 import type { CatchUp } from "../shared/catchup";
 import { timeAgo } from "../shared/format";
 import { buildInbox, inboxTally, type Inbox, type InboxTally } from "../shared/inbox";
+import { sectionEntries } from "../shared/popup";
 import { chatState } from "../shared/tree";
 import type { AgentInput, ChatState } from "../shared/types";
-import { chatKey, currentChat, historyStep, reportShownChat, splitChatKey, travelTo, useHistorySteps, type ShownChat } from "./chat-nav";
+import { chatKey, currentChat, reportShownChat, splitChatKey, type ShownChat } from "./chat-nav";
 import { unreadColor } from "./colors";
 import { createHostObserver } from "./host-observer";
-import { hostsNote, InboxList, inboxSummary } from "./inbox-sheet";
+import { hostsNote, inboxSummary } from "./inbox-sheet";
+import { PopupSections, type PopupSectionList } from "./popup-sections";
 import { getStore, openChat, PROFILES_SCREEN_ID, useActiveProfile, useInbox, useNavigatorStore } from "./runtime";
 import type { StoreSnapshot } from "./store";
 
@@ -79,59 +81,29 @@ const ReadIcon = ({ size, color }: PluginButtonIconProps) => <Icon name="Check" 
 const UnreadIcon = ({ size, color }: PluginButtonIconProps) => <Icon name="CircleDot" size={size} color={color} />;
 const CatchUpIcon = ({ size, color }: PluginButtonIconProps) => <Icon name="History" size={size} color={color} />;
 
-/** The Inbox pill's popover: back and forward through visited chats, then the Inbox. */
+/** The Inbox pill's popover: the sections the profile picks, the Inbox by default. */
 function InboxPopover({ theme, layout, close }: PluginButtonContentProps) {
   const { snapshot } = useNavigatorStore();
   const inbox = useInbox(snapshot);
-  const lines = useActiveProfile(snapshot, layout.platform, layout.compact).settings.inboxLines;
-  const steps = useHistorySteps();
-  const c = theme.colors;
-  const note = hostsNote(inbox);
-  const go = (by: -1 | 1) => {
-    const key = historyStep(by);
-    if (!key) return;
-    close();
-    travelTo(key);
-    const { serverId, agentId } = splitChatKey(key);
-    openChat(serverId, agentId);
-  };
-  const step = (by: -1 | 1, enabled: boolean) => (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={by < 0 ? "Back to the previous chat" : "Forward to the next chat"}
-      accessibilityState={{ disabled: !enabled }}
-      disabled={!enabled}
-      onPress={() => go(by)}
-      hitSlop={{ top: 6, bottom: 6 }}
-      style={({ pressed }) => ({ flex: 1, minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 8, backgroundColor: pressed ? c.surface2 : c.surface1, opacity: enabled ? 1 : 0.4 })}
-    >
-      {by < 0 ? <Icon name="ArrowLeft" size={15} color={c.foreground} /> : null}
-      <Text style={{ color: c.foreground, fontSize: 13, fontWeight: "600" }}>{by < 0 ? "Back" : "Forward"}</Text>
-      {by > 0 ? <Icon name="ArrowRight" size={15} color={c.foreground} /> : null}
-    </Pressable>
+  const profile = useActiveProfile(snapshot, layout.platform, layout.compact);
+  const { settings } = profile;
+  const now = Date.now();
+  const input = { hosts: snapshot.hosts, reads: snapshot.reads, settings, pins: snapshot.pinsFor(profile.id), now };
+  const lists = settings.popupSections.map((section): PopupSectionList =>
+    section === "inbox" ? { section, entries: inbox.entries, empty: inboxSummary(inbox), note: hostsNote(inbox) } : { section, entries: sectionEntries(section, input) },
   );
-  // Paseo's popover surface (max 420 x 440, padded) scrolls itself: no size or scroll area of our own here.
   return (
-    <View style={{ gap: 8 }}>
-      <View style={{ flexDirection: "row", gap: 6 }}>
-        {step(-1, steps.back)}
-        {step(1, steps.forward)}
-      </View>
-      <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{inboxSummary(inbox)}</Text>
-      <InboxList
-        theme={theme}
-        inbox={inbox}
-        lines={lines}
-        now={Date.now()}
-        compact={layout.compact}
-        hostScrolls
-        onOpen={(entry) => {
-          close();
-          openChat(entry.serverId, entry.agentId);
-        }}
-      />
-      {note ? <Text style={{ color: c.foregroundMuted, fontSize: 12 }}>{note}</Text> : null}
-    </View>
+    <PopupSections
+      theme={theme}
+      lists={lists}
+      lines={settings.inboxLines}
+      now={now}
+      compact={layout.compact}
+      onOpen={(entry) => {
+        close();
+        openChat(entry.serverId, entry.agentId);
+      }}
+    />
   );
 }
 

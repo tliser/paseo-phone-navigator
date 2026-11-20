@@ -14,6 +14,15 @@ export type InboxField = (typeof INBOX_FIELDS)[number];
 export const MAX_LINES = 3;
 const DEFAULT_LINES: RowField[][] = [["title", "time"], ["branch", "model", "diff"]];
 const DEFAULT_INBOX_LINES: InboxField[][] = [["chat", "time"], ["catchup"]];
+/** What the Inbox pill's popup can list, each as chats: workspaces show their most recently active chat. */
+export const POPUP_SECTIONS = ["inbox", "pinned", "recent", "active", "running"] as const;
+export type PopupSection = (typeof POPUP_SECTIONS)[number];
+
+/** The sections in their order: known ones, each once, at least one (the Inbox when none is left). */
+export function normalizeSections(raw: unknown): PopupSection[] {
+  const sections = Array.isArray(raw) ? [...new Set(raw.filter((section): section is PopupSection => (POPUP_SECTIONS as readonly unknown[]).includes(section)))] : [];
+  return sections.length ? sections : ["inbox"];
+}
 
 /** Which fields a kind of line holds, the one that is always shown, and the lines it starts with. */
 export interface LineKind<Field extends string> {
@@ -59,6 +68,8 @@ const profileSettingsSchema = z.preprocess(migrateLines, z.object({
   lines: z.unknown().optional().transform((raw) => normalizeLines(raw, ROW_LINES)),
   /** An Inbox entry's lines and the fields on each. */
   inboxLines: z.unknown().optional().transform((raw) => normalizeLines(raw, INBOX_LINES)),
+  /** What the Inbox pill's popup lists, in order. */
+  popupSections: z.unknown().optional().transform(normalizeSections),
   show: z
     .object({
       /** Tab marks and the tab list of a workspace. */

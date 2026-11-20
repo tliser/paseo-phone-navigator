@@ -55,14 +55,18 @@ export function registerHeaderButtons(client: PluginClientContext): () => void {
   let stopped = false;
 
   /** "Mark read" while a top-level chat of the workspace is unread (or nothing is known), else "Mark unread". */
-  function relabel() {
+  function labelOf(workspaceId: string): string {
     const snapshot = getStore().getSnapshot();
     const host = snapshot.hosts.find((entry) => entry.serverId === selfId);
-    if (!host) return;
+    const workspace = host?.workspaces.find((entry) => entry.id === workspaceId);
+    const states = topLevelChats(workspace?.agents ?? []).map((agent) => chatState(agent, host!.serverId, workspaceId, snapshot.reads, Date.now()));
+    return states.includes("unread") || !states.includes("read") ? "Mark read" : "Mark unread";
+  }
+  /** Updates only labels that changed: every update makes Paseo redraw the headers. */
+  function relabel() {
+    if (!selfId) return;
     for (const [workspaceId, registrations] of buttons) {
-      const workspace = host.workspaces.find((entry) => entry.id === workspaceId);
-      const states = topLevelChats(workspace?.agents ?? []).map((agent) => chatState(agent, host.serverId, workspaceId, snapshot.reads, Date.now()));
-      const label = states.includes("unread") || !states.includes("read") ? "Mark read" : "Mark unread";
+      const label = labelOf(workspaceId);
       if (labels.get(workspaceId) === label) continue;
       labels.set(workspaceId, label);
       registrations[1]?.update({ title: label, label });
@@ -85,6 +89,8 @@ export function registerHeaderButtons(client: PluginClientContext): () => void {
         if (workspace.archivingAt || workspace.background || workspace.internal) continue;
         live.add(workspace.id);
         if (buttons.has(workspace.id)) continue;
+        const label = labelOf(workspace.id);
+        labels.set(workspace.id, label);
         buttons.set(workspace.id, [
           client.addHeaderButton({
             id: "workspaces",
@@ -94,7 +100,7 @@ export function registerHeaderButtons(client: PluginClientContext): () => void {
           client.addHeaderButton({
             id: "read-state",
             workspaceId: workspace.id,
-            button: { title: "Mark read", label: "Mark read", icon: ReadStateIcon, behavior: { kind: "popover", Content: ReadStateContent } },
+            button: { title: label, label, icon: ReadStateIcon, behavior: { kind: "popover", Content: ReadStateContent } },
           }),
         ]);
       }

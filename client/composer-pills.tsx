@@ -15,7 +15,7 @@ import { timeAgo } from "../shared/format";
 import { buildInbox, inboxTally, type Inbox, type InboxTally } from "../shared/inbox";
 import { chatState } from "../shared/tree";
 import type { AgentInput, ChatState } from "../shared/types";
-import { chatKey, currentChat, historyStep, reportShownChat, splitChatKey, travelTo, useHistorySteps, type ShownChat } from "./chat-nav";
+import { chatKey, currentChat, historyStep, reportShownChat, splitChatKey, subscribeChatNav, travelTo, useHistorySteps, type ShownChat } from "./chat-nav";
 import { unreadColor } from "./colors";
 import { createHostObserver } from "./host-observer";
 import { hostsNote, InboxList, inboxSummary } from "./inbox-sheet";
@@ -249,7 +249,7 @@ function stateOf(serverId: string, agentId: string): ChatState | null {
 
 export function registerComposerPills(client: PluginClientContext): () => void {
   if (typeof client.addComposerPill !== "function") return () => undefined;
-  const pills = new Map<string, { inbox: PluginButtonRegistration; read: PluginButtonRegistration; unread: PluginButtonRegistration; catchUp: PluginButtonRegistration; state: ChatState | null }>();
+  const pills = new Map<string, { inbox: PluginButtonRegistration; label: string; read: PluginButtonRegistration; unread: PluginButtonRegistration; catchUp: PluginButtonRegistration; state: ChatState | null }>();
   const openSettings = () => client.openScreen({ screenId: PROFILES_SCREEN_ID, params: { section: "inbox" } });
   const CatchUpContent = (props: PluginButtonContentProps) => (
     <CatchUpPopover
@@ -289,16 +289,22 @@ export function registerComposerPills(client: PluginClientContext): () => void {
     }, 0);
   };
 
-  /** Inbox count on every pill; Mark read on unread chats, Mark unread on read ones (not while asking, failing or running). */
+  /**
+   * Mark read on unread chats, Mark unread on read ones (not while asking, failing or running), and the Inbox
+   * count on the pill of the chat on screen. Every pill update makes Paseo redraw the pill bars of all open
+   * chats, so the count is not pushed to every chat's pill: a chat gets it when it comes on screen.
+   */
   function refresh() {
     const serverId = selfId;
     if (!serverId) return;
     const total = inboxOf(getStore().getSnapshot()).tally.total;
-    const label = total ? `${INBOX_TITLE} ${total}` : INBOX_TITLE;
-    const relabel = label !== inboxLabel;
-    inboxLabel = label;
+    inboxLabel = total ? `${INBOX_TITLE} ${total}` : INBOX_TITLE;
+    const shown = currentChat();
     for (const [agentId, entry] of pills) {
-      if (relabel) entry.inbox.update({ label });
+      if (entry.label !== inboxLabel && shown === chatKey(serverId, agentId)) {
+        entry.label = inboxLabel;
+        entry.inbox.update({ label: inboxLabel });
+      }
       const state = stateOf(serverId, agentId);
       if (state === entry.state) continue;
       entry.state = state;
@@ -317,28 +323,31 @@ export function registerComposerPills(client: PluginClientContext): () => void {
         live.add(agent.id);
         if (pills.has(agent.id)) continue;
         const target = { workspaceId: agent.workspaceId, agentId: agent.id };
+        // Registered with the right visibility, so no update (and no redraw of every pill bar) follows at once.
+        const state = selfId ? stateOf(selfId, agent.id) : null;
         pills.set(agent.id, {
           inbox: client.addComposerPill({
             id: "inbox",
             ...target,
             button: { title: INBOX_TITLE, label: inboxLabel, icon: InboxPillIcon, behavior: { kind: "popover", Content: InboxPopover } },
           }),
+          label: inboxLabel,
           read: client.addComposerPill({
             id: "mark-read",
             ...target,
-            button: { title: "Mark this chat read", label: "Mark read", icon: ReadIcon, visible: false, behavior: { kind: "action", onPress: () => mark(agent.id, true) } },
+            button: { title: "Mark this chat read", label: "Mark read", icon: ReadIcon, visible: state === "unread", behavior: { kind: "action", onPress: () => mark(agent.id, true) } },
           }),
           unread: client.addComposerPill({
             id: "mark-unread",
             ...target,
-            button: { title: "Put this chat back in the Inbox", label: "Mark unread", icon: UnreadIcon, visible: false, behavior: { kind: "action", onPress: () => mark(agent.id, false) } },
+            button: { title: "Put this chat back in the Inbox", label: "Mark unread", icon: UnreadIcon, visible: state === "read", behavior: { kind: "action", onPress: () => mark(agent.id, false) } },
           }),
           catchUp: client.addComposerPill({
             id: "catch-up",
             ...target,
             button: { title: "Where this chat left off and what comes next", label: "Catch up", icon: CatchUpIcon, behavior: { kind: "popover", Content: CatchUpContent } },
           }),
-          state: null,
+          state,
         });
       }
       for (const [id, entry] of pills) {
@@ -355,9 +364,11 @@ export function registerComposerPills(client: PluginClientContext): () => void {
   );
   observer.start();
   const unsubscribe = getStore().subscribe(refresh);
+  const unsubscribeNav = subscribeChatNav(refresh);
   return () => {
     stopped = true;
     unsubscribe();
+    unsubscribeNav();
     observer.stop();
     for (const entry of pills.values()) {
       entry.inbox.remove();

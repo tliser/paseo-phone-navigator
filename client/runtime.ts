@@ -42,7 +42,7 @@ export function useNavigatorStore(): { store: Store; snapshot: StoreSnapshot } {
 
 /** The Inbox over every online host. */
 export function useInbox(snapshot: StoreSnapshot): Inbox {
-  return useMemo(() => buildInbox(snapshot.hosts, snapshot.reads, Date.now()), [snapshot.hosts, snapshot.reads]);
+  return useMemo(() => buildInbox(snapshot.hosts, snapshot.reads, Date.now(), snapshot.replies), [snapshot.hosts, snapshot.reads, snapshot.replies]);
 }
 
 /** Chats that ask you, failed or are unread, for the badges. */

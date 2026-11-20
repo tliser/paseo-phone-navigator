@@ -11,7 +11,7 @@ import { MAX_LINES, normalizeLines, type InboxField, type LineKind, type RowFiel
 export const ROW_FIELD_LABEL: Record<RowField, string> = { title: "Title", time: "Last activity", branch: "Branch", model: "Model", diff: "Changes", reason: "Why it needs you", project: "Project", host: "Host" };
 export const INBOX_FIELD_LABEL: Record<InboxField, string> = {
   chat: "Chat",
-  catchup: "Catch-up",
+  catchup: "Catch-up or last reply",
   workspace: "Workspace",
   project: "Project",
   host: "Host",

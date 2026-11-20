@@ -8,7 +8,7 @@ const filterSchema = z.preprocess((value) => (value === "attention" || value ===
 
 export const ROW_FIELDS = ["title", "time", "branch", "model", "diff", "reason", "project", "host"] as const;
 export type RowField = (typeof ROW_FIELDS)[number];
-/** What an Inbox entry can show. `catchup` is the chat's catch-up, else its state and project when no line shows them. */
+/** What an Inbox entry can show. `catchup` is the chat's current catch-up, else the opening of its last reply, else its state and project when no line shows them. */
 export const INBOX_FIELDS = ["chat", "catchup", "workspace", "project", "host", "time", "state", "model", "branch"] as const;
 export type InboxField = (typeof INBOX_FIELDS)[number];
 export const MAX_LINES = 3;

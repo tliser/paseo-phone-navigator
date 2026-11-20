@@ -31,6 +31,7 @@ function sampleEntries(now: number, host: string): InboxEntry[] {
       agentId: "a2",
       chatTitle: "Refund webhook",
       state: "asking",
+      lastReply: "Refund webhook handler written; it needs your OK to run the integration tests.",
       at: now - 5 * MINUTE,
     },
     {

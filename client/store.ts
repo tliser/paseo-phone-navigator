@@ -13,6 +13,8 @@ import {
 import { moveRelative, type Place } from "../shared/order";
 import { KEEP_DAYS, markSeen, newsKey, normalizeReads, readAgentKey, readKey, recentKey, undoReads, type ReadChange, type ReadMap, type ReadsDocument } from "../shared/reads";
 import { profilesSettings, readsSettings } from "../shared/settings";
+import { buildInbox } from "../shared/inbox";
+import { replySummary } from "../shared/reply";
 import { mergeProfileDocs, mergeReadDocs, mergeUpdateDocs, sameDoc } from "../shared/sync";
 import { checkForUpdateRpc, installedVersionRpc, updatesDocumentSchema, updatesSettings, type InstalledVersion, type UpdatesDocument } from "../shared/updates";
 import { catchUpRpc, type CatchUp } from "../shared/catchup";
@@ -52,6 +54,8 @@ export interface StoreSnapshot {
   colors: Readonly<Record<string, string>>;
   /** Catch-up settings, shared by every profile and device. */
   catchUp: ProfilesDocument["catchUp"];
+  /** The opening of the last reply of Inbox chats ("serverId:agentId"), once fetched. */
+  replies: ReadonlyMap<string, string>;
   /** When you marked each chat ("serverId:agent:agentId") or chat-less workspace ("serverId:workspaceId") read. */
   reads: ReadMap;
   savingError: string | null;
@@ -245,6 +249,11 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
   const archiving = new Set<string>();
   /** Of those, the ones the host confirmed: dropped (with their pins) once the host no longer lists them. */
   const archived = new Set<string>();
+  /** Last reply openings of Inbox chats ("serverId:agentId"); a new map on every change. */
+  let replies: ReadonlyMap<string, string> = new Map();
+  /** The Inbox time each reply was fetched for, so it is fetched again only after the chat moved on. */
+  const replyTimes = new Map<string, number>();
+  const fetchingReplies = new Set<string>();
   let snapshot = build();
 
   function currentProfiles(): Profile[] {
@@ -303,6 +312,7 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
       reads: currentReads(),
       colors: Object.fromEntries(Object.entries(profilesDoc.value().projectColors).map(([key, entry]) => [key, entry.color])),
       catchUp: profilesDoc.value().catchUp,
+      replies,
       savingError: profilesDoc.error() ?? readsDoc.error(),
       archiving: new Set(archiving),
       errors: hostInputs.flatMap((host) => (host.error ? [`${host.label}: ${host.error}`] : [])),
@@ -317,7 +327,38 @@ export function createStore(rpc: Rpc, watchSettings: (changed: () => void) => ()
     snapshot = build();
     dropArchived();
     rememberNews();
+    fetchReplies();
     for (const listener of [...listeners]) listener();
+  }
+
+  /**
+   * The opening of the last reply of every Inbox chat, for its second line when it has no current catch-up.
+   * Fetched again only when the chat's Inbox time moves (a new turn or prompt); one request at a time per chat.
+   */
+  function fetchReplies() {
+    if (!started) return;
+    for (const entry of buildInbox(snapshot.hosts, snapshot.reads).entries) {
+      const key = `${entry.serverId}:${entry.agentId}`;
+      if (replyTimes.get(key) === entry.at || fetchingReplies.has(key)) continue;
+      fetchingReplies.add(key);
+      apiFor(entry.serverId)
+        .agents.ref(entry.agentId)
+        .timeline.refetch({ direction: "tail", limit: 1, wholeTurns: true, projection: "projected" })
+        .then((page) => {
+          const last = page.entries.map(({ item }) => item).filter((item) => item.type === "assistant_message").pop();
+          const text = last && "text" in last ? replySummary(last.text) : "";
+          replyTimes.set(key, entry.at);
+          if (text === (replies.get(key) ?? "")) return;
+          const next = new Map(replies);
+          if (text) next.set(key, text);
+          else next.delete(key);
+          replies = next;
+          emitSoon();
+        })
+        // Unreachable now: the entry keeps its other line until the chat changes again.
+        .catch(() => replyTimes.set(key, entry.at))
+        .finally(() => fetchingReplies.delete(key));
+    }
   }
 
   /**

@@ -126,8 +126,10 @@ function fieldText(field: InboxField, entry: InboxEntry, now: number, shown: Rea
     case "branch":
       return entry.branch ?? "";
     case "catchup":
-      if (entry.catchUp) return `${entry.catchUp.left} → ${entry.catchUp.next}`;
-      // No catch-up yet: what the entry is and where, unless another line already says it.
+      // A current catch-up; else the opening of the agent's last reply (free, always current); else what the
+      // entry is and where, unless another line already says it.
+      if (entry.catchUp && !entry.catchUpStale) return `${entry.catchUp.left} → ${entry.catchUp.next}`;
+      if (entry.lastReply) return entry.lastReply;
       return [shown.has("state") ? "" : MARK_LABEL[entry.state], shown.has("project") ? "" : entry.projectName].filter(Boolean).join(" · ");
   }
 }
@@ -142,15 +144,11 @@ function EntryLines({ theme, entry, lines, now }: { theme: PluginTheme; entry: I
         const parts = fields.map((field) => ({ field, text: fieldText(field, entry, now, shown) })).filter((part) => part.text);
         if (!parts.length) return null;
         const head = index === 0;
-        const catchUp = fields.includes("catchup") && !!entry.catchUp;
+        const summary = fields.includes("catchup") && ((!!entry.catchUp && !entry.catchUpStale) || !!entry.lastReply);
         return (
-          <Text
-            key={index}
-            numberOfLines={catchUp ? 2 : 1}
-            style={{ color: head ? c.foreground : c.foregroundMuted, fontSize: head ? 14 : 12, ...(catchUp && entry.catchUpStale ? { fontStyle: "italic", opacity: 0.75 } : {}) }}
-          >
+          <Text key={index} numberOfLines={summary ? 2 : 1} style={{ color: head ? c.foreground : c.foregroundMuted, fontSize: head ? 14 : 12 }}>
             {parts.map((part, at) => (
-              <Text key={part.field} style={part.field === "chat" ? { fontWeight: "700" } : part.field === "catchup" && entry.catchUp && !head ? { color: c.foreground } : undefined}>
+              <Text key={part.field} style={part.field === "chat" ? { fontWeight: "700" } : part.field === "catchup" && summary && !head ? { color: c.foreground } : undefined}>
                 {at ? ` · ${part.text}` : part.text}
               </Text>
             ))}
@@ -166,12 +164,13 @@ export function EntryRow({ theme, entry, lines, now, compact, onOpen }: { theme:
   const ago = timeAgo(entry.at, now);
   const where = `${entry.hostLabel} / ${entry.projectName}`;
   const tint = entry.state === "unread" ? "transparent" : `${markColor(theme, entry.state)}14`;
-  const catchUp = entry.catchUp ? `. Catch-up${entry.catchUpStale ? ", older" : ""}: ${entry.catchUp.left}. Next: ${entry.catchUp.next}` : "";
+  const summary =
+    entry.catchUp && !entry.catchUpStale ? `. Catch-up: ${entry.catchUp.left}. Next: ${entry.catchUp.next}` : entry.lastReply ? `. Last reply: ${entry.lastReply}` : "";
   return (
     <View style={{ gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: tint }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${entry.chatTitle} in ${entry.workspaceTitle}. ${MARK_LABEL[entry.state]}, ${where}${ago ? `, ${ago} ago` : ""}${catchUp}. Opens the chat`}
+        accessibilityLabel={`${entry.chatTitle} in ${entry.workspaceTitle}. ${MARK_LABEL[entry.state]}, ${where}${ago ? `, ${ago} ago` : ""}${summary}. Opens the chat`}
         onPress={() => onOpen(entry)}
         style={({ pressed }) => ({ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 10, opacity: pressed ? 0.7 : 1 })}
       >

@@ -35,8 +35,8 @@ let cachedInbox: { snapshot: StoreSnapshot; inbox: Inbox; tally: InboxTally } | 
 /** The Inbox of a store snapshot, built once for every pill rather than per chat. */
 function inboxOf(snapshot: StoreSnapshot): { inbox: Inbox; tally: InboxTally } {
   const cached = cachedInbox;
-  if (cached && cached.snapshot.hosts === snapshot.hosts && cached.snapshot.reads === snapshot.reads) return cached;
-  const inbox = buildInbox(snapshot.hosts, snapshot.reads, Date.now());
+  if (cached && cached.snapshot.hosts === snapshot.hosts && cached.snapshot.reads === snapshot.reads && cached.snapshot.replies === snapshot.replies) return cached;
+  const inbox = buildInbox(snapshot.hosts, snapshot.reads, Date.now(), snapshot.replies);
   cachedInbox = { snapshot, inbox, tally: inboxTally(inbox.entries) };
   return cachedInbox;
 }

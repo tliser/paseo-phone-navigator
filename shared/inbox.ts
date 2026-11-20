@@ -29,6 +29,8 @@ export interface InboxEntry {
   catchUp?: CatchUp;
   /** The chat was prompted or finished a turn after its catch-up was written. */
   catchUpStale?: boolean;
+  /** The opening of the agent's last reply, plain text (see `replySummary`), once fetched. */
+  lastReply?: string;
 }
 
 export interface Inbox {
@@ -50,9 +52,10 @@ const urgent = (state: InboxState) => (state === "unread" ? 1 : 0);
 
 /**
  * Covers every host, hidden ones included: one Inbox you can trust. Asking and errors first, then unread;
- * newest first. `now` lets news older than KEEP_DAYS drop out (see `isAgentUnread`).
+ * newest first. `now` lets news older than KEEP_DAYS drop out (see `isAgentUnread`). `replies` holds the
+ * last reply of chats fetched so far, by `serverId:agentId`.
  */
-export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: number): Inbox {
+export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: number, replies?: ReadonlyMap<string, string>): Inbox {
   const entries: InboxEntry[] = [];
   const offlineHosts: string[] = [];
   const loadingHosts: string[] = [];
@@ -73,6 +76,7 @@ export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: nu
       for (const agent of chats) {
         const state = chatState(agent, host.serverId, workspace.id, reads, now);
         if (state !== "asking" && state !== "error" && state !== "unread") continue;
+        const lastReply = replies?.get(`${host.serverId}:${agent.id}`);
         entries.push({
           serverId: host.serverId,
           hostLabel: host.label,
@@ -89,6 +93,7 @@ export function buildInbox(hosts: readonly HostInput[], reads: ReadMap, now?: nu
           ...(state === "asking" && agent.request ? { request: agent.request } : {}),
           ...(state === "error" && agent.errorText ? { errorText: agent.errorText } : {}),
           ...(agent.catchUp ? { catchUp: agent.catchUp, catchUpStale: agent.catchUp.at < Math.max(agent.promptAt ?? 0, agent.unreadAt) } : {}),
+          ...(lastReply ? { lastReply } : {}),
         });
       }
     }

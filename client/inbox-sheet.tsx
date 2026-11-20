@@ -1,25 +1,151 @@
-// The Inbox: every chat that asks you, failed or is unread, on every host. An entry opens that chat.
+// The Inbox: every top-level chat that asks you, failed or is unread, on every host. An entry opens that chat.
+// A chat that asks shows what it asks and can be answered right here: the permission's buttons (allow, deny,
+// or the provider's own), or the options of a single question. Anything else opens the chat. A failed chat
+// shows its last error. The same list sits in the title bar's sheet and in the composer's Inbox pill.
 import type { PluginTheme } from "@getpaseo/plugin";
-import { FlatList } from "@getpaseo/plugin/client/ui";
+import { ScrollView } from "@getpaseo/plugin/client/ui";
+import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { timeAgo } from "../shared/format";
 import type { Inbox, InboxEntry } from "../shared/inbox";
+import type { AgentRequest, RequestAction } from "../shared/types";
 import { Mark, MARK_LABEL, markColor } from "./marks";
+import type { PermissionResponse } from "./paseo";
+import { getStore } from "./runtime";
 import { Sheet, SheetDivider, SheetItem, SheetNote, type Anchor } from "./sheet";
 
-const ENTRY_HEIGHT = 52;
-
-/** Offline and loading hosts, named so a short Inbox is never mistaken for an empty one. */
-function hostsNote(inbox: Inbox): string | null {
+/** Offline, loading and failing hosts, named so a short Inbox is never mistaken for an empty one. */
+export function hostsNote(inbox: Inbox): string | null {
   const parts: string[] = [];
-  const say = (labels: string[], what: string) => {
+  const say = (labels: string[], what: string, rest: string) => {
     if (!labels.length) return;
     const one = labels.length === 1;
-    parts.push(`${labels.join(", ")} ${one ? "is" : "are"} ${what}, so ${one ? "its" : "their"} chats are not checked${what === "loading" ? " yet" : ""}.`);
+    parts.push(`${labels.join(", ")} ${one ? "is" : "are"} ${what}, so ${one ? "its" : "their"} chats ${rest}.`);
   };
-  say(inbox.offlineHosts, "offline");
-  say(inbox.loadingHosts, "loading");
+  say(inbox.offlineHosts, "offline", "are not checked");
+  say(inbox.loadingHosts, "loading", "are not checked yet");
+  say(inbox.failedHosts, "failing to load", "may be missing");
   return parts.length ? parts.join(" ") : null;
+}
+
+/** "All caught up" only when every host was checked. */
+export function inboxSummary(inbox: Inbox): string {
+  if (inbox.entries.length) return `${inbox.entries.length} ${inbox.entries.length === 1 ? "chat" : "chats"} · questions and errors first`;
+  return hostsNote(inbox) ? "Nothing waits for you on the hosts that were checked." : "All caught up. Nothing waits for you.";
+}
+
+/** The single question a chat asks, when it can be answered with one tap; null when the chat must be opened. */
+function oneTapQuestion(request: AgentRequest) {
+  const [question, ...more] = request.questions;
+  return question && !more.length && !question.multiSelect && question.options.length ? question : null;
+}
+
+function RequestAnswers({ theme, entry, compact }: { theme: PluginTheme; entry: InboxEntry & { request: AgentRequest }; compact: boolean }) {
+  const c = theme.colors;
+  const { request } = entry;
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const respond = (id: string, response: PermissionResponse) => {
+    setBusy(id);
+    setError(null);
+    getStore()
+      .respondToPermission(entry.serverId, entry.agentId, request.id, response)
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : String(reason));
+        setBusy(null);
+      });
+  };
+  const question = oneTapQuestion(request);
+  const choices: { id: string; label: string; tone: "primary" | "danger" | "plain"; run(): void }[] = question
+    ? question.options.map((option, index) => ({
+        id: `option-${index}`,
+        label: option.label,
+        tone: "plain" as const,
+        run: () => respond(`option-${index}`, { behavior: "allow", updatedInput: { ...request.input, answers: { [question.header]: option.label } } }),
+      }))
+    : request.actions.map((action: RequestAction) => ({
+        id: action.id,
+        label: action.label,
+        tone: action.variant === "danger" || action.behavior === "deny" ? ("danger" as const) : action.variant === "primary" ? ("primary" as const) : ("plain" as const),
+        run: () =>
+          respond(action.id, action.behavior === "allow" ? { behavior: "allow", selectedActionId: action.id } : { behavior: "deny", selectedActionId: action.id, message: "Denied by user" }),
+      }));
+  const text = question ? question.question : request.description;
+  return (
+    <View style={{ gap: 6, paddingLeft: 26 }}>
+      <Text numberOfLines={1} style={{ color: c.foreground, fontSize: 13, fontWeight: "600" }}>{question ? question.header : request.title}</Text>
+      {text ? <Text numberOfLines={3} style={{ color: c.foregroundMuted, fontSize: 12.5, fontFamily: question ? undefined : "monospace" }}>{text}</Text> : null}
+      {choices.length ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+          {choices.map((choice) => {
+            const fill = choice.tone === "primary" ? c.accent : choice.tone === "danger" ? "transparent" : c.surface2;
+            const ink = choice.tone === "primary" ? c.accentForeground : choice.tone === "danger" ? c.statusDanger : c.foreground;
+            return (
+              <Pressable
+                key={choice.id}
+                accessibilityRole="button"
+                accessibilityLabel={`${choice.label}, answers ${entry.chatTitle}`}
+                accessibilityState={{ disabled: busy !== null, busy: busy === choice.id }}
+                disabled={busy !== null}
+                onPress={choice.run}
+                hitSlop={{ top: 4, bottom: 4 }}
+                style={({ pressed }) => ({ minHeight: compact ? 40 : 32, justifyContent: "center", paddingHorizontal: 12, borderRadius: 8, borderWidth: choice.tone === "danger" ? 1 : 0, borderColor: c.statusDanger, backgroundColor: fill, opacity: busy !== null && busy !== choice.id ? 0.5 : pressed ? 0.8 : 1 })}
+              >
+                <Text style={{ color: ink, fontSize: 13, fontWeight: "600" }}>{busy === choice.id ? "Sending…" : choice.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : (
+        <Text style={{ color: c.foregroundMuted, fontSize: 12, fontStyle: "italic" }}>Open the chat to answer.</Text>
+      )}
+      {error ? <Text style={{ color: c.statusDanger, fontSize: 12 }}>{`Could not answer: ${error}`}</Text> : null}
+    </View>
+  );
+}
+
+function EntryRow({ theme, entry, now, compact, onOpen }: { theme: PluginTheme; entry: InboxEntry; now: number; compact: boolean; onOpen(entry: InboxEntry): void }) {
+  const c = theme.colors;
+  const ago = timeAgo(entry.at, now);
+  const where = `${entry.hostLabel} / ${entry.projectName}`;
+  const tint = entry.state === "unread" ? "transparent" : `${markColor(theme, entry.state)}14`;
+  return (
+    <View style={{ gap: 6, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: tint }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${entry.chatTitle} in ${entry.workspaceTitle}. ${MARK_LABEL[entry.state]}, ${where}${ago ? `, ${ago} ago` : ""}. Opens the chat`}
+        onPress={() => onOpen(entry)}
+        style={({ pressed }) => ({ minHeight: 40, flexDirection: "row", alignItems: "center", gap: 10, opacity: pressed ? 0.7 : 1 })}
+      >
+        <Mark theme={theme} kind={entry.state} size={16} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text numberOfLines={1} style={{ color: c.foreground, fontSize: 14 }}>
+            <Text style={{ fontWeight: "700" }}>{entry.chatTitle}</Text>
+            {` · ${entry.workspaceTitle}`}
+          </Text>
+          <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: 12 }}>
+            {[MARK_LABEL[entry.state], where, ago].filter(Boolean).join(" · ")}
+          </Text>
+        </View>
+      </Pressable>
+      {entry.request ? <RequestAnswers key={entry.request.id} theme={theme} entry={entry as InboxEntry & { request: AgentRequest }} compact={compact} /> : null}
+      {entry.errorText ? (
+        <Text numberOfLines={3} style={{ paddingLeft: 26, color: c.statusDanger, fontSize: 12.5, fontFamily: "monospace" }}>{entry.errorText}</Text>
+      ) : null}
+    </View>
+  );
+}
+
+/** The entries, in their own scroll area. */
+export function InboxList({ theme, inbox, now, compact, onOpen }: { theme: PluginTheme; inbox: Inbox; now: number; compact: boolean; onOpen(entry: InboxEntry): void }) {
+  if (!inbox.entries.length) return null;
+  return (
+    <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: 4 }} keyboardShouldPersistTaps="handled">
+      {inbox.entries.map((entry) => (
+        <EntryRow key={`${entry.serverId}:${entry.agentId}`} theme={theme} entry={entry} now={now} compact={compact} onOpen={onOpen} />
+      ))}
+    </ScrollView>
+  );
 }
 
 export function InboxSheet({
@@ -41,46 +167,12 @@ export function InboxSheet({
   onMarkUnreadRead(): void;
   onClose(): void;
 }) {
-  const c = theme.colors;
-  const { entries } = inbox;
-  const unread = entries.filter((entry) => entry.state === "unread").length;
+  const unread = inbox.entries.filter((entry) => entry.state === "unread").length;
   const note = hostsNote(inbox);
-  const renderItem = ({ item }: { item: InboxEntry }) => {
-    const ago = timeAgo(item.at, now);
-    const where = `${item.hostLabel} / ${item.projectName}`;
-    const tint = item.state === "unread" ? "transparent" : `${markColor(theme, item.state)}14`;
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`${item.chatTitle} in ${item.workspaceTitle}. ${MARK_LABEL[item.state]}, ${where}${ago ? `, ${ago} ago` : ""}. Opens the chat`}
-        onPress={() => onOpen(item)}
-        style={({ pressed }) => ({ height: ENTRY_HEIGHT, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, borderRadius: 8, backgroundColor: pressed ? c.surface2 : tint })}
-      >
-        <Mark theme={theme} kind={item.state} size={16} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text numberOfLines={1} style={{ color: c.foreground, fontSize: 14 }}>
-            <Text style={{ fontWeight: "700" }}>{item.chatTitle}</Text>
-            {` · ${item.workspaceTitle}`}
-          </Text>
-          <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: 12 }}>
-            {[MARK_LABEL[item.state], where, ago].filter(Boolean).join(" · ")}
-          </Text>
-        </View>
-      </Pressable>
-    );
-  };
   return (
-    <Sheet theme={theme} title="Inbox" compact={compact} anchor={anchor} width={380} onClose={onClose}>
-      <SheetNote theme={theme}>{entries.length ? `${entries.length} ${entries.length === 1 ? "chat" : "chats"} · questions and errors first` : "All caught up. Nothing waits for you."}</SheetNote>
-      {entries.length ? (
-        <FlatList
-          data={entries}
-          keyExtractor={(entry) => `${entry.serverId}:${entry.agentId}`}
-          renderItem={renderItem}
-          getItemLayout={(_data, index) => ({ index, offset: index * ENTRY_HEIGHT, length: ENTRY_HEIGHT })}
-          style={{ flexGrow: 0, flexShrink: 1 }}
-        />
-      ) : null}
+    <Sheet theme={theme} title="Inbox" compact={compact} anchor={anchor} width={400} onClose={onClose}>
+      <SheetNote theme={theme}>{inboxSummary(inbox)}</SheetNote>
+      <InboxList theme={theme} inbox={inbox} now={now} compact={compact} onOpen={onOpen} />
       {note ? <SheetNote theme={theme}>{note}</SheetNote> : null}
       {unread ? (
         <>

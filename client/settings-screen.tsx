@@ -14,6 +14,7 @@ import { useActiveProfile, useNavigatorStore } from "./runtime";
 import { SettingsPreview } from "./settings-preview";
 import { VIEW_LABEL } from "./title-bar";
 import { Toast, useToastState } from "./toast";
+import { ownScreenOpen } from "./chat-nav";
 
 type PlatformChoice = Platform | "none";
 type Section = "view" | "rows" | "order" | "groups" | "profile";
@@ -28,6 +29,8 @@ const SECTIONS: readonly [Section, string][] = [
 const RECENT_DAYS = [1, 2, 3, 7, 14, 30];
 
 export function SettingsScreen({ theme, layout }: PluginSurfaceProps) {
+  // A full screen over a chat on phones: typing in its fields is not typing in that chat.
+  useEffect(() => ownScreenOpen(), []);
   const { store, snapshot } = useNavigatorStore();
   const active = useActiveProfile(snapshot, layout.platform, layout.compact);
   const [editId, setEditId] = useState(active.id);

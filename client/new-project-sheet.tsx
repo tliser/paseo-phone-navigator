@@ -7,6 +7,7 @@ import { Pressable, Text, View } from "react-native";
 import { MONO_FONT } from "./font-scale";
 import { useNavigatorStore } from "./runtime";
 import { Sheet, type Anchor } from "./sheet";
+import { useOwnField } from "./chat-nav";
 
 export function NewProjectSheet({
   theme,
@@ -31,6 +32,7 @@ export function NewProjectSheet({
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pathField = useOwnField();
   const canAdd = !busy && path.trim().length > 0;
   const add = () => {
     if (!canAdd) return;
@@ -71,6 +73,7 @@ export function NewProjectSheet({
         ) : null}
         <View style={{ minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface0, paddingHorizontal: 12, justifyContent: "center" }}>
           <TextInput
+            {...pathField}
             value={path}
             onChangeText={setPath}
             autoFocus

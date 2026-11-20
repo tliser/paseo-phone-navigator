@@ -10,7 +10,7 @@ import { inboxTally, type InboxEntry } from "../shared/inbox";
 import { buildTree, workspaceState, type HostRow, type ProjectRow, type TabRow, type Tally, type TreeRow, type WorkspaceRow } from "../shared/tree";
 import type { Filter, WorkspaceState } from "../shared/types";
 import { GLIDE_MS, useDragController } from "./drag-controller";
-import { MONO_FONT, useFontScale } from "./font-scale";
+import { layoutScale, MONO_FONT, useFontScale } from "./font-scale";
 import { NamesCard, type Peek } from "./names-card";
 import { NewProjectSheet } from "./new-project-sheet";
 import { NewWorkspaceSheet } from "./new-workspace-sheet";
@@ -30,6 +30,7 @@ import { ProjectMenu } from "./project-menu";
 import { measureAnchor } from "./sheet";
 import { ColorPicker, type ColorTarget } from "./color-picker";
 import { colorHex, hostColorKey, projectColorKey } from "../shared/colors";
+import { ownScreenOpen } from "./chat-nav";
 
 /** Filter and host picked in this session per profile; the filter starts at the profile's default, the host at all. */
 const sessionFilters = new Map<string, Filter>();
@@ -60,6 +61,8 @@ export function NavigatorScreen(
   },
 ) {
   const { theme, layout, navigation, openSettings, activeWorkspace, surface } = props;
+  // The full screen sits over a chat on phones: typing in its fields is not typing in that chat.
+  useEffect(() => (surface === "screen" ? ownScreenOpen() : undefined), [surface]);
   const { store, snapshot } = useNavigatorStore();
   const profile = useActiveProfile(snapshot, layout.platform, layout.compact);
   const settings = profile.settings;
@@ -144,7 +147,7 @@ export function NavigatorScreen(
     for (const host of snapshot.hosts) {
       if (host.status !== "online") continue;
       for (const workspace of host.workspaces) {
-        const state = workspaceState(workspace, host.serverId, snapshot.reads);
+        const state = workspaceState(workspace, host.serverId, snapshot.reads, Date.now());
         if (state === "needs_you" || state === "error") now.set(`${host.serverId}:${workspace.id}`, { serverId: host.serverId, projectId: workspace.projectId });
       }
     }
@@ -239,7 +242,7 @@ export function NavigatorScreen(
   const arranging = layout.compact && arrangeMode;
   const canArrange = settings.sort === "manual" && !searching && (!layout.compact || arranging);
   const touch = layout.platform !== "web";
-  const heights = useMemo(() => heightsFor(comfortable, scale, touch, settings.lines.length), [comfortable, scale, touch, settings.lines.length]);
+  const heights = useMemo(() => heightsFor(comfortable, layoutScale(scale), touch, settings.lines.length), [comfortable, scale, touch, settings.lines.length]);
 
   const drop = useCallback(
     (row: TreeRow, target: DropTarget) => {
@@ -636,7 +639,7 @@ interface RowProps {
   onPeek?: (show: boolean) => void;
   /** The workspace open in the app (sidebar view): drawn highlighted. */
   active?: boolean;
-  /** Phones: swipe a workspace row left for Done ("read"), right to remove it from Recent or put it back. */
+  /** Phones: swipe a workspace row left to mark it read ("read"), right to remove it from Recent or put it back. */
   onSwipeAction?(row: WorkspaceRow, action: "read" | "recent"): void;
 }
 
@@ -684,7 +687,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
       ? { opacity: 0.95, backgroundColor: c.surface2, borderRadius: 8, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } }
       : null;
   const lines = profile.settings.lines;
-  const { host: hostHeight, project: groupHeight, workspace: workspaceHeight, note: noteHeight, tab: tabHeight } = heightsFor(comfortable, scale, touch, lines.length);
+  const { host: hostHeight, project: groupHeight, workspace: workspaceHeight, note: noteHeight, tab: tabHeight } = heightsFor(comfortable, layoutScale(scale), touch, lines.length);
   const anchorRef = useRef<View>(null);
   const menuRef = useRef<View>(null);
   const fs = (size: number) => Math.round(size * scale * 2) / 2;
@@ -1030,7 +1033,7 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
     <SwipeRow
       theme={theme}
       height={workspaceHeight}
-      swipeLeft={canMarkWorkspaceRead(row) ? { icon: "CheckCheck", label: "Done", color: unreadColor(theme), onFire: () => onSwipeAction(row, "read") } : null}
+      swipeLeft={canMarkWorkspaceRead(row) ? { icon: "CheckCheck", label: "Mark read", color: unreadColor(theme), onFire: () => onSwipeAction(row, "read") } : null}
       swipeRight={{ icon: "EyeOff", label: "Recent", color: c.foregroundMuted, onFire: () => onSwipeAction(row, "recent") }}
     >
       {body}

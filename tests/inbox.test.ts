@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildInbox, inboxTally } from "../shared/inbox";
 import { readAgentKey } from "../shared/reads";
-import type { AgentInput, HostInput, WorkspaceInput } from "../shared/types";
+import type { AgentInput, AgentRequest, HostInput, WorkspaceInput } from "../shared/types";
 
 const chat = (id: string, status: AgentInput["status"], activityAt: number, extra: Partial<AgentInput> = {}): AgentInput => ({
   id, title: `chat ${id}`, model: null, status, parentId: null, activityAt, unreadAt: status === "finished" ? activityAt : 0, ...extra,
@@ -31,5 +31,17 @@ describe("buildInbox", () => {
   it("leaves sub-agents out, unless their parent is not listed", () => {
     const hosts = [host("a", [ws("1", [chat("main", "running", 10), chat("sub", "asking", 20, { parentId: "main" }), chat("orphan", "asking", 30, { parentId: "gone" })])])];
     expect(buildInbox(hosts, {}).entries.map((e) => e.agentId)).toEqual(["orphan"]);
+  });
+  it("lists an online host that failed to load, and still lists its last known chats", () => {
+    const inbox = buildInbox([host("a", [ws("1", [chat("ask", "asking", 5)])], { error: "boom" }), host("b", [])], {});
+    expect(inbox.failedHosts).toEqual(["A"]);
+    expect(inbox.entries.map((e) => e.agentId)).toEqual(["ask"]);
+  });
+  it("an asking entry carries what it asks, an errored one its error", () => {
+    const request: AgentRequest = { id: "r", kind: "tool", title: "Bash", description: "ls", actions: [], questions: [], input: {} };
+    const hosts = [host("a", [ws("1", [chat("ask", "asking", 5, { request }), chat("err", "error", 4, { errorText: "out of credits" })])])];
+    const entries = buildInbox(hosts, {}).entries;
+    expect(entries.find((e) => e.agentId === "ask")?.request).toEqual(request);
+    expect(entries.find((e) => e.agentId === "err")?.errorText).toBe("out of credits");
   });
 });

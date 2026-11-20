@@ -37,6 +37,42 @@ export interface AgentInput {
   unreadAt: number;
   /** When you last sent it a prompt, epoch ms; 0 when unknown. */
   promptAt?: number;
+  /** The first thing it waits for (asking only). */
+  request?: AgentRequest;
+  /** Its last error message (error only). */
+  errorText?: string;
+}
+
+/** One answer button of a permission request. */
+export interface RequestAction {
+  id: string;
+  label: string;
+  behavior: "allow" | "deny";
+  variant?: "primary" | "secondary" | "danger";
+}
+
+/** A question with fixed options, as Paseo's question form reads them. */
+export interface RequestQuestion {
+  question: string;
+  header: string;
+  options: { label: string; description?: string }[];
+  multiSelect: boolean;
+  /** A free-text answer is possible (or the only kind, when there are no options). */
+  allowOther: boolean;
+}
+
+/**
+ * What an asking agent waits for: a permission (tool, plan, mode) with its answer buttons, or questions.
+ * `input` is passed back with the answers, as Paseo's own question form does.
+ */
+export interface AgentRequest {
+  id: string;
+  kind: "tool" | "plan" | "question" | "mode" | "other";
+  title: string;
+  description: string;
+  actions: RequestAction[];
+  questions: RequestQuestion[];
+  input: Record<string, unknown>;
 }
 
 export interface TerminalInput {

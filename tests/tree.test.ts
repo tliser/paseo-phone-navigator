@@ -239,9 +239,14 @@ describe("tab rows", () => {
     const main = buildTree(hosts(), opts({ collapse: { "agents:h:w": false } })).rows.find((r) => r.type === "tab" && r.id === "main");
     expect(main?.type === "tab" && main.subagents).toEqual({ key: "subagents:h:w:main", open: false, count: 1, waiting: 1 });
   });
-  it("the status line names the chat that asks you", () => {
-    const row = buildTree(hosts(), opts()).rows[1];
-    expect(row?.type === "workspace" && row.reason).toEqual({ state: "asking", title: "Helper" });
+  it("the status line names the top-level chat that asks you, not an asking sub-agent", () => {
+    const reason = (agents: AgentInput[]) => {
+      const row = buildTree([host("h", [ws("w", "p", "running", 1, { agents })])], opts()).rows.find((r) => r.type === "workspace");
+      return row?.type === "workspace" ? row.reason : undefined;
+    };
+    expect(reason(tabs)).toBeUndefined();
+    expect(reason([...tabs, chat("q", "asking", { title: "Question" })])).toEqual({ state: "asking", title: "Question" });
+    expect(reason([...tabs, chat("lost", "asking", { title: "Lost", parentId: "gone" })])).toEqual({ state: "asking", title: "Lost" });
   });
   it("a workspace with a single tab has no tab level, unless that tab has sub-agents", () => {
     const only = (agents: AgentInput[], terminals: { id: string; title: string }[] = []) =>
@@ -285,9 +290,11 @@ describe("read state per chat", () => {
     const w = ws("w", "p", "done", 1, { agents: [chat("m", "idle"), chat("s", "finished", { parentId: "m", unreadAt: min(2) })] });
     expect(workspaceState(w, "h", {})).toBe("read");
   });
-  it("an asking sub-agent makes the workspace ask you", () => {
-    const w = ws("w", "p", "running", 1, { agents: [chat("m", "running"), chat("s", "asking", { parentId: "m" })] });
-    expect(workspaceState(w, "h", {})).toBe("needs_you");
+  it("an asking sub-agent under a listed parent does not make the workspace ask you; an orphan one does", () => {
+    const withSub = (sub: AgentInput) => ws("w", "p", "running", 1, { agents: [chat("m", "running"), sub] });
+    expect(workspaceState(withSub(chat("s", "asking", { parentId: "m" })), "h", {})).toBe("running");
+    expect(workspaceState(withSub(chat("s", "asking", { parentId: "gone" })), "h", {})).toBe("needs_you");
+    expect(workspaceState(withSub(chat("s", "asking")), "h", {})).toBe("needs_you");
   });
 });
 

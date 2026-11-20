@@ -7,6 +7,7 @@ import type { InboxTally } from "../shared/inbox";
 import { FILTERS, type Filter } from "../shared/types";
 import { TallyMarks } from "./marks";
 import { measureAnchor, type Anchor } from "./sheet";
+import { useOwnField } from "./chat-nav";
 
 export const VIEW_LABEL: Record<Filter, string> = { all: "All", recent: "Recent", active: "Active", pinned: "Pinned" };
 const VIEW_HINT: Record<Filter, string> = {
@@ -151,10 +152,12 @@ export function ViewsControl({ theme, value, counts, compact, onChange }: { them
 /** `onClose` (phones): the field was opened from the search icon; it takes focus and its X closes it. */
 export function SearchField({ theme, query, onChange, onClose }: { theme: PluginTheme; query: string; onChange(next: string): void; onClose?(): void }) {
   const c = theme.colors;
+  const field = useOwnField();
   return (
     <View style={{ height: 38, flexDirection: "row", alignItems: "center", gap: 6, marginHorizontal: 8, paddingLeft: 10, borderRadius: 10, backgroundColor: c.surface1, borderWidth: 1, borderColor: c.border }}>
       <Icon name="Search" size={14} color={c.foregroundMuted} />
       <TextInput
+        {...field}
         value={query}
         autoFocus={!!onClose}
         onChangeText={onChange}

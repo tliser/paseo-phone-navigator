@@ -12,6 +12,7 @@ import { useNavigatorStore } from "./runtime";
 import { Sheet, SheetDivider, SheetItem, type Anchor } from "./sheet";
 import type { Store } from "./store";
 import type { ToastMessage } from "./toast";
+import { useOwnField } from "./chat-nav";
 
 export interface MenuTarget {
   row: WorkspaceRow;
@@ -25,7 +26,7 @@ export function canMarkWorkspaceRead(row: WorkspaceRow): boolean {
   return (row.workspace.agents ?? []).length ? row.unreadChats.length > 0 : row.state === "unread";
 }
 
-/** Done for a whole workspace (menu and swipe left), with Undo. */
+/** Mark read for a whole workspace (menu and swipe left), with Undo. */
 export function markWorkspaceRead(store: Store, row: WorkspaceRow, onToast: (message: ToastMessage) => void): void {
   const { workspace } = row;
   if (!(workspace.agents ?? []).length) {
@@ -82,6 +83,7 @@ export function WorkspaceMenu({
   const [title, setTitle] = useState(workspace.title);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const titleField = useOwnField();
   const pinned = snapshot.pinsFor(profileId).has(`${row.serverId}:${workspace.id}`);
   const offRecent = removedFromRecent(snapshot.reads, row.serverId, workspace);
   const index = siblings.indexOf(workspace.id);
@@ -99,7 +101,7 @@ export function WorkspaceMenu({
       onToast({ text: `Marked "${tabAction.title}" read`, undo: () => store.undoReads(changes) });
     } else {
       const changes = store.markChatUnread(row.serverId, tabAction.id);
-      onToast({ text: `"${tabAction.title}" is back in your Inbox`, undo: () => store.undoReads(changes) });
+      onToast({ text: `Marked "${tabAction.title}" unread`, undo: () => store.undoReads(changes) });
     }
   };
 
@@ -137,6 +139,7 @@ export function WorkspaceMenu({
         <View style={{ gap: 8, padding: 8 }}>
           <View style={{ minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface0, paddingHorizontal: 12, justifyContent: "center" }}>
             <TextInput
+              {...titleField}
               value={title}
               onChangeText={setTitle}
               autoFocus
@@ -186,7 +189,7 @@ export function WorkspaceMenu({
                 theme={theme}
                 compact={compact}
                 icon={tabAction.mark === "unread" ? "Check" : "Undo2"}
-                label={tabAction.mark === "unread" ? `Mark "${tabAction.title}" read` : `Put "${tabAction.title}" back in Inbox`}
+                label={tabAction.mark === "unread" ? `Mark "${tabAction.title}" read` : `Mark "${tabAction.title}" unread`}
                 onPress={then(toggleTab)}
               />
               <SheetDivider theme={theme} />

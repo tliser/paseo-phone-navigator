@@ -1,7 +1,7 @@
 // Turns the daemon's workspace and agent payloads into WorkspaceInput. Pure; structural types only,
 // so it neither depends on the SDK's generated types nor breaks when fields are added.
 import { epoch } from "./format";
-import type { AgentInput, ProjectKind, WorkspaceInput, WorkspaceStatus } from "./types";
+import type { AgentInput, AgentRequest, ProjectKind, RequestAction, RequestQuestion, WorkspaceInput, WorkspaceStatus } from "./types";
 
 export interface WorkspaceLike {
   id: string;
@@ -43,6 +43,48 @@ export interface AgentLike {
   attentionReason?: "finished" | "error" | "permission" | null;
   attentionTimestamp?: string | null;
   pendingPermissions?: readonly unknown[];
+  lastError?: string | null;
+}
+
+const text = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+const record = (value: unknown): Record<string, unknown> => (typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {});
+
+/** Questions with fixed options, read the way Paseo's question form reads them; [] when the input has another shape. */
+function questionsOf(input: Record<string, unknown>): RequestQuestion[] {
+  if (!Array.isArray(input.questions)) return [];
+  const questions: RequestQuestion[] = [];
+  for (const raw of input.questions as unknown[]) {
+    const q = record(raw);
+    if (typeof q.question !== "string" || typeof q.header !== "string" || !Array.isArray(q.options)) return [];
+    const options = (q.options as unknown[]).map(record).filter((option) => typeof option.label === "string");
+    questions.push({
+      question: q.question,
+      header: q.header,
+      options: options.map((option) => ({ label: option.label as string, ...(typeof option.description === "string" ? { description: option.description } : {}) })),
+      multiSelect: q.multiSelect === true,
+      allowOther: q.allowOther === true || q.isOther === true || options.length === 0,
+    });
+  }
+  return questions;
+}
+
+/** What a permission request shows: the provider's title, else the tool name; the command or description below it. */
+export function requestOf(raw: unknown): AgentRequest | undefined {
+  const request = record(raw);
+  if (typeof request.id !== "string") return undefined;
+  const kind = (["tool", "plan", "question", "mode", "other"] as const).find((value) => value === request.kind) ?? "other";
+  const input = record(request.input);
+  const detail = record(request.detail);
+  const plan = text(record(request.metadata).planText) || text(input.plan);
+  const description = text(request.description) || text(detail.command) || text(input.command) || (kind === "plan" ? plan : "");
+  const given = Array.isArray(request.actions)
+    ? (request.actions as unknown[]).map(record).filter((action): action is Record<string, unknown> & RequestAction => typeof action.id === "string" && typeof action.label === "string" && (action.behavior === "allow" || action.behavior === "deny"))
+    : [];
+  // Paseo's own defaults when the provider names no actions: deny, and accept (implement for a plan).
+  const actions: RequestAction[] = kind === "question" ? [] : given.length
+    ? given.map(({ id, label, behavior, variant }) => ({ id, label, behavior, ...(variant === "primary" || variant === "secondary" || variant === "danger" ? { variant } : {}) }))
+    : [{ id: "reject", label: "Deny", behavior: "deny", variant: "danger" }, { id: "accept", label: kind === "plan" ? "Implement" : "Allow", behavior: "allow", variant: "primary" }];
+  return { id: request.id, kind, title: text(request.title) || text(request.name) || "Permission", description, actions, questions: kind === "question" ? questionsOf(input) : [], input };
 }
 
 /** Label Paseo sets on agents started by another agent. */
@@ -107,7 +149,20 @@ function agentInput(agent: AgentLike, index: number): AgentInput {
             ? "closed"
             : "idle";
   const unreadAt = agent.requiresAttention && agent.attentionReason === "finished" ? epoch(agent.attentionTimestamp) || epoch(agent.updatedAt) : 0;
-  return { id: agent.id, title: agent.title?.trim() || `Agent ${index + 1}`, model: agent.model, status, parentId: parentOf(agent), activityAt: agentActivity(agent), unreadAt, promptAt: epoch(agent.lastUserMessageAt) };
+  const request = status === "asking" && agent.pendingPermissions?.length ? requestOf(agent.pendingPermissions[0]) : undefined;
+  const errorText = status === "error" ? text(agent.lastError) : "";
+  return {
+    id: agent.id,
+    title: agent.title?.trim() || `Agent ${index + 1}`,
+    model: agent.model,
+    status,
+    parentId: parentOf(agent),
+    activityAt: agentActivity(agent),
+    unreadAt,
+    promptAt: epoch(agent.lastUserMessageAt),
+    ...(request ? { request } : {}),
+    ...(errorText ? { errorText } : {}),
+  };
 }
 
 /**

@@ -879,10 +879,11 @@ export function Row({ row, theme, profile, comfortable, scale = 1, touch = false
 
   const { workspace } = row;
   const openMenu = () => measureAnchor(anchorRef.current, (anchor) => onMenu(row, anchor));
-  // A workspace with only terminals has no chat state to show: it shows the terminal glyph instead.
-  const glyph: MarkKind = row.state === "read" && !workspace.agents?.length && workspace.terminals?.length ? "terminal" : WORKSPACE_MARK[row.state];
+  // A workspace with terminals and no chats shows the terminal glyph: its status (running while a shell is
+  // open, finished, …) describes the terminal, not something to read or answer.
+  const glyph: MarkKind = !workspace.agents?.length && workspace.terminals?.length ? "terminal" : WORKSPACE_MARK[row.state];
   const metaSize = fs(comfortable ? 13 : 12);
-  const urgent = row.state === "needs_you" || row.state === "error" || row.state === "unread";
+  const urgent = glyph !== "terminal" && (row.state === "needs_you" || row.state === "error" || row.state === "unread");
   const muted = { color: c.foregroundMuted, fontSize: metaSize };
   /** One field's text (for screen readers) and how it is drawn; null when the row has no value for it. */
   const field = (name: RowField): { words: string; node: ReactNode } | null => {
